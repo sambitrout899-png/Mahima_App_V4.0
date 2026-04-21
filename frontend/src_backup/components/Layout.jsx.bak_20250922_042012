@@ -1,0 +1,23 @@
+﻿import React from "react";
+import Logo from "./Logo";
+import { NavLink } from "react-router-dom";
+
+export default function Layout({ children }) {
+  return (
+    <div className="min-h-screen bg-red-50">
+      <header className="flex items-center justify-between px-6 py-3 bg-red-100 shadow">
+        <Logo size={50} />
+        <nav className="space-x-6">
+          <NavLink to="/users" className="hover:text-red-700">Users</NavLink>
+          <NavLink to="/teams" className="hover:text-red-700">Teams</NavLink>
+          <NavLink to="/tasks" className="hover:text-red-700">Tasks</NavLink>
+          <NavLink to="/sermons" className="hover:text-red-700">Sermons</NavLink>
+          <NavLink to="/prayerrequests" className="hover:text-red-700">PrayerRequests</NavLink>
+          <NavLink to="/meetings" className="hover:text-red-700">Meetings</NavLink>
+          <NavLink to="/attachments" className="hover:text-red-700">Attachments</NavLink>
+        </nav>
+      </header>
+      <main className="p-6">{children}</main>
+    </div>
+  );
+}

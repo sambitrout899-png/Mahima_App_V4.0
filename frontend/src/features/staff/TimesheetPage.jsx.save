@@ -1,0 +1,1115 @@
+// src/pages/TimesheetPage.jsx
+
+import React, { useEffect, useMemo, useState } from "react";
+
+import api from "../../api";
+
+import axios from "axios";
+
+import dayjs from "dayjs";
+
+import { getToken as authGetToken } from "../auth/authService";
+
+import {
+
+  canAccessPage as permCanAccessPage,
+
+  getCurrentUser as permGetCurrentUser,
+
+} from "../auth/permissionService";
+
+import {
+
+  Clock,
+
+  User as UserIcon,
+
+  Calendar,
+
+  Filter,
+
+  Plus,
+
+  ClipboardList,
+
+  ListChecks,
+
+  Trash2,
+
+  Edit3
+
+} from "lucide-react";
+
+
+
+const defaultAttendance = {
+
+  date: "",
+
+  status: "Present",
+
+  checkIn: "",
+
+  checkOut: ""
+
+};
+
+
+
+const defaultSheet = {
+
+  days: [],
+
+  entries: [],
+
+  totalHours: 0,
+
+  status: "Present"
+
+};
+
+
+
+/* --------------------- helpers --------------------- */
+
+// Normalize whatever /users?role=staff returns
+function normalizeStaffList(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((u) => {
+      const id =
+        u.id ??
+        u.Id ??
+        u.userId ??
+        u.UserId ??
+        u.userID ??
+        u.memberId ??
+        u.guid;
+
+      /*const displayName =
+        u.name ??
+        u.Name ??
+        u.fullName ??
+        u.FullName ??
+        u.displayName ??
+        u.DisplayName ??
+        u.email ??
+        u.Email ??
+        u.username ??
+        u.UserName ??
+        u.userName ??
+        "Staff";*/
+/*const displayName =
+  u.username ??
+  u.name ??
+  u.fullName ??
+  u.displayName ??
+  u.email ??
+  "Staff";*/
+
+const displayName =
+  u.username ??
+  u.name ??
+  u.fullName ??
+  u.displayName ??
+  u.email ??
+  "Staff";
+
+      if (!id) return null;
+
+      return {
+        ...u,
+        id,
+        displayName,
+      };
+    })
+    .filter(Boolean);
+}
+
+function shortUserId(id) {
+  if (!id) return "Unknown user";
+  if (id.length <= 8) return id;
+  return id.slice(0, 8) + "…";
+}
+
+export default function TimesheetPage() {
+  const [staff, setStaff] = useState([]);
+  const [timesheets, setTimesheets] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState({
+    from: dayjs().startOf("month").format("YYYY-MM-DD"),
+    to: dayjs().endOf("month").format("YYYY-MM-DD"),
+    userId: "",
+  });
+  const [sheetDraft, setSheetDraft] = useState(defaultSheet);
+  const [attDraft, setAttDraft] = useState(defaultAttendance);
+  const [activeRange, setActiveRange] = useState("month"); // today | week | month
+
+  /* ---------------- permissions & current user ---------------- */
+  const user = permGetCurrentUser();
+
+  const currentUserId =
+    user?.id || user?.userId || user?._id || user?.userID || "";
+
+  const currentUserName =
+    user?.displayName ||
+    user?.name ||
+    user?.fullName ||
+    user?.email ||
+    user?.username ||
+    "Me";
+
+  // Token might have a single "role" field and/or roles array
+  const singleRole =
+    (user?.role || user?.Role || "").toString().toLowerCase();
+
+  const rolesArray = Array.isArray(user?.roles)
+    ? user.roles.map((r) =>
+        (typeof r === "string" ? r : r?.name || "").toLowerCase()
+      )
+    : [];
+
+  const allRoles = [singleRole, ...rolesArray].filter(Boolean);
+
+  const isAdminRole = allRoles.includes("admin");
+  const isStaffRole = allRoles.includes("staff");
+
+  // Also treat having AdminDashboard access as admin
+  const hasAdminDashboardPerm = permCanAccessPage("Dashboard")
+    ? !!permCanAccessPage("AdminDashboard")
+    : false;
+
+  const isAdmin = isAdminRole || hasAdminDashboardPerm;
+  const roleAllows = isAdmin || isStaffRole;
+  const permAllows = !!permCanAccessPage("Timesheets");
+  const canSee = !!user && (roleAllows || permAllows);
+
+  // For non-admins, force queries and drafts to current user
+  useEffect(() => {
+    if (!currentUserId || isAdmin) return;
+
+    setQuery((q) => (q.userId ? q : { ...q, userId: currentUserId }));
+    setSheetDraft((s) => (s.userId ? s : { ...s, userId: currentUserId }));
+    setAttDraft((s) => (s.userId ? s : { ...s, userId: currentUserId }));
+  }, [currentUserId, isAdmin]);
+
+  /* ---------------- staff bootstrap ---------------- */
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrapAdmin() {
+      try {
+        setLoading(true);
+        setError("");
+
+        //const res = await api.get("/users", { params: { role: "staff" } });
+	const res = await api.get("/users", { params: { role: "11" } });
+        //let list = res;
+let list = res?.data ?? res;        
+if (!Array.isArray(list)) {
+          if (list && Array.isArray(list.items)) list = list.items;
+          else list = [];
+        }
+
+        //const normalized = normalizeStaffList(list);
+const normalized = normalizeStaffList(list).filter((u) => {
+  const role =
+    (u.role || u.Role || "").toString().toLowerCase();
+
+  const roles = Array.isArray(u.roles)
+    ? u.roles.map((r) =>
+        (typeof r === "string" ? r : r?.name || "").toLowerCase()
+      )
+    : [];
+
+ return (
+  role === "11" ||                // ✅ your actual staff role
+  role === "staff" ||             // fallback
+  roles.includes("staff")
+);
+});
+        if (mounted) setStaff(normalized);
+      } catch (e) {
+        if (mounted) {
+          setError(
+            e?.response?.data?.message || e.message || "Failed to load staff"
+          );
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    if (!canSee) {
+      setLoading(false);
+      return () => {};
+    }
+
+    if (isAdmin) {
+      bootstrapAdmin();
+    } else {
+      // Non-admin users see only themselves in dropdowns
+      if (currentUserId) {
+        setStaff([
+          {
+            id: currentUserId,
+            displayName: "Me",
+          },
+        ]);
+      } else {
+        setStaff([]);
+      }
+      setLoading(false);
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [canSee, isAdmin, currentUserId, currentUserName]);
+
+  /* ---------------- timesheets + attendance ---------------- */
+  useEffect(() => {
+    if (!canSee) return;
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.from, query.to, query.userId, canSee]);
+
+  async function fetchData() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const [tsRes, attRes] = await Promise.all([
+        api.get("/timesheets", { params: query }),
+        api.get("/attendance", { params: query }),
+      ]);
+
+      //const ts = Array.isArray(tsRes) ? tsRes : [];
+      //const att = Array.isArray(attRes) ? attRes : [];
+
+
+
+
+      setTimesheets(ts);
+      setAttendance(att);
+
+      // For admins, try to resolve any unknown userIds to names
+      if (isAdmin && (ts.length || att.length)) {
+        const existingMap = new Map();
+        staff.forEach((u) => existingMap.set(u.id, u));
+
+        const allIds = new Set();
+        ts.forEach((r) => r.userId && allIds.add(r.userId));
+        att.forEach((r) => r.userId && allIds.add(r.userId));
+
+        const missingIds = [...allIds].filter((id) => !existingMap.has(id));
+
+        if (missingIds.length) {
+          const lookups = await Promise.all(
+            missingIds.map((id) =>
+              api
+                .get(`/users/${id}`)
+                .then((res) => ({ id, user: res }))
+                .catch(() => null)
+            )
+          );
+
+          const extras = lookups
+            .filter(Boolean)
+            .map(({ id, user }) => ({
+              id,
+              displayName:
+                user.name ||
+                user.fullName ||
+                user.displayName ||
+                user.email ||
+                shortUserId(id),
+            }));
+
+          if (extras.length) {
+            setStaff((prev) => {
+              const seen = new Set(prev.map((p) => p.id));
+              return [...prev, ...extras.filter((e) => !seen.has(e.id))];
+            });
+          }
+        }
+      }
+    } catch (e) {
+      setError(
+        e?.response?.data?.message || e.message || "Failed to load data"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- derived data ---------------- */
+  const staffById = useMemo(() => {
+    const entries = Array.isArray(staff)
+      ? staff.map((u) => [u.id, u])
+      : [];
+
+    // Ensure current user is resolvable to a name,
+    // even if not present in the staff API response.
+    if (currentUserId && !entries.some(([id]) => id === currentUserId)) {
+      entries.push([
+        currentUserId,
+        { id: currentUserId, displayName: "Me" },
+      ]);
+    }
+
+    return Object.fromEntries(entries);
+  }, [staff, currentUserId]);
+
+  const totalHours = useMemo(
+    () => timesheets.reduce((sum, t) => sum + (Number(t.hours) || 0), 0),
+    [timesheets]
+  );
+
+  /* ---------------- quick range helpers ---------------- */
+  function setRange(range) {
+    setActiveRange(range);
+    if (range === "today") {
+      const today = dayjs().format("YYYY-MM-DD");
+      setQuery((q) => ({ ...q, from: today, to: today }));
+    } else if (range === "week") {
+      setQuery((q) => ({
+        ...q,
+        from: dayjs().startOf("week").format("YYYY-MM-DD"),
+        to: dayjs().endOf("week").format("YYYY-MM-DD"),
+      }));
+    } else {
+      // month
+      setQuery((q) => ({
+        ...q,
+        from: dayjs().startOf("month").format("YYYY-MM-DD"),
+        to: dayjs().endOf("month").format("YYYY-MM-DD"),
+      }));
+    }
+  }
+
+  /* ---------------- CRUD: timesheets ---------------- */
+  async function saveTimesheet() {
+    try {
+      setError("");
+      //const payload = { ...sheetDraft, hours: Number(sheetDraft.hours) || 0 };
+const payload = {
+  ...sheetDraft,
+  date: sheetDraft.date || dayjs().format("YYYY-MM-DD"),
+  hours: Number(sheetDraft.hours) || 0,
+};      
+
+const isEdit = !!payload.id;
+
+      if (!isEdit) delete payload.id; // let backend generate id
+
+      if (payload.task && payload.model == null) {
+        payload.model = payload.task;
+      }
+
+      const url = isEdit ? `/timesheets/${payload.id}` : "/timesheets";
+      const method = isEdit ? "put" : "post";
+      await api[method](url, payload);
+      setSheetDraft({
+        ...defaultSheet,
+        date: dayjs().format("YYYY-MM-DD"),
+        userId: isAdmin ? "" : currentUserId,
+      });
+      fetchData();
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.title ||
+        (e?.response?.data && JSON.stringify(e.response.data)) ||
+        e.message ||
+        "Failed to save timesheet";
+      setError(msg);
+    }
+  }
+
+  async function deleteTimesheet(id) {
+    try {
+      setError("");
+      await api.delete(`/timesheets/${id}`);
+      fetchData();
+    } catch (e) {
+      setError(
+        e?.response?.data?.message || e.message || "Failed to delete timesheet"
+      );
+    }
+  }
+
+  /* ---------------- CRUD: attendance ---------------- */
+  async function saveAttendance() {
+    try {
+      setError("");
+      const payload = { ...attDraft };
+      const isEdit = !!payload.id;
+      if (!isEdit) delete payload.id;
+
+      const url = isEdit ? `/attendance/${payload.id}` : "/attendance";
+      const method = isEdit ? "put" : "post";
+      await api[method](url, payload);
+      setAttDraft({
+        ...defaultAttendance,
+        date: dayjs().format("YYYY-MM-DD"),
+        userId: isAdmin ? "" : currentUserId,
+      });
+      fetchData();
+    } catch (e) {
+      setError(
+        e?.response?.data?.message || e.message || "Failed to save attendance"
+      );
+    }
+  }
+
+  async function deleteAttendance(id) {
+    try {
+      setError("");
+      await api.delete(`/attendance/${id}`);
+      fetchData();
+    } catch (e) {
+      setError(
+        e?.response?.data?.message || e.message || "Failed to delete attendance"
+      );
+    }
+  }
+
+  /* ---------------- helpers: badge styles ---------------- */
+  function statusBadgeClass(status) {
+    const s = (status || "").toLowerCase();
+    if (s === "present")
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (s === "absent") return "bg-rose-50 text-rose-700 border-rose-200";
+    if (s === "leave") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (s === "half-day") return "bg-sky-50 text-sky-700 border-sky-200";
+    if (s === "wfh") return "bg-violet-50 text-violet-700 border-violet-200";
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  }
+
+  /* ---------------- access gate ---------------- */
+  if (!canSee) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 via-rose-50 to-amber-50 px-4">
+        <div className="max-w-md w-full bg-white/80 backdrop-blur rounded-3xl shadow-xl p-6 text-center space-y-3 border border-slate-100">
+          <div className="mx-auto h-10 w-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600">
+            <LockIcon />
+          </div>
+          <h1 className="text-lg font-semibold text-slate-900">
+            Access restricted
+          </h1>
+          <p className="text-sm text-slate-500">
+            Only users with <span className="font-semibold">Admin</span> or{" "}
+            <span className="font-semibold">Staff</span> role can view
+            timesheets and attendance.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------------- UI ---------------- */
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-pink-50 via-slate-50 to-indigo-50 px-3 py-4 sm:px-4">
+      <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 pb-20">
+        {/* header */}
+        <header className="rounded-3xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-4 sm:p-5 shadow-md">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
+                <ClipboardList className="h-3.5 w-3.5" />
+                <span>Staff tracking</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-semibold mt-1">
+                Timesheets &amp; Attendance
+              </h1>
+              <p className="text-xs sm:text-sm text-white/80">
+                Log hours, mark presence, and see team activity at a glance.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-1">
+              <span className="inline-flex items-center rounded-full bg-white text-xs font-semibold text-indigo-700 px-3 py-1 shadow-sm">
+                <Clock className="h-3.5 w-3.5 mr-1.5" />
+                {totalHours} hrs
+              </span>
+              <span className="hidden sm:inline-flex items-center rounded-full bg-black/15 text-[10px] px-2 py-0.5 mt-1">
+                {dayjs(query.from).format("DD MMM")} –{" "}
+                {dayjs(query.to).format("DD MMM")}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick ranges */}
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-white/80">
+              <Filter className="h-3.5 w-3.5" />
+              <span>Quick range</span>
+            </div>
+            <div className="flex gap-1.5">
+              {[
+                { id: "today", label: "Today" },
+                { id: "week", label: "This week" },
+                { id: "month", label: "This month" },
+              ].map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRange(r.id)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-medium border transition ${
+                    activeRange === r.id
+                      ? "bg-white text-indigo-600 border-white shadow-sm"
+                      : "bg-white/10 text-white border-white/20 hover:bg-white/20"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* Alerts */}
+        <div className="space-y-2">
+          {error && (
+            <div className="flex items-start gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 px-3 py-2 text-sm text-rose-700 shadow-sm">
+              <span className="mt-0.5 text-lg leading-none">!</span>
+              <div className="flex-1">
+                <p className="font-semibold text-[13px]">Something went wrong</p>
+                <p className="text-xs mt-0.5">{error}</p>
+              </div>
+            </div>
+          )}
+          {loading && (
+            <div className="flex items-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-700 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+              Syncing latest timesheets…
+            </div>
+          )}
+        </div>
+
+        {/* Filters */}
+        <section className="bg-white/90 backdrop-blur rounded-3xl shadow-sm border border-slate-100 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-indigo-500" />
+              <h2 className="text-sm font-semibold text-slate-800">
+                Filters
+              </h2>
+            </div>
+            <button
+              type="button"
+              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+              onClick={() => {
+                setActiveRange("month");
+                setQuery({
+                  from: dayjs().startOf("month").format("YYYY-MM-DD"),
+                  to: dayjs().endOf("month").format("YYYY-MM-DD"),
+                  userId: isAdmin ? "" : currentUserId,
+                });
+              }}
+            >
+              Reset
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-600">
+                From
+              </label>
+              <input
+                type="date"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={dayjs(query.from).format("YYYY-MM-DD")}
+                onChange={(e) =>
+                  setQuery((q) => ({ ...q, from: e.target.value || q.from }))
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-600">
+                To
+              </label>
+              <input
+                type="date"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={dayjs(query.to).format("YYYY-MM-DD")}
+                onChange={(e) =>
+                  setQuery((q) => ({ ...q, to: e.target.value || q.to }))
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-600">
+                Staff
+              </label>
+              <select
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={query.userId}
+                onChange={(e) =>
+                  setQuery((q) => ({ ...q, userId: e.target.value }))
+                }
+              >
+                {isAdmin && <option value="">All staff</option>}
+                {Array.isArray(staff) &&
+                  staff.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.displayName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        {/* Editors */}
+        <section className="grid md:grid-cols-2 gap-4 sm:gap-6">
+          {/* Timesheet editor */}
+          <div className="bg-white/90 backdrop-blur p-4 rounded-3xl shadow-sm border border-indigo-50">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-indigo-500" />
+                <h2 className="font-semibold text-slate-800 text-sm">
+                  Add / Edit Timesheet
+                </h2>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700 border border-indigo-100">
+                <Plus className="h-3 w-3" />
+                New entry
+              </span>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Staff
+                </label>
+                <div className="flex items-center gap-2 border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm bg-slate-50/40">
+                  <UserIcon className="h-4 w-4 text-slate-400" />
+                  <select
+                    className="bg-transparent flex-1 outline-none text-sm"
+                    value={sheetDraft.userId}
+                    onChange={(e) =>
+                      setSheetDraft((s) => ({ ...s, userId: e.target.value }))
+                    }
+                  >
+                    <option value="">Select staff</option>
+                    {Array.isArray(staff) &&
+                      staff.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm bg-slate-50/40"
+                  value={dayjs(sheetDraft.date).format("YYYY-MM-DD")}
+                  onChange={(e) =>
+                    setSheetDraft((s) => ({ ...s, date: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Hours
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm"
+                  value={sheetDraft.hours}
+                  onChange={(e) =>
+                    setSheetDraft((s) => ({ ...s, hours: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Task
+                </label>
+                <input
+                  type="text"
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm"
+                  placeholder="What was done?"
+                  value={sheetDraft.task}
+                  onChange={(e) =>
+                    setSheetDraft((s) => ({ ...s, task: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Notes
+                </label>
+                <textarea
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm"
+                  rows={2}
+                  placeholder="Add any extra context or prayer notes"
+                  value={sheetDraft.notes}
+                  onChange={(e) =>
+                    setSheetDraft((s) => ({ ...s, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700 active:scale-[0.99] transition"
+                onClick={saveTimesheet}
+              >
+                <ListChecks className="h-4 w-4" />
+                {sheetDraft.id ? "Update timesheet" : "Save timesheet"}
+              </button>
+              {sheetDraft.id && (
+                <button
+                  className="px-4 py-2.5 rounded-2xl bg-slate-100 text-xs font-medium text-slate-700"
+                  onClick={() =>
+                    setSheetDraft({
+                      ...defaultSheet,
+                      date: dayjs().format("YYYY-MM-DD"),
+                      userId: isAdmin ? "" : currentUserId,
+                    })
+                  }
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Attendance editor */}
+          <div className="bg-white/90 backdrop-blur p-4 rounded-3xl shadow-sm border border-violet-50">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-violet-500" />
+                <h2 className="font-semibold text-slate-800 text-sm">
+                  Add / Edit Attendance
+                </h2>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Staff
+                </label>
+                <div className="flex items-center gap-2 border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm bg-slate-50/40">
+                  <UserIcon className="h-4 w-4 text-slate-400" />
+                  <select
+                    className="bg-transparent flex-1 outline-none text-sm"
+                    value={attDraft.userId}
+                    onChange={(e) =>
+                      setAttDraft((s) => ({ ...s, userId: e.target.value }))
+                    }
+                  >
+                    <option value="">Select staff</option>
+                    {Array.isArray(staff) &&
+                      staff.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm bg-slate-50/40"
+                  value={dayjs(attDraft.date).format("YYYY-MM-DD")}
+                  onChange={(e) =>
+                    setAttDraft((s) => ({ ...s, date: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Status
+                </label>
+                <select
+                  className="border rounded-xl px-3 py-2 w-full text-sm border-slate-200 shadow-sm"
+                  value={attDraft.status}
+                  onChange={(e) =>
+                    setAttDraft((s) => ({ ...s, status: e.target.value }))
+                  }
+                >
+                  <option>Present</option>
+                  <option>Absent</option>
+                  <option>Leave</option>
+                  <option>Half-day</option>
+                  <option>WFH</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-violet-600 text-white text-sm font-semibold shadow-sm hover:bg-violet-700 active:scale-[0.99] transition"
+                onClick={saveAttendance}
+              >
+                <CheckIcon />
+                {attDraft.id ? "Update attendance" : "Save attendance"}
+              </button>
+              {attDraft.id && (
+                <button
+                  className="px-4 py-2.5 rounded-2xl bg-slate-100 text-xs font-medium text-slate-700"
+                  onClick={() =>
+                    setAttDraft({
+                      ...defaultAttendance,
+                      date: dayjs().format("YYYY-MM-DD"),
+                      userId: isAdmin ? "" : currentUserId,
+                    })
+                  }
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Lists */}
+        <section className="grid md:grid-cols-2 gap-4 sm:gap-6">
+          {/* Timesheets list */}
+          <div className="bg-white/90 backdrop-blur p-4 rounded-3xl shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-indigo-500" />
+                <h3 className="font-semibold text-slate-800 text-sm">
+                  Timesheets
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                {timesheets.length} record
+                {timesheets.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              {timesheets.map((row) => {
+                const staffEntry = staffById[row.userId];
+                let staffName;
+
+                if (staffEntry) {
+                  staffName =
+                    staffEntry.displayName ||
+                    staffEntry.name ||
+                    staffEntry.fullName ||
+                    staffEntry.email ||
+                    shortUserId(row.userId);
+                } else if (row.userId === currentUserId) {
+                  staffName = "Me";
+                } else {
+                  staffName = shortUserId(row.userId);
+                }
+
+                return (
+                  <article
+                    key={row.id}
+                    className="rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs sm:text-[13px] flex flex-col gap-1.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 border border-slate-100 text-[10px] text-slate-600">
+                          <Calendar className="h-3 w-3" />
+                          {dayjs(row.date).format("DD MMM YYYY")}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
+                          <UserIcon className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="truncate max-w-[140px] sm:max-w-[220px]">
+                            {staffName}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="inline-flex items-center rounded-full bg-indigo-600 text-white px-2.5 py-1 text-[11px] font-semibold shadow-sm">
+                          <Clock className="h-3 w-3 mr-1" />
+                          {row.hours}h
+                        </span>
+                      </div>
+                    </div>
+
+                    {row.task && (
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        <span className="font-semibold text-slate-700">
+                          Task:
+                        </span>{" "}
+                        {row.task}
+                      </p>
+                    )}
+                    {row.notes && (
+                      <p className="text-[11px] text-slate-500 line-clamp-2">
+                        {row.notes}
+                      </p>
+                    )}
+
+                    <div className="mt-1 flex justify-end gap-2">
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700"
+                        onClick={() => setSheetDraft({ ...row })}
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        Edit
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full border border-rose-100 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700"
+                        onClick={() => deleteTimesheet(row.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {!timesheets.length && (
+                <div className="text-[12px] text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-2xl px-3 py-3">
+                  No timesheet entries found for this filter. Try changing the
+                  date range or staff.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Attendance list */}
+          <div className="bg-white/90 backdrop-blur p-4 rounded-3xl shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ListChecks className="h-4 w-4 text-emerald-500" />
+                <h3 className="font-semibold text-slate-800 text-sm">
+                  Attendance
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                {attendance.length} mark
+                {attendance.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              {attendance.map((row) => {
+                const staffEntry = staffById[row.userId];
+                let staffName;
+
+                if (staffEntry) {
+                  staffName =
+                    staffEntry.displayName ||
+                    staffEntry.name ||
+                    staffEntry.fullName ||
+                    staffEntry.email ||
+                    shortUserId(row.userId);
+                } else if (row.userId === currentUserId) {
+                  staffName = "Me";
+                } else {
+                  staffName = shortUserId(row.userId);
+                }
+
+                return (
+                  <article
+                    key={row.id}
+                    className="rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs sm:text-[13px] flex flex-col gap-1.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 border border-slate-100 text-[10px] text-slate-600">
+                          <Calendar className="h-3 w-3" />
+                          {dayjs(row.date).format("DD MMM YYYY")}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
+                          <UserIcon className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="truncate max-w-[140px] sm:max-w-[220px]">
+                            {staffName}
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border " +
+                          statusBadgeClass(row.status)
+                        }
+                      >
+                        {row.status}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex justify-end gap-2">
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700"
+                        onClick={() => setAttDraft({ ...row })}
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        Edit
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full border border-rose-100 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700"
+                        onClick={() => deleteAttendance(row.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {!attendance.length && (
+                <div className="text-[12px] text-slate-500 bg-slate-50 border border-dashed border-slate-200 rounded-2xl px-3 py-3">
+                  No attendance entries found for this filter.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+/* Simple inline icons */
+function LockIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}

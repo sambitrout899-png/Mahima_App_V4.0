@@ -1,0 +1,264 @@
+// src/pages/CostsPage.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import dayjs from "dayjs";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Wallet,
+  Users,
+  CalendarRange,
+  Filter,
+  X,
+} from "lucide-react";
+
+import { getToken as authGetToken } from "../utils/auth";
+
+const CATEGORY_OPTIONS = [
+  { value: "PAYROLL", label: "Payroll" },
+  { value: "RENT", label: "Rent" },
+  { value: "UTILITIES", label: "Utilities" },
+  { value: "MINISTRY_EVENT", label: "Ministry Event" },
+  { value: "OUTREACH", label: "Outreach" },
+  { value: "ADMIN", label: "Admin / Office" },
+  { value: "OTHER", label: "Other" },
+];
+
+function attachAuth() {
+  const token = authGetToken();
+  if (!token) return;
+  axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+}
+
+const CostsPage = () => {
+  const [expenses, setExpenses] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [ledger, setLedger] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState(null);
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [monthFilter, setMonthFilter] = useState(dayjs().format("YYYY-MM"));
+
+  // ---------------- FETCH ----------------
+  useEffect(() => {
+    attachAuth();
+    fetchExpenses();
+    fetchAccounting();
+  }, []);
+
+  const fetchExpenses = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get("/api/expenses");
+      setExpenses(res.data || []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAccounting = async () => {
+    try {
+      const [accRes, balRes] = await Promise.all([
+        axios.get("/api/accounting/accounts"),
+        axios.get("/api/accounting/balances"),
+      ]);
+      setAccounts(accRes.data || []);
+      setBalances(balRes.data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadLedger = async (acc) => {
+    setSelectedAccount(acc);
+    const res = await axios.get(`/api/accounting/ledger/${acc.id}`);
+    setLedger(res.data || []);
+  };
+
+  // ---------------- FILTER ----------------
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      return (
+        (!search ||
+          e.description?.toLowerCase().includes(search.toLowerCase())) &&
+        (categoryFilter === "ALL" || e.category === categoryFilter)
+      );
+    });
+  }, [expenses, search, categoryFilter]);
+
+  // ---------------- CRUD ----------------
+  const handleSave = async (payload) => {
+    try {
+      setSaving(true);
+      attachAuth();
+
+      if (editingExpense?.id) {
+        await axios.put(`/api/expenses/${editingExpense.id}`, payload);
+      } else {
+        await axios.post("/api/expenses", payload);
+      }
+
+      await fetchExpenses();
+      await fetchAccounting();
+      setModalOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (exp) => {
+    if (!window.confirm("Delete this expense?")) return;
+    await axios.delete(`/api/expenses/${exp.id}`);
+    fetchExpenses();
+    fetchAccounting();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-rose-50 via-white to-amber-50">
+      <div className="mx-auto max-w-7xl px-4 py-6">
+
+        {/* HEADER */}
+        <div className="flex justify-between mb-6">
+          <h1 className="text-2xl font-semibold">Accounting Dashboard</h1>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="bg-amber-500 text-white px-4 py-2 rounded-full"
+          >
+            + Add Expense
+          </button>
+        </div>
+
+        {/* 🔥 BALANCES */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {balances.map((b) => (
+            <div key={b.accountId} className="bg-white p-3 rounded-xl shadow">
+              <div className="text-xs text-gray-500">{b.accountName}</div>
+              <div className="font-bold text-lg">
+                ₹{Number(b.balance).toLocaleString()}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-4">
+
+          {/* LEFT: EXPENSES */}
+          <div className="space-y-3">
+            {filteredExpenses.map((exp) => (
+              <div key={exp.id} className="bg-white p-3 rounded-xl shadow">
+                <div className="flex justify-between">
+                  <div>
+                    <div className="font-semibold">{exp.description}</div>
+                    <div className="text-xs text-gray-500">
+                      {dayjs(exp.date).format("DD MMM")}
+                    </div>
+                  </div>
+                  <div>₹{exp.amount}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* MIDDLE: ACCOUNTS */}
+          <div className="bg-white p-3 rounded-xl shadow">
+            <h3 className="font-semibold mb-2">Accounts</h3>
+            {accounts.map((a) => (
+              <div
+                key={a.id}
+                onClick={() => loadLedger(a)}
+                className="cursor-pointer p-2 hover:bg-amber-50 rounded"
+              >
+                {a.name}
+              </div>
+            ))}
+          </div>
+
+          {/* RIGHT: LEDGER */}
+          <div className="bg-white p-3 rounded-xl shadow">
+            <h3 className="font-semibold mb-2">
+              {selectedAccount ? selectedAccount.name : "Ledger"}
+            </h3>
+
+            {ledger.map((l, i) => (
+              <div key={i} className="border-b py-2 text-xs flex justify-between">
+                <div>
+                  <div>{l.description}</div>
+                  <div className="text-gray-400">
+                    {new Date(l.date).toLocaleDateString()}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  {l.debit > 0 && <div className="text-green-600">+₹{l.debit}</div>}
+                  {l.credit > 0 && <div className="text-red-600">-₹{l.credit}</div>}
+                  <div className="font-bold">₹{l.balance}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+
+        {modalOpen && (
+          <ExpenseModal
+            onClose={() => setModalOpen(false)}
+            onSave={handleSave}
+            saving={saving}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CostsPage;
+
+// ---------------- MODAL ----------------
+const ExpenseModal = ({ onClose, onSave, saving }) => {
+  const [form, setForm] = useState({
+    description: "",
+    category: "RENT",
+    amount: "",
+    date: dayjs().format("YYYY-MM-DD"),
+  });
+
+  const submit = (e) => {
+    e.preventDefault();
+    onSave({
+      ...form,
+      amount: Number(form.amount),
+      date: dayjs(form.date).toISOString(),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+      <form onSubmit={submit} className="bg-white p-4 rounded-xl w-80">
+        <input
+          placeholder="Description"
+          className="w-full mb-2 border p-2"
+          onChange={(e) =>
+            setForm({ ...form, description: e.target.value })
+          }
+        />
+        <input
+          type="number"
+          placeholder="Amount"
+          className="w-full mb-2 border p-2"
+          onChange={(e) => setForm({ ...form, amount: e.target.value })}
+        />
+        <button className="bg-amber-500 text-white px-4 py-2 rounded">
+          Save
+        </button>
+      </form>
+    </div>
+  );
+};

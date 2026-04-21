@@ -1,0 +1,34 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Mahima.Api.v3.clean;
+using Mahima.Api.v3.clean.Models;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class TeamsController : ControllerBase
+    {
+        private readonly MahimaDbContext _db;
+        public TeamsController(MahimaDbContext db) { _db = db; }
+
+        [HttpGet]
+        public async Task<IActionResult> GetAll() => Ok(await _db.Teams.Include(t=>t.Members).ToListAsync());
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] Team t)
+        {
+            _db.Teams.Add(t);
+            await _db.SaveChangesAsync();
+            return CreatedAtAction(nameof(Get), new { id = t.Id }, t);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(long id)
+        {
+            var t = await _db.Teams.Include(x=>x.Members).FirstOrDefaultAsync(x=>x.Id==id);
+            return t == null ? NotFound() : Ok(t);
+        }
+    }
+}

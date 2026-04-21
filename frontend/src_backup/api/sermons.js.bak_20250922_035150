@@ -1,0 +1,6 @@
+import { call, cleanPayload } from "./_helper";
+export const sermonsApi = {
+  list: () => call("/api/sermons"),
+  get: (id) => call(`/api/sermons/${id}`),
+  create: (p) => call("/api/sermons", { method: "POST", body: JSON.stringify(cleanPayload(p)) }) // may not be supported server-side
+};

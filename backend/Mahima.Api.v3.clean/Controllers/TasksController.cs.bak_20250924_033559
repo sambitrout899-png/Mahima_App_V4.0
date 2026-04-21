@@ -1,0 +1,49 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Mahima.Api.v3.clean;
+using Mahima.Api.v3.clean.Models;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class TasksController : ControllerBase
+    {
+        private readonly MahimaDbContext _db;
+        public TasksController(MahimaDbContext db) { _db = db; }
+
+        [HttpGet("team/{teamId}")]
+        public async Task<IActionResult> GetTeamTasks(long teamId) => Ok(await _db.Tasks.Where(t=>t.TeamId==teamId).ToListAsync());
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] TaskItem task)
+        {
+            _db.Tasks.Add(task);
+            await _db.SaveChangesAsync();
+            return CreatedAtAction(nameof(Get), new { id = task.Id }, task);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(long id)
+        {
+            var t = await _db.Tasks.FindAsync(id);
+            return t == null ? NotFound() : Ok(t);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update(long id, [FromBody] TaskItem update)
+        {
+            var t = await _db.Tasks.FindAsync(id);
+            if (t == null) return NotFound();
+            t.Title = update.Title;
+            t.Description = update.Description;
+            t.Status = update.Status;
+            t.AssigneeId = update.AssigneeId;
+            t.DueDate = update.DueDate;
+            t.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return Ok(t);
+        }
+    }
+}

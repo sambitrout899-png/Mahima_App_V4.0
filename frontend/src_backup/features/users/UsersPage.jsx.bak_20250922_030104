@@ -1,0 +1,52 @@
+import React, { useEffect, useState } from 'react';
+import { usersApi } from '../../api/users';
+
+export default function UsersPage() {
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({});
+
+  async function refresh() {
+    try { const r = await usersApi.list(); setItems(r || []); } catch (e) { console.error(e); }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  async function save() {
+    try {
+      if (form.id || form.Id) {
+        const id = form.id || form.Id;
+        await usersApi.update(id, form);
+      } else {
+        await usersApi.create(form);
+      }
+      setForm({});
+      await refresh();
+    } catch (e) { alert(e.message || 'Save failed'); }
+  }
+
+  async function remove(id) {
+    if (!confirm('Delete?')) return;
+    try { await usersApi.remove(id); await refresh(); } catch (e) { alert(e.message || 'Delete failed'); }
+  }
+
+  return (
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-2">users</h2>
+      <div className="mb-4">
+        <input className="border px-2 py-1 mr-2" placeholder="name/title" value={form.name || form.title || ''} onChange={e => setForm({ ...form, name: e.target.value })} />
+        <button className="px-3 py-1 bg-indigo-600 text-white rounded" onClick={save}>{form.id || form.Id ? 'Update' : 'Create'}</button>
+      </div>
+      <ul>
+        {items?.map(it => (
+          <li key={it.id || it.Id} className="flex justify-between border-b py-1">
+            <span>{it.name || it.title || it.id || it.Id}</span>
+            <span>
+              <button className="mr-2 text-blue-600" onClick={() => setForm(it)}>Edit</button>
+              <button className="text-red-600" onClick={() => remove(it.id || it.Id)}>Delete</button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

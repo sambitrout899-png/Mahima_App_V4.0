@@ -1,0 +1,258 @@
+// src/features/teams/MembersPage.jsx
+import React, { useEffect, useState, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+
+/* ---------------- API ---------------- */
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = RAW_API_BASE
+  ? RAW_API_BASE.replace(/\/+$/, "")
+  : "";
+
+const api = (p) => `${API_BASE}${p}`;
+
+/* ---------------- COMPONENT ---------------- */
+
+export default function MembersPage() {
+  // ✅ FIXED PARAM
+  const { id } = useParams();
+  const teamId = id;
+
+  const navigate = useNavigate();
+
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [role, setRole] = useState("");
+  const [markLeader, setMarkLeader] = useState(false);
+
+  const [allUsers, setAllUsers] = useState([]);
+
+  /* ---------------- LOAD MEMBERS ---------------- */
+
+  useEffect(() => {
+    if (teamId) loadMembers();
+  }, [teamId]);
+
+  async function loadMembers() {
+    setLoading(true);
+    try {
+      const res = await fetch(api(`/teams/${teamId}/members`));
+      const data = await res.json();
+      setMembers(Array.isArray(data) ? data : data?.items || []);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to load members");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- USERS ---------------- */
+
+  async function loadUsers() {
+    const res = await fetch(api(`/users`));
+    const data = await res.json();
+    setAllUsers(Array.isArray(data) ? data : data?.items || []);
+  }
+
+  useEffect(() => {
+    if (showAdd) loadUsers();
+  }, [showAdd]);
+
+  /* ---------------- HELPERS ---------------- */
+
+  const getUserId = (m) => m.userId || m.UserId || m.id;
+  const isLeader = (m) => m.isLeader || m.IsLeader;
+
+  /* ---------------- ADD MEMBER ---------------- */
+
+  async function addMember(e) {
+    e?.preventDefault();
+
+    if (!userId) return alert("User required");
+
+    try {
+      const payload = {
+        UserId: userId,
+        RoleInTeam: role || null,
+        IsLeader: markLeader,
+      };
+
+      await fetch(api(`/teams/${teamId}/members`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      setShowAdd(false);
+      setUserId("");
+      setRole("");
+      setMarkLeader(false);
+
+      loadMembers();
+    } catch (e) {
+      console.error(e);
+      alert("Add failed");
+    }
+  }
+
+  /* ---------------- REMOVE ---------------- */
+
+  async function removeMember(m) {
+    const uid = getUserId(m);
+
+    if (!window.confirm("Remove member?")) return;
+
+    await fetch(api(`/teams/${teamId}/members/${uid}`), {
+      method: "DELETE",
+    });
+
+    loadMembers();
+  }
+
+  /* ---------------- LEADER ---------------- */
+
+  async function toggleLeader(m) {
+    const uid = getUserId(m);
+
+    await fetch(api(`/teams/${teamId}/members/${uid}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        UserId: uid,
+        IsLeader: !isLeader(m),
+        RoleInTeam: m.role || m.RoleInTeam || "member",
+      }),
+    });
+
+    loadMembers();
+  }
+
+  /* ---------------- ROLE ---------------- */
+
+  async function editRole(m) {
+    const uid = getUserId(m);
+    const newRole = prompt("Enter role", m.role || "member");
+
+    if (!newRole) return;
+
+    await fetch(api(`/teams/${teamId}/members/${uid}`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        UserId: uid,
+        RoleInTeam: newRole,
+        IsLeader: isLeader(m),
+      }),
+    });
+
+    loadMembers();
+  }
+
+  /* ---------------- UI ---------------- */
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>Team Members (Team {teamId})</h2>
+
+      <button onClick={() => navigate(-1)}>⬅ Back</button>
+      <button onClick={() => setShowAdd(true)}>➕ Add Member</button>
+
+      {loading && <p>Loading...</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
+
+      {/* MEMBERS */}
+      {members.map((m) => (
+        <div
+          key={getUserId(m)}
+          style={{
+            border: "1px solid #ddd",
+            padding: 10,
+            marginTop: 10,
+            borderRadius: 8,
+          }}
+        >
+          <b>{m.displayName || m.username || getUserId(m)}</b>
+          <div>{m.email}</div>
+
+          <div>
+            Role: <b>{m.role || m.RoleInTeam || "member"}</b>
+          </div>
+
+          <div>
+            {isLeader(m) && <span>⭐ Leader</span>}
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <button onClick={() => editRole(m)}>Edit Role</button>
+            <button onClick={() => toggleLeader(m)}>
+              {isLeader(m) ? "Unset Leader" : "Make Leader"}
+            </button>
+            <button onClick={() => removeMember(m)}>Delete</button>
+          </div>
+        </div>
+      ))}
+
+      {/* ADD MODAL */}
+      {showAdd && (
+        <div style={modal}>
+          <div style={card}>
+            <h3>Add Member</h3>
+
+            <form onSubmit={addMember}>
+              <select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">Select user</option>
+                {allUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username} ({u.email})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                placeholder="Role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              />
+
+              <label>
+                <input
+                  type="checkbox"
+                  checked={markLeader}
+                  onChange={(e) => setMarkLeader(e.target.checked)}
+                />
+                Leader
+              </label>
+
+              <button type="submit">Save</button>
+              <button onClick={() => setShowAdd(false)}>Cancel</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- STYLES ---------------- */
+
+const modal = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.4)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const card = {
+  background: "#fff",
+  padding: 20,
+  borderRadius: 10,
+};

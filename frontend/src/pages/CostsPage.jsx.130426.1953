@@ -1,0 +1,275 @@
+// src/pages/CostsPage.jsx
+import React, { useEffect, useState } from "react";
+import axios from "../api/axios";
+import dayjs from "dayjs";
+import html2pdf from "html2pdf.js";
+import { getToken as authGetToken } from "../utils/auth";
+
+const CATEGORY_OPTIONS = [
+  { value: "PAYROLL", label: "Payroll" },
+  { value: "RENT", label: "Rent" },
+  { value: "UTILITIES", label: "Utilities" },
+  { value: "OTHER", label: "Other" },
+];
+
+const CostsPage = () => {
+  const [expenses, setExpenses] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [ledger, setLedger] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [view, setView] = useState("dashboard");
+
+  useEffect(() => {
+    fetchAll();
+  }, []);
+
+  const fetchAll = async () => {
+    const [e, a, b] = await Promise.all([
+      axios.get("/api/expenses"),
+      axios.get("/api/accounting/accounts"),
+      axios.get("/api/accounting/balances"),
+    ]);
+    setExpenses(e.data || []);
+    setAccounts(a.data || []);
+    setBalances(b.data || []);
+  };
+
+  const loadLedger = async (acc) => {
+    setSelectedAccount(acc);
+    const res = await axios.get(`/api/accounting/ledger/${acc.id}`);
+    setLedger(res.data || []);
+    setView("ledger");
+  };
+
+  const handleSave = async (payload) => {
+    try {
+      setSaving(true);
+      await axios.post("/api/expenses", payload);
+      await fetchAll();
+      setModalOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const exportPDF = () => {
+    const element = document.getElementById("report");
+    html2pdf().from(element).save("report.pdf");
+  };
+
+  return (
+    <div className="p-6">
+      {/* HEADER */}
+      <div className="flex justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Accounting Dashboard</h1>
+        <div className="flex gap-2">
+          <button onClick={() => window.print()} className="px-3 py-1 bg-gray-700 text-white rounded">
+            Print
+          </button>
+          <button onClick={exportPDF} className="px-3 py-1 bg-gray-700 text-white rounded">
+            PDF
+          </button>
+          <button onClick={() => setModalOpen(true)} className="bg-amber-500 text-white px-4 py-2 rounded">
+            + Add Expense
+          </button>
+        </div>
+      </div>
+
+      {/* NAV */}
+      <div className="flex gap-2 mb-4">
+        {["dashboard", "ledger", "journal", "trial", "balance"].map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1 rounded ${view === v ? "bg-amber-500 text-white" : "bg-gray-200"}`}
+          >
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* DASHBOARD */}
+      {view === "dashboard" && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {balances.map(b => (
+            <div key={b.accountId} className="bg-white p-3 rounded shadow">
+              <div className="text-xs">{b.accountName}</div>
+              <div className="font-bold">₹{b.balance}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* LEDGER */}
+      {view === "ledger" && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-white p-3 rounded shadow">
+            {accounts.map(a => (
+              <div key={a.id} onClick={() => loadLedger(a)} className="cursor-pointer p-2 hover:bg-gray-100">
+                {a.name}
+              </div>
+            ))}
+          </div>
+
+          <div className="col-span-2 bg-white p-3 rounded shadow">
+            <h3>{selectedAccount?.name || "Ledger"}</h3>
+            {ledger.map((l, i) => (
+              <div key={i} className="flex justify-between border-b py-2">
+                <div>{l.description}</div>
+                <div>
+                  {l.debit > 0 && <span className="text-green-600">+₹{l.debit}</span>}
+                  {l.credit > 0 && <span className="text-red-600">-₹{l.credit}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* JOURNAL */}
+      {view === "journal" && (
+        <div className="bg-white p-4 rounded shadow">
+          {ledger.map((l, i) => (
+            <div key={i} className="flex justify-between border-b py-2">
+              <div>{l.description}</div>
+              <div>Dr ₹{l.debit} | Cr ₹{l.credit}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* TRIAL BALANCE */}
+      {view === "trial" && (
+        <div className="bg-white p-4 rounded shadow">
+          {balances.map(b => (
+            <div key={b.accountId} className="flex justify-between border-b py-2">
+              <div>{b.accountName}</div>
+              <div>₹{b.balance}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* BALANCE SHEET */}
+      {view === "balance" && (
+        <div id="report" className="bg-white p-4 rounded shadow">
+          <h3 className="font-semibold mb-2">Balance Sheet</h3>
+
+          <h4>Assets</h4>
+          {balances.filter(b => b.type === "ASSET").map(b => (
+            <div key={b.accountId}>{b.accountName}: ₹{b.balance}</div>
+          ))}
+
+          <h4 className="mt-3">Expenses</h4>
+          {balances.filter(b => b.type === "EXPENSE").map(b => (
+            <div key={b.accountId}>{b.accountName}: ₹{b.balance}</div>
+          ))}
+        </div>
+      )}
+
+      {modalOpen && (
+        <ExpenseModal
+          onClose={() => setModalOpen(false)}
+          onSave={handleSave}
+          saving={saving}
+          accounts={accounts}
+        />
+      )}
+    </div>
+  );
+};
+
+export default CostsPage;
+
+
+
+
+
+// 🔥 MODAL (UPGRADED)
+const ExpenseModal = ({ onClose, onSave, saving, accounts }) => {
+  const [form, setForm] = useState({
+    description: "",
+    amount: "",
+    category: "RENT",
+    debitAccountId: "",
+    creditAccountId: "",
+  });
+
+  useEffect(() => {
+    const map = {
+      RENT: "Rent Expense",
+      PAYROLL: "Salary Expense",
+      UTILITIES: "Utilities Expense",
+    };
+
+    const acc = accounts.find(a => a.name === map[form.category]);
+    if (acc) setForm(f => ({ ...f, debitAccountId: acc.id }));
+  }, [form.category, accounts]);
+
+  const submit = (e) => {
+    e.preventDefault();
+
+    if (!form.description || !form.amount || !form.creditAccountId) {
+      alert("Fill all required fields");
+      return;
+    }
+
+    onSave({
+      ...form,
+      amount: Number(form.amount),
+      date: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="bg-white p-6 rounded-xl w-96 space-y-3">
+
+        <h2 className="font-semibold">Add Expense</h2>
+
+        <input placeholder="Description" className="w-full border p-2"
+          onChange={(e) => setForm({ ...form, description: e.target.value })} />
+
+        <input type="number" placeholder="Amount" className="w-full border p-2"
+          onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+
+        <select className="w-full border p-2"
+          value={form.category}
+          onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          {CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+
+        <select className="w-full border p-2"
+          value={form.debitAccountId}
+          onChange={(e) => setForm({ ...form, debitAccountId: e.target.value })}>
+          <option>Expense Account</option>
+          {accounts.filter(a => a.type === "EXPENSE").map(a => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+
+        <select className="w-full border p-2"
+          value={form.creditAccountId}
+          onChange={(e) => setForm({ ...form, creditAccountId: e.target.value })}>
+          <option>Paid From</option>
+          {accounts.filter(a => a.type === "ASSET").map(a => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-2 bg-gray-200 rounded">
+            Cancel
+          </button>
+
+          <button className="bg-amber-500 text-white px-4 py-2 rounded">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};

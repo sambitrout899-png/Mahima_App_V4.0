@@ -1,0 +1,96 @@
+.wa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 3000;
+}
+
+.wa-modal {
+  background: #fff;
+  width: 95%;
+  max-width: 480px;
+  height: 85vh;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.wa-modal-header {
+  display: flex;
+  align-items: center;
+  background: #128C7E;
+  color: white;
+  padding: 12px 14px;
+  font-size: 1.1rem;
+}
+
+.wa-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  color: white;
+  margin-right: 14px;
+  cursor: pointer;
+}
+
+.wa-title {
+  font-weight: 600;
+}
+
+.wa-search-bar {
+  padding: 10px;
+  background: #f0f2f5;
+}
+
+.wa-search-bar input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  outline: none;
+}
+
+.wa-user-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.wa-user-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.wa-user-row:hover {
+  background: #f8f8f8;
+}
+
+.wa-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #25d366;
+  color: white;
+  font-size: 1.1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-right: 14px;
+  font-weight: 600;
+}
+
+.wa-user-name {
+  font-weight: 600;
+  font-size: .95rem;
+}
+
+.wa-user-status {
+  font-size: .8rem;
+  color: #777;
+}

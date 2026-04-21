@@ -1,0 +1,28 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
+using Mahima.Api.v3.clean;
+using Mahima.Api.v3.clean.Models;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class AttachmentsController : ControllerBase
+    {
+        private readonly MahimaDbContext _context;
+        public AttachmentsController(MahimaDbContext context) => _context = context;
+
+        // GET /api/attachments
+        [HttpGet]
+        public async Task<IActionResult> List()
+        {
+            var items = await _context.Attachments
+                .OrderBy(a => a.Id)
+                .Take(100)
+                .ToListAsync();
+            return Ok(items);
+        }
+    }
+}

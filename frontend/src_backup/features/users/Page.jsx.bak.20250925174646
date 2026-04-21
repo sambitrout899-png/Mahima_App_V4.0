@@ -1,0 +1,16 @@
+﻿
+function isIdKey(k) {
+  if (!k) return false;
+  const s = String(k).toLowerCase();
+  return s === 'id' || s.endsWith('id');
+}
+
+function DetectFields(obj) {
+  if (!obj || typeof obj !== 'object') return ['id','name'];
+  return Object.keys(obj);
+}
+import React, { useEffect, useState } from "react";
+
+
+
+

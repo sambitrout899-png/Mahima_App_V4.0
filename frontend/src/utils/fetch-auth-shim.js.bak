@@ -1,0 +1,195 @@
+// src/utils/fetch-auth-shim.js
+
+const TOKEN_KEY = "mahima_token";
+
+/* ---------------- API BASE ---------------- */
+function resolveApiBase() {
+  let base = "";
+
+  try {
+    if (import.meta?.env?.VITE_API_BASE) {
+      base = import.meta.env.VITE_API_BASE;
+    }
+  } catch {}
+
+  try {
+    if (!base && typeof window !== "undefined" && window.__API_BASE__) {
+      base = String(window.__API_BASE__).trim();
+    }
+  } catch {}
+
+  // FINAL FALLBACK
+  if (!base) {
+    console.warn("⚠️ API BASE not set. Falling back to /api");
+    base = "/api";
+  }
+
+  // normalize (remove trailing slash)
+  base = base.toString().trim().replace(/\/+$/, "");
+
+  return base;
+}
+
+const API_BASE = resolveApiBase();
+console.log("🔥 FINAL API BASE =", API_BASE);
+
+/* ---------------- TOKEN ---------------- */
+function readToken() {
+  try {
+    const raw =
+      localStorage.getItem("mahima_token") ||
+      localStorage.getItem("auth_token") ||
+      "";
+
+    if (!raw) return "";
+
+    return raw.toLowerCase().startsWith("bearer ")
+      ? raw.slice(7).trim()
+      : raw.trim();
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------- URL BUILDER (FIXED) ---------------- */
+function buildUrl(url) {
+  if (!url) return url;
+
+  // absolute URL → return as is
+  if (/^https?:\/\//i.test(url)) return url;
+
+  // ensure leading slash
+  if (!url.startsWith("/")) url = "/" + url;
+
+  // 🔥 CRITICAL FIX: avoid double /api
+  if (url.startsWith("/api")) {
+    return url; // already correct
+  }
+
+  
+// prevent /api/api
+if (url.startsWith("/api")) {
+  return url;
+}
+
+return API_BASE + url;
+//return API_BASE + url;
+}
+
+/* ---------------- MAIN FETCH ---------------- */
+export async function apiFetch(input, init = {}) {
+  let url = typeof input === "string" ? input : input?.url || "";
+
+  const finalUrl = buildUrl(url);
+
+  const headers = new Headers(init.headers || {});
+
+  const token = readToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", "Bearer " + token);
+  }
+
+  const options = {
+    ...init,
+    headers,
+  };
+
+  console.log("➡️ API CALL:", options.method || "GET", finalUrl);
+
+  return fetch(finalUrl, options);
+}
+
+/* ---------------- JSON WRAPPER ---------------- */
+/*export async function apiFetchJson(input, init = {}) {
+  const res = await apiFetch(input, init);
+
+  const text = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    throw new Error(
+      `HTTP ${res.status} ${res.statusText || ""} – ${
+        text || "Request failed"
+      }`
+    );
+  }
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}*/
+/*export async function apiFetchJson(input, init = {}) {
+  const res = await apiFetch(input, init);
+
+  const text = await res.text().catch(() => "");
+
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!res.ok) {
+    const err = new Error(
+      `HTTP ${res.status} ${res.statusText || ""} – ${text || "Request failed"}`
+    );
+
+    // 🔥 CRITICAL: attach helpers to mimic fetch response
+    err.text = () => Promise.resolve(text);
+    err.json = () => Promise.resolve(data);
+
+    throw err;
+  }
+
+  // 🔥 RETURN OBJECT THAT SUPPORTS BOTH STYLES
+  return {
+    data,
+    text: () => Promise.resolve(text),
+    json: () => Promise.resolve(data),
+  };
+}*/
+export async function apiFetchJson(input, init = {}) {
+  const res = await apiFetch(input, init);
+
+  const text = await res.text().catch(() => "");
+
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  // ✅ RETURN FULL RESPONSE-LIKE OBJECT
+  return {
+    ok: res.ok,
+    status: res.status,
+    statusText: res.statusText,
+    data,
+    text: () => Promise.resolve(text),
+    json: () => Promise.resolve(data),
+  };
+}
+
+/* ---------------- AUTH APIs ---------------- */
+export function register(data) {
+  return apiFetchJson("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function login(data) {
+  return apiFetchJson("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}

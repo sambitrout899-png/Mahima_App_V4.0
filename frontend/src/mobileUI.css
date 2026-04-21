@@ -1,0 +1,296 @@
+/* =================== Global: kill sideways scroll & stabilize =================== */
+html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
+*, *::before, *::after { box-sizing: border-box; }
+img, svg, video, canvas { max-width: 100%; height: auto; }
+
+/* =================== Header/Nav base =================== */
+header, nav, .header, .topbar, .appbar { overflow: visible; max-width: 100%; }
+
+header .container,
+header .row,
+.header-bar,
+.appbar,
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(6px, 1.8vw, 12px);
+  width: 100%;
+  min-width: 0; /* allow flex items to shrink */
+}
+
+/* Primary nav */
+.nav, nav .nav, .top-level-links, .menu, .menu-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(6px, 1.6vw, 10px);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav > li, .top-level-links > li { min-width: 0; }
+.nav a, .top-level-links a, .menu a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Right-side actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm, 8px);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  margin-left: auto;
+  min-width: 0;
+}
+.header-actions > * { display: inline-flex; flex: 0 1 auto; min-width: fit-content; max-width: 100%; }
+.header-actions .btn,
+.header-actions button,
+.header-actions a { min-width: 7.25rem; text-align: center; }
+
+/* Keep Sign out visible in all cases */
+button.signout,
+a.signout,
+[aria-label*="Sign out" i],
+[title*="Sign out" i],
+[href*="logout" i],
+[data-action*="signout" i]{
+  display: inline-flex !important;
+  visibility: visible !important;
+  max-width: none !important;
+}
+
+/* Space for floating right widget on wide screens (adjust if needed) */
+@media (min-width: 992px){
+  header .container, header .row, .header-bar, .appbar, .topbar {
+    padding-right: clamp(48px, 9vw, 120px);
+  }
+}
+.floating-right, .float-right-widget { right: 8px; z-index: 15; }
+
+/* =================== Layout/section buttons: visible, clickable, wrap =================== */
+.layout-actions,
+.section-actions,
+.hero-actions,
+.card-actions,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+  min-width: 0;
+}
+
+/* Bulletproof button/link base */
+.btn,
+button,
+a.button,
+a.btn,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  line-height: 1.2;
+  font-size: 0.95rem;
+  border-radius: 8px;
+  text-align: center;
+  text-decoration: none;
+  min-width: auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 0 auto; /* do not collapse to 0 width */
+  visibility: visible !important;
+}
+
+/* Raise buttons above images/overlays */
+.layout-actions .btn,
+.section-actions .btn,
+.hero-actions .btn,
+.actions .btn,
+.layout-actions button,
+.section-actions button,
+.hero-actions button,
+.actions button,
+.layout-actions a,
+.section-actions a,
+.hero-actions a,
+.actions a {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+/* Prevent overlays from blocking clicks */
+.hero [class*="overlay"],
+.hero [class*="mask"],
+.banner [class*="overlay"],
+.banner [class*="mask"] { pointer-events: none; }
+
+/* Parents should not clip */
+.hero, .layout, .section, .card, .panel { overflow: visible; }
+
+/* Common chat/floating widgets should not cover buttons */
+.chat-widget, #chat-widget, [class*="chat"] { z-index: 10; }
+.floating-right, .float-right-widget { z-index: 9; }
+
+/* =================== Desktop compaction so top links fit =================== */
+@media (max-width: 1440px){
+  .topbar, .appbar, header { font-size: 0.95rem; }
+  .nav a, .top-level-links a, .menu a { padding: 6px 10px; }
+  .header-actions .btn, .header-actions button, .header-actions a { padding: 6px 12px; }
+  .nav, .top-level-links { gap: 8px; }
+}
+@media (max-width: 1280px){
+  .topbar, .appbar, header { font-size: 0.9rem; }
+  .nav, .top-level-links { gap: 6px; }
+  .nav a, .top-level-links a, .menu a { padding: 5px 8px; max-width: 12ch; }
+  .header-actions { gap: 6px; }
+  .header-actions .btn, .header-actions button, .header-actions a { padding: 5px 10px; min-width: auto; flex: 0 1 auto; }
+}
+@media (max-width: 1024px){
+  header .container, header .row, .header-bar { gap: 6px; }
+  .brand, .logo { order: 0; }
+  nav, .nav, .top-level-links { order: 1; flex: 1 1 100%; }
+  .header-actions { order: 2; flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .nav a, .top-level-links a, .menu a { padding: 4px 6px; max-width: 11ch; line-height: 1.2; }
+  .header-actions .btn, .header-actions button, .header-actions a { font-size: 0.86rem; line-height: 1.2; padding: 4px 8px; }
+}
+
+/* =================== Mobile compaction: guarantee fit within viewport =================== */
+@media (max-width: 767px){
+  /* Smaller header text scale */
+  header, nav, .header, .topbar, .appbar { font-size: 0.85rem; }
+
+  /* Wrap structure */
+  header .row, header .bar, header .container, .header-bar {
+    display: flex; flex-wrap: wrap; align-items: center; width: 100%; min-width: 0; gap: 4px;
+  }
+
+  /* Nav first, actions second */
+  nav, .nav, .top-level-links { order: 1; width: 100%; }
+
+  /* Tight nav links with ellipsis */
+  .nav a, .top-level-links a, .menu a {
+    padding: 4px 6px;
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+  }
+
+  /* Actions wrap and shrink to fit; two per row */
+  .header-actions {
+    order: 2;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-right: 4px;
+    margin-top: 4px;
+  }
+  .header-actions .btn,
+  .header-actions button,
+  .header-actions a {
+    font-size: 0.8rem;
+    line-height: 1.2;
+    padding: 4px 8px;
+    min-width: auto;          /* undo desktop min-width */
+    flex: 1 1 48%;            /* two per row */
+    max-width: 48%;
+    text-align: center;
+    border-radius: 4px;
+  }
+
+  /* Sign out compact and visible */
+  button.signout,
+  a.signout,
+  [aria-label*="Sign out" i],
+  [title*="Sign out" i],
+  [href*="logout" i],
+  [data-action*="signout" i]{
+    font-weight: 600;
+    padding: 4px 8px;
+    flex: 1 1 48%;
+    max-width: 48%;
+  }
+
+  /* Layout/section buttons: fit neatly within viewport */
+  .layout-actions,
+  .section-actions,
+  .hero-actions,
+  .actions { gap: 6px; }
+
+  .layout-actions .btn,
+  .layout-actions button,
+  .layout-actions a,
+  .section-actions .btn,
+  .section-actions button,
+  .section-actions a,
+  .hero-actions .btn,
+  .hero-actions button,
+  .hero-actions a,
+  .actions .btn,
+  .actions button,
+  .actions a {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    flex: 1 1 48%;       /* guaranteed two per row */
+    max-width: 48%;
+  }
+}
+
+/* Very small phones: allow three or one per row as needed */
+@media (max-width: 400px){
+  .header-actions .btn,
+  .header-actions button,
+  .header-actions a { font-size: 0.78rem; padding: 3px 6px; flex: 1 1 32%; max-width: 32%; }
+
+  .layout-actions .btn,
+  .layout-actions button,
+  .layout-actions a,
+  .section-actions .btn,
+  .section-actions button,
+  .section-actions a,
+  .hero-actions .btn,
+  .hero-actions button,
+  .hero-actions a,
+  .actions .btn,
+  .actions button,
+  .actions a {
+    font-size: 0.82rem;
+    padding: 5px 8px;
+    flex: 1 1 100%;   /* stack if labels are long */
+    max-width: 100%;
+  }
+}
+
+/* Restore roomy buttons again on > mobile */
+@media (min-width: 768px){
+  .header-actions .btn,
+  .header-actions button,
+  .header-actions a { min-width: 7.25rem; }
+}
+
+/* =================== Safety valves =================== */
+header :where([style*="position:fixed"], [style*="position:absolute"]) { max-width: 100vw; overflow: visible; }
+header [class*="pill"], header [class*="badge"]{ min-width: auto; max-width: 100%; }
+
+/* Avoid rare GPU stacking glitches */
+.layout-actions *, .section-actions *, .hero-actions * { transform: translateZ(0); }

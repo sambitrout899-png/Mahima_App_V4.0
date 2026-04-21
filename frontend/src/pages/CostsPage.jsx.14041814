@@ -1,0 +1,310 @@
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
+const BTN = "bg-amber-500 text-white px-4 py-2 rounded";
+const CARD = "bg-white p-4 rounded shadow";
+
+export default function CostsPage() {
+  const [accounts, setAccounts] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [ledger, setLedger] = useState([]);
+
+  const [view, setView] = useState("dashboard");
+  const [selectedAccount, setSelectedAccount] = useState(null);
+
+  const [expenseModal, setExpenseModal] = useState(false);
+  const [accountModal, setAccountModal] = useState(false);
+  const [balanceModal, setBalanceModal] = useState(null);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    const [a, b] = await Promise.all([
+      axios.get("/api/accounting/accounts"),
+      axios.get("/api/accounting/balances"),
+    ]);
+
+    setAccounts(a.data || []);
+    setBalances(b.data || []);
+  };
+
+  // ================= LEDGER =================
+  const loadLedger = async (acc) => {
+    setSelectedAccount(acc);
+    const res = await axios.get(`/api/accounting/ledger/${acc.id}`);
+    setLedger(res.data || []);
+    setView("ledger");
+  };
+
+  // ================= EXPENSE SAVE =================
+  const saveExpense = async (form) => {
+    await axios.post("/api/accounting/journal", {
+      date: form.date,
+      description: form.description,
+      lines: [
+        { accountId: Number(form.debitAccountId), debit: Number(form.amount), credit: 0 },
+        { accountId: Number(form.creditAccountId), debit: 0, credit: Number(form.amount) },
+      ],
+    });
+
+    setExpenseModal(false);
+    fetchData();
+  };
+
+  // ================= OPENING BALANCE =================
+  const saveOpeningBalance = async (data) => {
+    await axios.post("/api/accounting/opening-balance", {
+      accountId: data.accountId,
+      amount: Number(data.amount),
+    });
+
+    setBalanceModal(null);
+    fetchData();
+  };
+
+  // ================= DONATION =================
+  const postDonation = async () => {
+    const bank = accounts.find(a => a.name === "Bank");
+    const donation = accounts.find(a => a.name === "Donations");
+
+    await axios.post("/api/accounting/journal", {
+      date: new Date(),
+      description: "Donation Received",
+      lines: [
+        { accountId: bank.id, debit: 1000, credit: 0 },
+        { accountId: donation.id, debit: 0, credit: 1000 }
+      ]
+    });
+
+    fetchData();
+  };
+
+  // ================= EBITDA =================
+  const revenue = balances
+    .filter(b => b.type === "INCOME")
+    .reduce((s, b) => s + Math.abs(b.balance), 0);
+
+  const expense = balances
+    .filter(b => b.type === "EXPENSE")
+    .reduce((s, b) => s + b.balance, 0);
+
+  const ebidta = revenue - expense;
+
+  return (
+    <div className="p-6 bg-gray-100 min-h-screen">
+
+      {/* HEADER */}
+      <div className="flex justify-between mb-4">
+        <h1 className="text-2xl font-bold">Mahima Accounting</h1>
+
+        <div className="flex gap-2">
+          <button onClick={() => window.print()} className="bg-gray-700 text-white px-3 py-1 rounded">Print</button>
+          <button onClick={() => setExpenseModal(true)} className={BTN}>+ Expense</button>
+          <button onClick={() => setAccountModal(true)} className="bg-blue-500 text-white px-3 py-1 rounded">+ Account</button>
+          <button onClick={postDonation} className="bg-green-600 text-white px-3 py-1 rounded">+ Donation</button>
+        </div>
+      </div>
+
+      {/* NAV */}
+      <div className="flex gap-2 mb-4">
+        {["dashboard", "coa", "ledger", "pnl"].map(v => (
+          <button key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1 rounded ${view === v ? "bg-amber-500 text-white" : "bg-gray-200"}`}>
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* DASHBOARD */}
+      {view === "dashboard" && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {balances.map(b => (
+            <div key={b.accountId}
+              onClick={() => setBalanceModal(b)}
+              className={`${CARD} cursor-pointer`}>
+              <div>{b.accountName}</div>
+              <div className="font-bold text-lg">₹{b.balance}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* COA */}
+      {view === "coa" && (
+        <div className={CARD}>
+          {["ASSET", "LIABILITY", "INCOME", "EXPENSE"].map(type => (
+            <div key={type}>
+              <h4 className="font-bold">{type}</h4>
+              {accounts.filter(a => a.type === type).map(a => (
+                <div key={a.id}>{a.name}</div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* LEDGER */}
+      {view === "ledger" && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className={CARD}>
+            {accounts.map(a => (
+              <div key={a.id}
+                className="cursor-pointer"
+                onClick={() => loadLedger(a)}>
+                {a.name}
+              </div>
+            ))}
+          </div>
+
+          <div className={`${CARD} col-span-2`}>
+            {ledger.map((l, i) => (
+              <div key={i} className="flex justify-between border-b py-1">
+                <span>{l.description}</span>
+                <span>Dr {l.debit} | Cr {l.credit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PNL */}
+      {view === "pnl" && (
+        <div className={CARD}>
+          <div>Revenue ₹{revenue}</div>
+          <div>Expense ₹{expense}</div>
+          <div className="font-bold">EBITDA ₹{ebidta}</div>
+        </div>
+      )}
+
+      {/* ================= MODALS ================= */}
+
+      {expenseModal && (
+        <ExpenseModal
+          accounts={accounts}
+          onClose={() => setExpenseModal(false)}
+          onSave={saveExpense}
+        />
+      )}
+
+      {accountModal && (
+        <AccountModal
+          onClose={() => setAccountModal(false)}
+          onSaved={fetchData}
+        />
+      )}
+
+      {balanceModal && (
+        <BalanceModal
+          data={balanceModal}
+          onClose={() => setBalanceModal(null)}
+          onSave={saveOpeningBalance}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ================= EXPENSE MODAL =================
+const ExpenseModal = ({ accounts, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    date: new Date().toISOString().split("T")[0]
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+      <div className="bg-white p-5 rounded w-96 space-y-2">
+
+        <input type="date"
+          onChange={e => setForm({ ...form, date: e.target.value })}
+        />
+
+        <input placeholder="Description"
+          onChange={e => setForm({ ...form, description: e.target.value })}
+        />
+
+        <input type="number" placeholder="Amount"
+          onChange={e => setForm({ ...form, amount: e.target.value })}
+        />
+
+        <select onChange={e => setForm({ ...form, debitAccountId: e.target.value })}>
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+
+        <select onChange={e => setForm({ ...form, creditAccountId: e.target.value })}>
+          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="bg-gray-300 px-3 py-1 rounded">Cancel</button>
+          <button onClick={() => onSave(form)} className={BTN}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// ================= ACCOUNT MODAL =================
+const AccountModal = ({ onClose, onSaved }) => {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("ASSET");
+
+  const save = async () => {
+    await axios.post("/api/accounting/accounts", { name, type });
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+      <div className="bg-white p-5 rounded space-y-2">
+
+        <input placeholder="Account Name"
+          onChange={e => setName(e.target.value)}
+        />
+
+        <select onChange={e => setType(e.target.value)}>
+          <option value="ASSET">ASSET</option>
+          <option value="LIABILITY">LIABILITY</option>
+          <option value="INCOME">INCOME</option>
+          <option value="EXPENSE">EXPENSE</option>
+        </select>
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="bg-gray-300 px-3 py-1 rounded">Cancel</button>
+          <button onClick={save} className={BTN}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// ================= BALANCE MODAL =================
+const BalanceModal = ({ data, onClose, onSave }) => {
+  const [amount, setAmount] = useState(data.balance);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+      <div className="bg-white p-5 rounded space-y-2">
+
+        <div className="font-bold">{data.accountName}</div>
+
+        <input value={amount}
+          onChange={e => setAmount(e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="bg-gray-300 px-3 py-1 rounded">Cancel</button>
+          <button onClick={() => onSave({ accountId: data.accountId, amount })} className={BTN}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

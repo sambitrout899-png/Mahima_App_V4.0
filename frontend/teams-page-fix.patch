@@ -1,0 +1,159 @@
+*** Begin Patch
+*** Update File: src/features/teams/Page.jsx
+@@
+ const API_BASE = "http://localhost:5001/api";
+ /* ---------- API helper (put near top, after API_BASE) ---------- */
+ const INCLUDE_CREDENTIALS = true; // enable if server uses cookie session
+ const AUTH_TOKEN = null; // set if you need "Bearer ..."
+ 
+-// inside TeamsPage component add these state hooks if they don't exist:
+-const [lastReq, setLastReq] = useState(null);
+-const [lastResp, setLastResp] = useState(null);
++// apiFetch will try to set lastReq/lastResp when available (they must be inside component)
+ 
+ async function apiFetch(url, opts = {}) {
+   const final = {
+     credentials: INCLUDE_CREDENTIALS ? "include" : "same-origin",
+     method: opts.method || "GET",
+     headers: { ...(opts.headers || {}) },
+     body: opts.body,
+   };
+@@
+   try { setLastResp(rec); } catch(e){}
+ 
+   return { resp, ok: resp.ok, status: resp.status, text, json };
+ }
+@@
+ export default function TeamsPage() {
+   const [teams, setTeams] = useState([]);
+   const [meta, setMeta] = useState({ total: 0, page: 1, limit: 50 });
+   const [search, setSearch] = useState("");
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState(null);
+ 
++  // debug/state hooks MUST be inside the component to avoid invalid hook calls
++  const [lastReq, setLastReq] = useState(null);
++  const [lastResp, setLastResp] = useState(null);
++
++  // make apiFetch update these if available (wrap original to capture setters)
++  // Note: apiFetch defined above already tries to call setLastReq/setLastResp.
++  // Because those variables are defined here, the top-level apiFetch's try/catch
++  // will now succeed in setting them.
++
+   // modal for add/edit
+   const [showModal, setShowModal] = useState(false);
+   const [form, setForm] = useState(defaultForm());
+   const [saving, setSaving] = useState(false);
+@@
+   const fetchTeams = async (page = 1, limit = 50, searchTerm = "") => {
+   console.log("fetchTeams", { page, limit, searchTerm });
+@@
+     const { items, meta: newMeta } = normalizeResponse(data ?? []);
+     setTeams(items);
+     setMeta(prev => ({ ...prev, ...newMeta }));
+   } catch (err) {
+     console.error("fetchTeams error:", err);
+     setError(String(err));
+     setTeams([]);
+   } finally {
+     setLoading(false);
+   }
+ };
+@@
+   const saveTeam = async (e) => {
+   e?.preventDefault?.();
+   console.log("saveTeam called ->", form);
+   setSaving(true);
+   setError(null);
+ 
+   try {
+-    // broad payload: include multiple key names so backend gets what it expects
+-    const payload = {
+-      // core
+-      name: form.name,
+-      Name: form.name,
+-      description: form.description ?? null,
+-      Description: form.description ?? null,
+-
+-      // various leader field names
+-      leaderId: form.leaderId ?? null,
+-      leadUserId: form.leaderId ?? null,
+-      LeadUserId: form.leaderId ?? null,
+-
+-      // member shapes
+-      memberIds: Array.isArray(form.members) ? form.members : [],
+-      members: Array.isArray(form.members) ? form.members : [],
+-
+-      // legacy
+-      teamId: form.id ?? null
+-    };
+-
+-    const url = form.id ? `${API_BASE}/teams/${encodeURIComponent(form.id)}` : `${API_BASE}/teams`;
+-    const method = form.id ? "PUT" : "POST";
+-
+-    console.log("saveTeam ->", { url, method, payload });
+-    const { ok, status, text } = await apiFetch(url, { method, body: JSON.stringify(payload) });
+-
+-    console.log("saveTeam resp:", { ok, status, text });
+-    if (!ok) {
+-      const msg = `Save failed ${status} ${text}`;
+-      setError(msg);
+-      alert(msg);
+-      return;
+-    }
++    // broad payload: include multiple key names so backend gets what it expects
++    // (many backends accept different casing or legacy field names)
++    const payload = {
++      // core names (lower and upper)
++      name: form.name,
++      Name: form.name,
++      description: form.description ?? null,
++      Description: form.description ?? null,
++
++      // leader variants
++      leaderId: form.leaderId ?? null,
++      leadUserId: form.leaderId ?? null,
++      LeadUserId: form.leaderId ?? null,
++
++      // members variants
++      memberIds: Array.isArray(form.members) ? form.members : [],
++      members: Array.isArray(form.members) ? form.members : [],
++
++      // legacy
++      teamId: form.id ?? null,
++    };
++
++    const url = form.id ? `${API_BASE}/teams/${encodeURIComponent(form.id)}` : `${API_BASE}/teams`;
++    const method = form.id ? "PUT" : "POST";
++
++    console.log("saveTeam ->", { url, method, payload });
++    const { ok, status, text, json } = await apiFetch(url, { method, body: JSON.stringify(payload) });
++    console.log("saveTeam resp:", { ok, status, text, json });
++
++    if (!ok) {
++      const msg = `Save failed ${status} ${text || JSON.stringify(json)}`;
++      setError(msg);
++      alert(msg);
++      return;
++    }
++
++    // If API returns created object with id (common), log it. If API returns 204,
++    // we'll re-fetch the list to pick up the new row.
++    if (json && (json.id || json.Id || json.Id === 0 || json?.data)) {
++      // created resource returned — re-fetch first page so it appears
++      setShowModal(false);
++      await fetchTeams(1, meta.limit, search);
++    } else {
++      // server returned payload echo or 204 — re-fetch to reflect DB state
++      setShowModal(false);
++      await fetchTeams(1, meta.limit, search);
++    }
+   } catch (err) {
+     console.error("saveTeam exception:", err);
+     setError(String(err));
+     alert("Save failed: " + (err.message || err));
+   } finally {
+     setSaving(false);
+   }
+ };
+*** End Patch

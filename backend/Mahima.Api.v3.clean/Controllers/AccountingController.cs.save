@@ -1,0 +1,71 @@
+using Mahima.Api.v3.clean.Data;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
+[ApiController]
+[Route("api/accounting")]
+[AllowAnonymous]
+public class AccountingController : ControllerBase
+{
+    private readonly MahimaDbContext _db;
+
+    public AccountingController(MahimaDbContext db)
+    {
+        _db = db;
+    }
+[HttpGet("balances")]
+public async Task<IActionResult> GetBalances()
+{
+    var accounts = await _db.Accounts.ToListAsync();
+
+    var result = new List<object>();
+
+    foreach (var acc in accounts)
+    {
+        var lines = await _db.JournalLines
+            .Where(l => l.AccountId == acc.Id)
+            .ToListAsync();
+
+        var balance = lines.Sum(l => l.Debit - l.Credit);
+
+        result.Add(new
+        {
+            AccountId = acc.Id,
+            AccountName = acc.Name,
+            Type = acc.Type,
+            Balance = balance
+        });
+    }
+
+    return Ok(result);
+}
+    // 🔥 Ledger API
+    [HttpGet("ledger/{accountId}")]
+    public async Task<IActionResult> GetLedger(long accountId)
+    {
+        var lines = await _db.JournalLines
+            .Include(l => l.JournalEntry)
+            .Where(l => l.AccountId == accountId)
+            .OrderBy(l => l.JournalEntry.Date)
+            .ThenBy(l => l.Id)
+            .ToListAsync();
+
+        decimal balance = 0;
+
+        var result = lines.Select(l =>
+        {
+            balance += l.Debit - l.Credit;
+
+            return new
+            {
+                Date = l.JournalEntry.Date,
+                Description = l.JournalEntry.Description,
+                Debit = l.Debit,
+                Credit = l.Credit,
+                Balance = balance
+            };
+        });
+
+        return Ok(result);
+    }
+}

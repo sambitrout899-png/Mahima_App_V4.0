@@ -1,0 +1,515 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Npgsql;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    // DTO used by PUT /api/"Teams"/{teamId}/members
+    public class TeamMembersBulkDto
+    {
+        public Guid? LeaderId { get; set; }
+        public List<Guid> Members { get; set; } = new();
+    }
+
+    [ApiController]
+    [Route("api/teams/{teamId}/members")]
+    public class TeamMembersController : ControllerBase
+    {
+        private readonly string _connectionString;
+        private readonly ILogger<TeamMembersController> _logger;
+
+        public TeamMembersController(IConfiguration configuration, ILogger<TeamMembersController> logger)
+        {
+            _connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new ArgumentNullException(nameof(configuration));
+            _logger = logger;
+        }
+
+        public class MemberCreateDto
+        {
+            public Guid? UserId { get; set; }        // required
+            public string? RoleInTeam { get; set; }  // optional
+            public bool? IsLeader { get; set; }      // optional
+        }
+
+        public class MemberDto
+        {
+            public long TeamId { get; set; }
+            public Guid UserId { get; set; }
+            public string? RoleInTeam { get; set; }
+            public DateTime? JoinedAt { get; set; }
+            public bool IsLeader { get; set; }
+        }
+
+        // PUT /api/"Teams"/{teamId}/members   (replace all members for a team)
+        [HttpPut]
+        public async Task<IActionResult> ReplaceAll(string teamId, [FromBody] TeamMembersBulkDto dto)
+        {
+            if (!long.TryParse(teamId, out var teamLong))
+                return BadRequest(new { error = "Invalid teamId" });
+
+            dto ??= new TeamMembersBulkDto();
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await using var tx = await conn.BeginTransactionAsync();
+
+                // Delete existing (use lowercase table & column names)
+                await using (var delCmd = conn.CreateCommand())
+                {
+                    delCmd.Transaction = tx;
+                    delCmd.CommandText = @"DELETE FROM teammembers WHERE teamid = @teamId;";
+                    delCmd.Parameters.AddWithValue("teamId", teamLong);
+                    await delCmd.ExecuteNonQueryAsync();
+                }
+
+                // Insert new rows (if any)
+                if (dto.Members?.Count > 0)
+                {
+                    await using var insCmd = conn.CreateCommand();
+                    insCmd.Transaction = tx;
+                    insCmd.CommandText = @"
+                        INSERT INTO teammembers (teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader"")
+                        VALUES (@teamId, @userId, @role, now(), @isLeader);";
+
+                    insCmd.Parameters.AddWithValue("teamId", teamLong);
+                    // Pre-create parameter placeholders to reuse in loop
+                    var pUser = new NpgsqlParameter("userId", NpgsqlTypes.NpgsqlDbType.Uuid);
+                    var pRole = new NpgsqlParameter("role", NpgsqlTypes.NpgsqlDbType.Text) { Value = DBNull.Value };
+                    var pIsLeader = new NpgsqlParameter("isLeader", NpgsqlTypes.NpgsqlDbType.Boolean);
+
+                    insCmd.Parameters.Add(pUser);
+                    insCmd.Parameters.Add(pRole);
+                    insCmd.Parameters.Add(pIsLeader);
+
+                    foreach (var u in dto.Members)
+                    {
+                        pUser.Value = u;
+                        pRole.Value = DBNull.Value; // no per-member roles in bulk API currently
+                        pIsLeader.Value = (dto.LeaderId.HasValue && dto.LeaderId.Value == u);
+                        await insCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // Update "Teams".leaduserid within same transaction (lowercase)
+                await using (var updTeamCmd = conn.CreateCommand())
+                {
+                    updTeamCmd.Transaction = tx;
+                    updTeamCmd.CommandText = @"
+                        UPDATE ""Teams""
+                        SET leaduserid = @leaderId
+                        WHERE id = @teamId;";
+                    updTeamCmd.Parameters.AddWithValue("teamId", teamLong);
+                    updTeamCmd.Parameters.AddWithValue("leaderId", dto.LeaderId.HasValue ? (object)dto.LeaderId.Value : DBNull.Value);
+                    await updTeamCmd.ExecuteNonQueryAsync();
+                }
+
+                await tx.CommitAsync();
+                return Ok(new { success = true, count = dto.Members?.Count ?? 0 });
+            }
+            catch (PostgresException pex)
+            {
+                _logger.LogError(pex, "Postgres error replacing members for Team {TeamId}", teamId);
+                return StatusCode(500, "Database error replacing members.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error replacing members for Team {TeamId}", teamId);
+                return StatusCode(500, "Error replacing members.");
+            }
+        }
+
+        // GET /api/"Teams"/{teamId}/members
+        [HttpGet]
+        public async Task<IActionResult> GetAll(string teamId)
+        {
+            if (!long.TryParse(teamId, out var teamLong))
+                return BadRequest(new { error = "Invalid teamId" });
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateCommand();
+                //cmd.CommandText = @"
+                    //SELECT teamid, userid, RoleInTeam, ""JoinedAt"", ""IsLeader""
+                    //SELECT teamid, userid, "RoleInTeam", ""JoinedAt"", ""IsLeader""
+                //      FROM teammembers
+                  //  WHERE teamid = @teamId
+                    //ORDER BY ""JoinedAt"" DESC;";
+
+                //cmd.CommandText = @"
+    //SELECT teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader""
+    //FROM teammembers
+    //WHERE teamid = @teamId
+    //ORDER BY ""JoinedAt"" DESC;";
+
+
+cmd.CommandText = @"
+    SELECT
+        teamid,
+        userid,
+        ""RoleInTeam"",
+        ""JoinedAt"",
+        ""IsLeader""
+    FROM teammembers
+    WHERE teamid = @teamId
+    ORDER BY ""JoinedAt"" DESC;";
+
+                cmd.Parameters.AddWithValue("teamId", teamLong);
+
+                var list = new List<MemberDto>();
+                await using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    list.Add(new MemberDto
+                    {
+                        TeamId = rdr["teamid"] is DBNull ? 0L : Convert.ToInt64(rdr["teamid"]),
+                        UserId = rdr["userid"] is DBNull ? Guid.Empty : (Guid)rdr["userid"],
+                        //RoleInTeam = rdr["RoleInTeam"] is DBNull ? null : rdr["RoleInTeam"].ToString(),
+                        RoleInTeam = rdr["RoleInTeam"] is DBNull ? null : rdr["RoleInTeam"].ToString(),
+                        JoinedAt = rdr["JoinedAt"] is DBNull ? null : (DateTime?)rdr["JoinedAt"],
+                        IsLeader = rdr["IsLeader"] is DBNull ? false : (bool)rdr["IsLeader"]
+                    });
+                }
+
+                return Ok(list);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading members for Team {TeamId}", teamId);
+                return StatusCode(500, "Error reading members.");
+            }
+        }
+
+        // POST /api/"Teams"/{teamId}/members (upsert)
+        [HttpPost]
+        public async Task<IActionResult> Create(string teamId, [FromBody] MemberCreateDto dto)
+        {
+            if (!long.TryParse(teamId, out var teamLong))
+                return BadRequest(new { error = "Invalid teamId" });
+
+            if (dto == null || dto.UserId == null)
+                return BadRequest(new { error = "Missing userId" });
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await using var tx = await conn.BeginTransactionAsync();
+
+                // If creating as leader, clear other leaders for this team first
+                if (dto.IsLeader == true)
+                {
+                    await using (var clearCmd = conn.CreateCommand())
+                    {
+                        clearCmd.Transaction = tx;
+                        clearCmd.CommandText = @"
+                            UPDATE teammembers SET ""IsLeader"" = FALSE
+                            WHERE teamid = @teamId AND ""IsLeader"" = TRUE;";
+                        clearCmd.Parameters.AddWithValue("teamId", teamLong);
+                        await clearCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                MemberDto created = null;
+                // Upsert membership row
+                await using (var upsertCmd = conn.CreateCommand())
+                {
+                    upsertCmd.Transaction = tx;
+                    upsertCmd.CommandText = @"
+                        INSERT INTO teammembers (teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader"")
+                        VALUES (@teamId, @userId, @role, now(), @isLeader)
+                        ON CONFLICT (teamid, userid)
+                        DO UPDATE SET
+                            ""RoleInTeam"" = EXCLUDED.""RoleInTeam"",
+                            ""IsLeader"" = EXCLUDED.""IsLeader"",
+                            ""JoinedAt"" = COALESCE(teammembers.""JoinedAt"", EXCLUDED.""JoinedAt"")
+                        RETURNING teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader"";";
+                    upsertCmd.Parameters.AddWithValue("teamId", teamLong);
+                    upsertCmd.Parameters.AddWithValue("userId", dto.UserId.Value);
+                    upsertCmd.Parameters.AddWithValue("role", (object?)dto.RoleInTeam ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("isLeader", dto.IsLeader == true);
+
+                    await using var rdr = await upsertCmd.ExecuteReaderAsync();
+                    if (await rdr.ReadAsync())
+                    {
+                        created = new MemberDto
+                        {
+                            TeamId = Convert.ToInt64(rdr["teamid"]),
+                            UserId = (Guid)rdr["userid"],
+                            RoleInTeam = rdr["RoleInTeam"] is DBNull ? null : rdr["RoleInTeam"].ToString(),
+                            JoinedAt = rdr["JoinedAt"] is DBNull ? null : (DateTime?)rdr["JoinedAt"],
+                            IsLeader = rdr["IsLeader"] is DBNull ? false : (bool)rdr["IsLeader"]
+                        };
+                    }
+                    await rdr.DisposeAsync();
+                }
+
+                if (created == null)
+                {
+                    await tx.RollbackAsync();
+                    return StatusCode(500, "Insert/upsert failed.");
+                }
+
+                // If promoted to leader, update "Teams".leaduserid in same transaction
+                if (dto.IsLeader == true)
+                {
+                    await using (var setLeadCmd = conn.CreateCommand())
+                    {
+                        setLeadCmd.Transaction = tx;
+                         //setLeadCmd.CommandText = @"
+                           //                      UPDATE public."Teams"
+                         //SET ""LeadUserId"" = @userId
+                         //WHERE ""Id"" = @teamId;
+                         //";
+
+			
+                        setLeadCmd.Parameters.AddWithValue("teamId", teamLong);
+                        setLeadCmd.Parameters.AddWithValue("userId", dto.UserId.Value);
+                        await setLeadCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+                return CreatedAtAction(nameof(GetAll), new { teamId = teamLong }, created);
+            }
+            catch (PostgresException pex)
+            {
+                _logger.LogError(pex, "Postgres error creating member for Team {TeamId} User {UserId}", teamId, dto?.UserId);
+                if (pex.SqlState == "23505") // unique_violation
+                    return Conflict(new { error = "Duplicate membership" });
+                return StatusCode(500, "Error creating member.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating member for Team {TeamId}", teamId);
+                return StatusCode(500, "Error creating member.");
+            }
+        }
+
+        // PUT /api/"Teams"/{teamId}/members/{userId}
+        [HttpPut("{userId}")]
+        public async Task<IActionResult> Update(string teamId, string userId, [FromBody] MemberCreateDto dto)
+        {
+            if (!long.TryParse(teamId, out var teamLong))
+                return BadRequest(new { error = "Invalid teamId" });
+
+            if (!Guid.TryParse(userId, out var userGuid))
+                return BadRequest(new { error = "Invalid userId" });
+
+            if (dto == null)
+                return BadRequest(new { error = "Missing payload" });
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                // If promoting to leader, wrap in transaction to clear other leaders first
+                if (dto.IsLeader == true)
+                {
+                    await using var tx = await conn.BeginTransactionAsync();
+
+                    await using (var clearCmd = conn.CreateCommand())
+                    {
+                        clearCmd.Transaction = tx;
+                        clearCmd.CommandText = @"
+                            UPDATE teammembers SET ""IsLeader"" = FALSE
+                            WHERE teamid = @teamId AND ""IsLeader"" = TRUE;";
+                        clearCmd.Parameters.AddWithValue("teamId", teamLong);
+                        await clearCmd.ExecuteNonQueryAsync();
+                    }
+
+                    MemberDto updated = null;
+
+                    await using (var updCmd = conn.CreateCommand())
+                    {
+                        updCmd.Transaction = tx;
+                        updCmd.CommandText = @"
+                            UPDATE teammembers
+                            SET ""RoleInTeam"" = @role, ""IsLeader"" = TRUE, ""JoinedAt"" = COALESCE(""JoinedAt"", now())
+                            WHERE teamid = @teamId AND userid = @userId
+                            RETURNING teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader"";";
+                        updCmd.Parameters.AddWithValue("role", (object?)dto.RoleInTeam ?? DBNull.Value);
+                        updCmd.Parameters.AddWithValue("teamId", teamLong);
+                        updCmd.Parameters.AddWithValue("userId", userGuid);
+
+                        await using var rdr = await updCmd.ExecuteReaderAsync();
+                        if (await rdr.ReadAsync())
+                        {
+                            updated = new MemberDto
+                            {
+                                TeamId = Convert.ToInt64(rdr["teamid"]),
+                                UserId = (Guid)rdr["userid"],
+                                RoleInTeam = rdr["RoleInTeam"] is DBNull ? null : rdr["RoleInTeam"].ToString(),
+                                JoinedAt = rdr["JoinedAt"] is DBNull ? null : (DateTime?)rdr["JoinedAt"],
+                                IsLeader = rdr["IsLeader"] is DBNull ? false : (bool)rdr["IsLeader"]
+                            };
+                        }
+                        await rdr.DisposeAsync();
+                    }
+
+                    if (updated == null)
+                    {
+                        await tx.RollbackAsync();
+                        return NotFound();
+                    }
+
+                    // Update "Teams".leaduserid as part of the same transaction
+                    await using (var setLeadCmd = conn.CreateCommand())
+                    {
+                        setLeadCmd.Transaction = tx;
+                        setLeadCmd.CommandText = @"
+                            UPDATE ""Teams""
+                            SET leaduserid = @userId
+                            WHERE id = @teamId;";
+                        setLeadCmd.Parameters.AddWithValue("teamId", teamLong);
+                        setLeadCmd.Parameters.AddWithValue("userId", userGuid);
+                        await setLeadCmd.ExecuteNonQueryAsync();
+                    }
+
+                    await tx.CommitAsync();
+                    return Ok(updated);
+                }
+                else
+                {
+                    // Simple update (change role or demote leader)
+                    await using var cmd = conn.CreateCommand();
+                    cmd.CommandText = @"
+                        UPDATE teammembers
+                        SET ""RoleInTeam"" = @role, ""IsLeader"" = COALESCE(@isLeader, ""IsLeader"")
+                        WHERE teamid = @teamId AND userid = @userId
+                        RETURNING teamid, userid, ""RoleInTeam"", ""JoinedAt"", ""IsLeader"";";
+                    cmd.Parameters.AddWithValue("role", (object?)dto.RoleInTeam ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("isLeader", dto.IsLeader == true);
+                    cmd.Parameters.AddWithValue("teamId", teamLong);
+                    cmd.Parameters.AddWithValue("userId", userGuid);
+
+                    MemberDto updated = null;
+                    await using (var rdr = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await rdr.ReadAsync())
+                        {
+                            updated = new MemberDto
+                            {
+                                TeamId = Convert.ToInt64(rdr["teamid"]),
+                                UserId = (Guid)rdr["userid"],
+                                RoleInTeam = rdr["RoleInTeam"] is DBNull ? null : rdr["RoleInTeam"].ToString(),
+                                JoinedAt = rdr["JoinedAt"] is DBNull ? null : (DateTime?)rdr["JoinedAt"],
+                                IsLeader = rdr["IsLeader"] is DBNull ? false : (bool)rdr["IsLeader"]
+                            };
+                        }
+                        await rdr.DisposeAsync();
+                    }
+
+                    if (updated == null)
+                        return NotFound();
+
+                    // If explicitly demoted, clear "Teams".leaduserid if it pointed to this user
+                    if (dto.IsLeader == false)
+                    {
+                        await using var clearLeadCmd = conn.CreateCommand();
+                        clearLeadCmd.CommandText = @"
+                            UPDATE ""Teams""
+                            SET leaduserid = NULL
+                            WHERE id = @teamId AND leaduserid = @userId;";
+                        clearLeadCmd.Parameters.AddWithValue("teamId", teamLong);
+                        clearLeadCmd.Parameters.AddWithValue("userId", userGuid);
+                        await clearLeadCmd.ExecuteNonQueryAsync();
+                    }
+
+                    return Ok(updated);
+                }
+            }
+            catch (PostgresException pex)
+            {
+                _logger.LogError(pex, "Postgres error updating member {UserId} for Team {TeamId}", userId, teamId);
+                if (pex.SqlState == "23505")
+                    return Conflict(new { error = "Leader already exists for this team" });
+                return StatusCode(500, "Error updating member.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating member {UserId} for Team {TeamId}", userId, teamId);
+                return StatusCode(500, "Error updating member.");
+            }
+        }
+
+        // DELETE /api/"Teams"/{teamId}/members/{userId}
+        [HttpDelete("{userId}")]
+        public async Task<IActionResult> Delete(string teamId, string userId)
+        {
+            if (!long.TryParse(teamId, out var teamLong))
+                return BadRequest(new { error = "Invalid teamId" });
+
+            if (!Guid.TryParse(userId, out var userGuid))
+                return BadRequest(new { error = "Invalid userId" });
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await using var tx = await conn.BeginTransactionAsync();
+
+                // Delete and capture whether the deleted row was leader
+                bool? wasLeader = null;
+                await using (var delCmd = conn.CreateCommand())
+                {
+                    delCmd.Transaction = tx;
+                    delCmd.CommandText = @"
+                        DELETE FROM teammembers
+                        WHERE teamid = @teamId AND userid = @userId
+                        RETURNING teamid, userid, ""IsLeader"";";
+                    delCmd.Parameters.AddWithValue("teamId", teamLong);
+                    delCmd.Parameters.AddWithValue("userId", userGuid);
+
+                    await using var rdr = await delCmd.ExecuteReaderAsync();
+                    if (await rdr.ReadAsync())
+                    {
+                        wasLeader = rdr["IsLeader"] is DBNull ? false : (bool)rdr["IsLeader"];
+                    }
+                    await rdr.DisposeAsync();
+                }
+
+                if (wasLeader == null)
+                {
+                    await tx.RollbackAsync();
+                    return NotFound();
+                }
+
+                if (wasLeader == true)
+                {
+                    await using (var clearCmd = conn.CreateCommand())
+                    {
+                        clearCmd.Transaction = tx;
+                        clearCmd.CommandText = @"
+                            UPDATE ""Teams""
+                            SET leaduserid = NULL
+                            WHERE id = @teamId AND leaduserid = @userId;";
+                        clearCmd.Parameters.AddWithValue("teamId", teamLong);
+                        clearCmd.Parameters.AddWithValue("userId", userGuid);
+                        await clearCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting member {UserId} for Team {TeamId}", userId, teamId);
+                return StatusCode(500, "Error deleting member.");
+            }
+        }
+    }
+}

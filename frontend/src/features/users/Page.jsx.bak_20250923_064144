@@ -1,0 +1,72 @@
+﻿import React, { useEffect, useState } from "react";
+
+/**
+ * Minimal Users Page
+ * - Fetches /api/users?search=&page=1&limit=50
+ * - Normalizes {items: []} or [] response
+ * - Displays a simple table with id, name, username, email
+ *
+ * NOTE: This is intentionally small and self-contained so your dev server can boot.
+ * If you had more logic in original Page.jsx, restore it from your source control afterwards.
+ */
+
+export default function UsersPage() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const resp = await fetch("http://187.127.132.149:5001/api/users?search=&page=1&limit=50");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const items = Array.isArray(data) ? data : (data && (data.items || data.data || []));
+      setUsers(items || []);
+    } catch (err) {
+      console.error("users load error", err);
+      setError(err.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1>Users</h1>
+      {loading && <div>Loading usersâ€¦</div>}
+      {error && <div style={{ color: "red" }}>Error: {error}</div>}
+      {!loading && !error && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #ddd" }}>id</th>
+                <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #ddd" }}>name</th>
+                <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #ddd" }}>username</th>
+                <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #ddd" }}>email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: "12px" }}>No users</td></tr>
+              )}
+              {users.map(u => (
+                <tr key={u.id}>
+                  <td style={{ padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{u.id}</td>
+                  <td style={{ padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{u.name ?? u.displayName ?? u.username ?? ""}</td>
+                  <td style={{ padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{u.username ?? ""}</td>
+                  <td style={{ padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{u.email ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

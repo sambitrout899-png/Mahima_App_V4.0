@@ -1,0 +1,7 @@
+import { call } from "./_helper";
+
+export const attachmentsApi = {
+  list: () => call("/api/attachments"),
+  get: (id) => call(`/api/attachments/${id}`)
+  // For uploads, use FormData and a direct fetch from the UI (attachments page handles this)
+};

@@ -1,0 +1,263 @@
+// src/App.jsx
+import React, { useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+
+import Layout from "./components/Layout";
+import Login from "./features/auth/Login";
+
+import PrayerRequestsPage from "./features/prayerrequests/Page";
+import TimesheetPage from "./features/staff/TimesheetPage";
+
+import MarriagePage from "./pages/MarriagePage";
+import BaptismsPage from "./pages/BaptismsPage";
+import CounsellingPage from "./pages/CounsellingPage";
+import CostsPage from "./pages/CostsPage";
+
+import UsersPage from "./features/users/Page";
+import TeamsPage from "./features/teams/TeamsPage";
+import TasksPage from "./features/tasks/Page";
+import RolesPage from "./features/roles/RolesPage";
+import PagesPage from "./features/pages/PagesPage";
+import PayrollPage from "./pages/PayrollPage";
+import AdminDashboard from "./features/admin/AdminDashboard";
+import HomeLanding from "./features/home/HomeLanding";
+import MembersPage from "./features/teams/MembersPage";
+import SermonsPage from "./features/sermons/SermonsPage";
+import { getToken } from "./features/auth/authService";
+import { setAuthToken } from "./api";
+
+/* ---------------- AUTH ---------------- */
+
+function RequireAuth({ children }) {
+  const token = getToken();
+  const location = useLocation();
+
+  if (!token) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
+/* 🔥 ROLE + PAGE PERMISSION GUARD */
+
+function RequireRole({ allowedRoles = [], requiredPage = null, children }) {
+  const user = JSON.parse(localStorage.getItem("mahima_user") || "{}");
+
+  const role = (user.role || "").toLowerCase();
+  const pages = Array.isArray(user.pages) ? user.pages : [];
+
+  // Role check
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    return <Navigate to="/home" replace />;
+  }
+
+  // Page permission check
+  if (requiredPage && !pages.includes(requiredPage)) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return children;
+}
+
+function PublicRoute({ children }) {
+  const token = getToken();
+  if (token) return <Navigate to="/home" replace />;
+  return children;
+}
+
+/* ---------------- APP ---------------- */
+
+export default function App() {
+  useEffect(() => {
+    const token = getToken();
+    if (token) setAuthToken(token);
+  }, []);
+
+  return (
+    <Routes>
+      {/* LOGIN */}
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
+        }
+      />
+
+      {/* PROTECTED AREA */}
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <Layout />
+          </RequireAuth>
+        }
+      >
+        {/* DEFAULT */}
+        <Route index element={<Navigate to="/home" replace />} />
+
+        {/* COMMON */}
+        <Route path="home" element={<HomeLanding />} />
+
+        {/* ADMIN */}
+        <Route
+          path="users"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="USERS">
+              <UsersPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="teams"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="TEAMS">
+              <TeamsPage />
+            </RequireRole>
+          }
+        />
+ <Route
+          path="sermons"
+          element={
+            <RequireRole allowedRoles={["admin", "staff", "member"]} requiredPage="SERMONS">
+              <SermonsPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+  path="teams/:teamId/members"
+  element={
+    <RequireRole allowedRoles={["admin", "staff"]}>
+      <MembersPage />
+    </RequireRole>
+  }
+/>
+
+        <Route
+          path="roles"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="ROLES">
+              <RolesPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="pages"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="PAGES">
+              <PagesPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="payroll"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="PAYROLL">
+              <PayrollPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="admin/dashboard"
+          element={
+            <RequireRole allowedRoles={["admin"]}>
+              <AdminDashboard />
+            </RequireRole>
+          }
+        />
+
+        {/* TASKS */}
+        <Route
+          path="tasks"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff", "volunteer"]}
+              requiredPage="TASKS"
+            >
+              <TasksPage />
+            </RequireRole>
+          }
+        />
+
+        {/* PRAYER REQUESTS */}
+        <Route
+          path="prayerrequests"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff", "member"]}
+              requiredPage="PRAYER_REQUESTS"
+            >
+              <PrayerRequestsPage />
+            </RequireRole>
+          }
+        />
+
+        {/* ATTENDANCE */}
+        <Route
+          path="attendance"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff"]}
+              requiredPage="ATTENDANCE"
+            >
+              <TimesheetPage />
+            </RequireRole>
+          }
+        />
+
+        {/* MINISTRY SERVICES */}
+        <Route
+          path="marriage"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff"]}
+              requiredPage="MARRIAGE"
+            >
+              <MarriagePage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="baptism"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff"]}
+              requiredPage="BAPTISM"
+            >
+              <BaptismsPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="counselling"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff"]}
+              requiredPage="COUNSELLING"
+            >
+              <CounsellingPage />
+            </RequireRole>
+          }
+        />
+
+        {/* COSTS */}
+        <Route
+          path="costs"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="COSTS">
+              <CostsPage />
+            </RequireRole>
+          }
+        />
+      </Route>
+    </Routes>
+  );
+}

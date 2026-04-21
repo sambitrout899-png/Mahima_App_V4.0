@@ -1,0 +1,299 @@
+# Run in: C:\Users\Administrator\projects\mahima-frontend (PowerShell as Administrator)
+$path = ".\Mahima_Deployment_Script_New_01.ps1"
+if (-not (Test-Path $path)) { Write-Error "File not found: $path"; exit 1 }
+Copy-Item $path ($path + ".bak") -Force
+
+$fixed = @'
+<#
+Mahima_Deployment_Script_New_01.ps1
+Clean, parser-safe deploy script (Vite frontend + .NET backend) with DryRun switch.
+Run PowerShell as Administrator.
+#>
+
+param(
+  [switch]$DryRun
+)
+
+# ---------- CONFIG ----------
+$frontendSrc     = 'C:\Users\Administrator\projects\mahima-frontend'
+$backendSrc      = 'C:\Projects\Mahima.Api\Mahima.Api'
+$siteRoot        = 'C:\inetpub\wwwroot'
+$apiPublishPath  = 'C:\inetpub\wwwroot\MahimaApi\publish'
+$apiAppPoolName  = 'MahimaApi'
+
+$apiPatterns = @(
+  'http://localhost:5001',
+  'https://localhost:5001',
+  'http://127.0.0.1:5001',
+  'https://127.0.0.1:5001'
+)
+$apiReplacement = '/api'
+
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$temp = Join-Path $env:TEMP ("mahima_deploy_" + $timestamp)
+$frontendBuildTemp = Join-Path $temp 'frontend_build'
+$backendPublishTemp = Join-Path $temp 'backend_publish'
+$backupRoot = Join-Path $temp 'backups'
+
+function Assert-Admin {
+  $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) { Write-Error 'This script must be run as Administrator.'; exit 1 }
+}
+function Abort([string]$msg) {
+  Write-Error "`n❌ $msg"
+  Write-Host 'Attempting rollback (if backups exist)...'
+  if (-not $DryRun -and (Test-Path (Join-Path $backupRoot 'wwwroot_backup'))) {
+    robocopy (Join-Path $backupRoot 'wwwroot_backup') $siteRoot /MIR /NP | Out-Null
+  } else {
+    Write-Host 'DRY: would robocopy backups back to siteRoot'
+  }
+  exit 1
+}
+
+Assert-Admin
+
+# ---------- SANITY ----------
+foreach ($p in @($frontendSrc,$backendSrc,$siteRoot)) {
+  if (-not (Test-Path $p)) { Abort ("Missing path: " + $p) }
+}
+foreach ($cmd in @('node','npm','dotnet','robocopy','iisreset')) {
+  if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { Abort ("Required command not found: " + $cmd) }
+}
+
+# Prepare temp folders (dry-safe)
+if ($DryRun) {
+  Write-Host ("DRY: would create temp folders: {0}, {1}, {2}, {3}" -f $temp, $frontendBuildTemp, $backendPublishTemp, $backupRoot)
+} else {
+  New-Item -Path $temp -ItemType Directory -Force | Out-Null
+  New-Item -Path $frontendBuildTemp -ItemType Directory -Force | Out-Null
+  New-Item -Path $backendPublishTemp -ItemType Directory -Force | Out-Null
+  New-Item -Path $backupRoot -ItemType Directory -Force | Out-Null
+}
+
+Write-Host ("=== Deploy started: {0} (DryRun={1}) ===" -f (Get-Date -Format 'u'), $DryRun) -ForegroundColor Cyan
+
+# ---------- Optional: write small normalized helper (source) ----------
+$helperPath = Join-Path $frontendSrc 'src\api\_helper.js'
+if (Test-Path $helperPath) {
+  $helperBak = $helperPath + ".bak_" + $timestamp
+  if ($DryRun) {
+    Write-Host ("DRY: would backup and write helper at {0} -> {1}" -f $helperPath, $helperBak)
+  } else {
+    Copy-Item -Path $helperPath -Destination $helperBak -Force
+    $helperContent = @'
+/* normalized API helper: buildUrl */
+const getApiBase = () => ((typeof window !== "undefined" && window.__API_BASE__) || process.env.REACT_APP_API_URL || "/api").toString().replace(/\/+$/,'');
+export function buildUrl(pathOrUrl){
+  if (!pathOrUrl) return getApiBase();
+  const s = String(pathOrUrl);
+  if (/^https?:\/\//i.test(s)) return s;
+  let p = s.replace(/^\/+/,'');
+  const base = getApiBase();
+  if (/\/?api$/i.test(base) && /^api\//i.test(p)) p = p.replace(/^api\//i,'');
+  return (base.replace(/\/+$/,'') + '/' + p.replace(/^\/+/,'')).replace(/\/+/g,'/');
+}
+'@
+    Set-Content -LiteralPath $helperPath -Value $helperContent -Encoding UTF8 -Force
+    Write-Host ("Wrote normalized helper to {0} (backup: {1})" -f $helperPath, $helperBak)
+  }
+} else {
+  Write-Host ("No helper file at {0} — skipping." -f $helperPath)
+}
+
+# ---------- FRONTEND BUILD ----------
+Write-Host "`n--- Building frontend ---"
+if ($DryRun) {
+  Write-Host ("DRY: would run 'npm ci' and 'npm run build' in {0}" -f $frontendSrc)
+} else {
+  Push-Location $frontendSrc
+  npm ci --no-audit --no-fund
+  npm run build
+  Pop-Location
+}
+
+# ensure public and assets copied into dist
+$distDir = Join-Path $frontendSrc 'dist'
+if ($DryRun) {
+  Write-Host ("DRY: ensure public and src/assets copied into {0}" -f $distDir)
+} else {
+  if (Test-Path (Join-Path $frontendSrc 'public')) {
+    Copy-Item -Path (Join-Path $frontendSrc 'public\*') -Destination $distDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  if (Test-Path (Join-Path $frontendSrc 'src\assets')) {
+    $distAssets = Join-Path $distDir 'assets'
+    New-Item -ItemType Directory -Path $distAssets -Force | Out-Null
+    Copy-Item -Path (Join-Path $frontendSrc 'src\assets\*') -Destination $distAssets -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+if (-not (Test-Path $distDir)) { Abort ("dist not found at " + $distDir) }
+
+if ($DryRun) {
+  Write-Host ("DRY: would copy dist -> {0}" -f $frontendBuildTemp)
+} else {
+  Copy-Item -Path (Join-Path $distDir '*') -Destination $frontendBuildTemp -Recurse -Force
+}
+
+# ---------- PATCH BUILT FILES ----------
+Write-Host "`n--- Patching built files ---"
+$patchFiles = Get-ChildItem -Path $frontendBuildTemp -Recurse -File -Include *.js,*.html,*.htm -ErrorAction SilentlyContinue
+foreach ($f in $patchFiles) {
+  try {
+    $text = Get-Content -Raw -LiteralPath $f.FullName -ErrorAction Stop
+
+    foreach ($pat in $apiPatterns) {
+      $text = [regex]::Replace($text, [regex]::Escape("$pat/api"), $apiReplacement, [System.Text.RegularExpressions.RegexOptions]::None)
+      $text = [regex]::Replace($text, [regex]::Escape($pat), $apiReplacement, [System.Text.RegularExpressions.RegexOptions]::None)
+    }
+
+    $text = [regex]::Replace($text, "fetch\(\s*'\/(roles|login|logout|user)([^']*)'\s*\)", "fetch('/api/$1$2')", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $text = [regex]::Replace($text, 'fetch\(\s*"\/(roles|login|logout|user)([^\"]*)"\s*\)', 'fetch("/api/$1$2")', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    # safe single-quoted pattern to avoid quoting issues
+    $text = [regex]::Replace($text, 'window\\.__API_BASE__\\s*=\\s*["''].*?["'']', 'window.__API_BASE__ = "/api"', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $text = [regex]::Replace($text, '(?:/api){2,}', '/api')
+
+    if ($DryRun) {
+      Write-Host ("DRY: would patch {0}" -f ($f.FullName -replace [regex]::Escape($frontendBuildTemp),'...'))
+    } else {
+      Set-Content -LiteralPath $f.FullName -Value $text -Encoding UTF8 -Force
+      Write-Host ("Patched: {0}" -f ($f.FullName -replace [regex]::Escape($frontendBuildTemp),'...'))
+    }
+  } catch {
+    Write-Warning ("Skip patch for {0}: {1}" -f $f.FullName, $_.Exception.Message)
+  }
+}
+
+# ---------- DOWNLOAD EXTERNAL IMAGES (optional) ----------
+Write-Host "`n--- Scanning for external images (optional) ---"
+$imagePattern = @'
+(https?:\/\/[^\s'"'"'<>]+?\.(?:jpg|jpeg|png|webp)(?:\?[^\s'"'"'<>]*)?)
+'@
+
+$allTextFiles = Get-ChildItem -Path $frontendBuildTemp -Recurse -File -Include *.html,*.htm,*.js,*.css -ErrorAction SilentlyContinue
+$assetsLocalDir = Join-Path $frontendBuildTemp 'assets'
+if (-not (Test-Path $assetsLocalDir) -and -not $DryRun) { New-Item -Path $assetsLocalDir -ItemType Directory -Force | Out-Null }
+$downloaded = @{}
+
+foreach ($file in $allTextFiles) {
+  if ($DryRun) {
+    Write-Host ("DRY: would scan {0} for external images" -f ($file.FullName -replace [regex]::Escape($frontendBuildTemp),'...'))
+    continue
+  }
+  try {
+    $content = Get-Content -Raw -LiteralPath $file.FullName -ErrorAction Stop
+    $matches = [regex]::Matches($content, $imagePattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    foreach ($m in $matches) {
+      $rawUrl = $m.Groups[1].Value
+      if ($rawUrl -match '^data:') { continue }
+      try { $u = [uri]$rawUrl } catch { Write-Warning ("Invalid URL skipped: " + $rawUrl); continue }
+      $fname = [System.IO.Path]::GetFileName($u.AbsolutePath)
+      if ([string]::IsNullOrEmpty($fname)) { continue }
+      $fname = ($fname -replace '[^a-zA-Z0-9\-\._]', '_')
+      $localPath = Join-Path $assetsLocalDir $fname
+      if (-not (Test-Path $localPath) -and -not $downloaded.ContainsKey($rawUrl)) {
+        $maxdl = 3; $dlAttempt = 0; $dlOk = $false
+        while (-not $dlOk -and $dlAttempt -lt $maxdl) {
+          $dlAttempt++
+          try { Invoke-WebRequest -Uri $rawUrl -OutFile $localPath -TimeoutSec 20 -ErrorAction Stop; $dlOk = $true } catch { Start-Sleep -Seconds 1 }
+        }
+        if ($dlOk) { $downloaded[$rawUrl] = $fname; Write-Host ("Saved image: " + $fname) } else { Write-Warning ("Failed to download " + $rawUrl) }
+      } elseif ($downloaded.ContainsKey($rawUrl)) { $fname = $downloaded[$rawUrl] }
+      if (Test-Path (Join-Path $assetsLocalDir $fname)) {
+        $content = [regex]::Replace($content, [regex]::Escape($rawUrl), "/assets/$fname")
+        $baseNoQuery = $u.GetLeftPart([System.UriPartial]::Path)
+        $content = [regex]::Replace($content, [regex]::Escape($baseNoQuery), "/assets/$fname")
+      }
+    }
+    Set-Content -LiteralPath $file.FullName -Value $content -Encoding UTF8 -Force
+  } catch { Write-Warning ("Skipping image-scan for {0}: {1}" -f $file.FullName, $_.Exception.Message) }
+}
+
+# ---------- PUBLISH BACKEND ----------
+Write-Host "`n--- Publishing backend ---"
+if ($DryRun) {
+  Write-Host ("DRY: would run 'dotnet publish -c Release -o {0}' in {1}" -f $backendPublishTemp, $backendSrc)
+} else {
+  Push-Location $backendSrc
+  dotnet publish -c Release -o $backendPublishTemp
+  Pop-Location
+}
+
+# ---------- BACKUPS ----------
+Write-Host "`n--- Creating backups ---"
+$backupFrontend = Join-Path $backupRoot 'wwwroot_backup'
+$backupApi = Join-Path $backupRoot 'api_publish_backup'
+if ($DryRun) {
+  Write-Host ("DRY: would robocopy {0} -> {1}" -f $siteRoot, $backupFrontend)
+} else {
+  robocopy $siteRoot $backupFrontend /MIR /NP | Out-Null
+  if (Test-Path $apiPublishPath) { robocopy $apiPublishPath $backupApi /MIR /NP | Out-Null }
+}
+
+# ---------- DEPLOY FRONTEND ----------
+Write-Host "`n--- Deploying frontend to $siteRoot ---"
+$excludeDirs = @('MahimaApi','logs','uploads')
+$excludeArgs = ($excludeDirs | ForEach-Object { "/XD `"$siteRoot\$_`"" }) -join ' '
+$robolog = Join-Path $temp 'robocopy_frontend.log'
+$robocmd = "robocopy `"$frontendBuildTemp`" `"$siteRoot`" /MIR /XF web.config /R:2 /W:2 /NP $excludeArgs /LOG:`"$robolog`""
+if ($DryRun) { Write-Host ("DRY: would run: " + $robocmd) } else { cmd /c $robocmd | Out-Null; Write-Host ("Frontend deployed (log: " + $robolog + ")") }
+
+# ---------- DEPLOY BACKEND ----------
+Write-Host "`n--- Deploying backend ---"
+if ($DryRun) {
+  Write-Host ("DRY: would stop app pool {0}, copy files to {1} and start pool" -f $apiAppPoolName, $apiPublishPath)
+} else {
+  Import-Module WebAdministration -ErrorAction SilentlyContinue
+  if (Get-WebAppPoolState -Name $apiAppPoolName -ErrorAction SilentlyContinue) { Stop-WebAppPool -Name $apiAppPoolName -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+  $apiProcs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'Mahima\.Api' }
+  foreach ($p in $apiProcs) { Try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } Catch {} }
+  if (Test-Path $apiPublishPath) { Get-ChildItem $apiPublishPath -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue } else { New-Item -ItemType Directory -Path $apiPublishPath -Force | Out-Null }
+  Copy-Item -Path (Join-Path $backendPublishTemp '*') -Destination $apiPublishPath -Recurse -Force
+  if (Get-WebAppPoolState -Name $apiAppPoolName -ErrorAction SilentlyContinue) { Start-WebAppPool -Name $apiAppPoolName -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3 }
+  Write-Host ("Backend deployed to " + $apiPublishPath)
+}
+
+# ---------- web.config ----------
+Write-Host "`n--- Ensuring web.config ---"
+$siteWebConfig = Join-Path $siteRoot 'web.config'
+$webconfigXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <defaultDocument><files><clear/><add value="index.html"/></files></defaultDocument>
+    <staticContent>
+      <mimeMap fileExtension=".json" mimeType="application/json"/>
+      <mimeMap fileExtension=".map" mimeType="application/json"/>
+      <mimeMap fileExtension=".js" mimeType="application/javascript"/>
+      <mimeMap fileExtension=".css" mimeType="text/css"/>
+    </staticContent>
+    <rewrite>
+      <rules>
+        <rule name="ProxyToAPI" stopProcessing="true"><match url="^api/(.*)"/><action type="Rewrite" url="http://localhost:5001/{R:1}"/></rule>
+        <rule name="ServeIndexForClientRoutes" stopProcessing="true"><match url=".*"/><conditions logicalGrouping="MatchAll"><add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true"/><add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true"/></conditions><action type="Rewrite" url="/index.html"/></rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+'@
+if ($DryRun) { Write-Host ("DRY: would write web.config to " + $siteWebConfig) } else { Copy-Item -Path $siteWebConfig -Destination (Join-Path $backupRoot ("web.config.bak_" + $timestamp)) -ErrorAction SilentlyContinue; Set-Content -LiteralPath $siteWebConfig -Value $webconfigXml -Encoding UTF8 -Force; Write-Host ("Wrote web.config to " + $siteWebConfig) }
+
+# finalize
+Write-Host "`n--- Finalizing ---"
+if ($DryRun) { Write-Host "DRY: would run 'iisreset /noforce'"; } else { iisreset /noforce | Out-Null; Write-Host "IIS reset issued" }
+
+Write-Host ("✔️ Deployment finished at " + (Get-Date -Format 'u')) -ForegroundColor Green
+Write-Host ("Temporary build/backup folder: " + $temp) -ForegroundColor DarkCyan
+
+# parser-check of this file itself
+try {
+  [ScriptBlock]::Create((Get-Content $MyInvocation.MyCommand.Definition -Raw)) | Out-Null
+  Write-Host 'Parser check: OK' -ForegroundColor Green
+} catch {
+  Write-Error ("Parser check failed: {0}" -f $_.Exception.Message)
+}
+
+'@
+
+Set-Content -LiteralPath $path -Value $fixed -Encoding UTF8 -Force
+Write-Host "Backup saved to $path.bak and file overwritten with fixed script."

@@ -1,0 +1,231 @@
+import React, { useEffect, useState } from "react";
+import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { logout as authLogout } from "../features/auth/authService";
+import mahimaLogo from "../assets/mahima-logo.png";
+import { getCurrentUser } from "../features/auth/permissionService";
+
+export default function Layout() {
+  const navigate = useNavigate();
+
+  const [user, setUser] = useState(null);
+  const [allowedNav, setAllowedNav] = useState([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const ALL_NAV = [
+    { key: "DASHBOARD", label: "Home", to: "/home" },
+    { key: "USERS", label: "Users", to: "/users" },
+    { key: "TEAMS", label: "Teams", to: "/teams" },
+    { key: "TASKS", label: "Tasks", to: "/tasks" },
+    { key: "ROLES", label: "Roles", to: "/roles" },
+    { key: "PAGES", label: "Pages", to: "/pages" },
+    { key: "PAYROLL", label: "Payroll", to: "/payroll" },
+    { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+    { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+    { key: "MARRIAGE", label: "Marriage", to: "/marriage" },
+    { key: "BAPTISM", label: "Baptism", to: "/baptism" },
+    { key: "COUNSELLING", label: "Counselling", to: "/counselling" },
+    { key: "ADMIN", label: "Admin", to: "/admin/dashboard" },
+    { key: "COSTS", label: "Costs", to: "/costs" }
+  ];
+
+  const ROLE_NAV = {
+    admin: ALL_NAV,
+    member: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+    staff: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "TASKS", label: "Tasks", to: "/tasks" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+    volunteer: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "TASKS", label: "Tasks", to: "/tasks" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+    pastor: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "USERS", label: "Users", to: "/users" },
+      { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+      { key: "BAPTISM", label: "Baptism", to: "/baptism" },
+      { key: "COUNSELLING", label: "Counselling", to: "/counselling" },
+      { key: "PAYROLL", label: "Payroll", to: "/payroll" },
+    ],
+  };
+
+  useEffect(() => {
+    (async () => {
+      const u = await getCurrentUser();
+      setUser(u);
+
+      if (!u) return;
+
+      const role = (u.role || "").toLowerCase();
+      const userPages = (u.pages || []).map(p => String(p).toUpperCase());
+
+      if (userPages.length > 0) {
+        const filtered = ALL_NAV.filter(n => userPages.includes(n.key));
+        setAllowedNav(filtered.length ? filtered : ROLE_NAV[role] || []);
+      } else {
+        setAllowedNav(ROLE_NAV[role] || []);
+      }
+    })();
+  }, []);
+
+  function onLogout() {
+    authLogout();
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
+      
+      {/* HEADER */}
+      <header style={header}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* 🍔 MOBILE MENU */}
+          <div style={hamburger} onClick={() => setMenuOpen(true)}>☰</div>
+
+          <Link to="/home" style={logoWrap}>
+            <img src={mahimaLogo} style={{ width: 36 }} />
+            <b>Mahima Ministry</b>
+          </Link>
+        </div>
+
+        {/* DESKTOP NAV */}
+        <nav style={navDesktop}>
+          {allowedNav.map((p) => (
+            <NavLink key={p.to} to={p.to} style={navLink}>
+              {p.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span>{user?.username}</span>
+          <button onClick={onLogout}>Logout</button>
+        </div>
+      </header>
+
+      {/* MOBILE DRAWER */}
+      {menuOpen && (
+        <div style={drawerOverlay} onClick={() => setMenuOpen(false)}>
+          <div style={drawer} onClick={(e) => e.stopPropagation()}>
+            <h3>Menu</h3>
+            {allowedNav.map((p) => (
+              <NavLink
+                key={p.to}
+                to={p.to}
+                style={drawerLink}
+                onClick={() => setMenuOpen(false)}
+              >
+                {p.label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* MAIN */}
+      <main style={{ padding: 20 }}>
+        <Outlet />
+      </main>
+
+      {/* 💬 CHAT BUTTON */}
+      <div
+        style={chatBtn}
+        onClick={() => alert("Chat coming soon")}
+      >
+        💬
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- STYLES ---------------- */
+
+const header = {
+  display: "flex",
+  justifyContent: "space-between",
+  padding: 10,
+  background: "#fff",
+  alignItems: "center",
+  position: "sticky",
+  top: 0,
+  zIndex: 100,
+};
+
+const navDesktop = {
+  display: "flex",
+  gap: 12,
+};
+
+const navLink = {
+  textDecoration: "none",
+  padding: "6px 10px",
+};
+
+const logoWrap = {
+  display: "flex",
+  gap: 6,
+  alignItems: "center",
+  textDecoration: "none",
+  color: "#000",
+};
+
+const hamburger = {
+  fontSize: 20,
+  cursor: "pointer",
+  display: "none",
+};
+
+/* MOBILE */
+if (window.innerWidth < 768) {
+  navDesktop.display = "none";
+  hamburger.display = "block";
+}
+
+/* DRAWER */
+const drawerOverlay = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.4)",
+  zIndex: 999,
+};
+
+const drawer = {
+  width: 250,
+  height: "100%",
+  background: "#fff",
+  padding: 20,
+};
+
+const drawerLink = {
+  display: "block",
+  padding: 10,
+  textDecoration: "none",
+  color: "#333",
+};
+
+/* CHAT */
+const chatBtn = {
+  position: "fixed",
+  bottom: 20,
+  right: 20,
+  width: 55,
+  height: 55,
+  borderRadius: "50%",
+  background: "#f59e0b",
+  color: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 22,
+  cursor: "pointer",
+  boxShadow: "0 5px 15px rgba(0,0,0,0.3)",
+};

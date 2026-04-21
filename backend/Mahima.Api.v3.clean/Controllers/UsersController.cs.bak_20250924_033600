@@ -1,0 +1,124 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+
+using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class UsersController : ControllerBase
+    {
+        private readonly MahimaDbContext _context;
+        private readonly ILogger<UsersController> _logger;
+
+        public UsersController(MahimaDbContext context, ILogger<UsersController> logger)
+        {
+            _context = context;
+            _logger = logger;
+        }
+
+        // LIST (GET /api/users?search=&page=1&limit=50)
+        // Returns items shaped { id, name, username, email, displayName, ... }
+        [HttpGet]
+        public async Task<IActionResult> List([FromQuery] string search = "", [FromQuery] int page = 1, [FromQuery] int limit = 50)
+        {
+            if (page < 1) page = 1;
+            if (limit < 1) limit = 50;
+
+            var query = _context.Users.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                // Avoid C# interpolated strings so code survives script injection/quoting
+                query = query.Where(u =>
+                    (u.DisplayName != null && EF.Functions.ILike(u.DisplayName, "%" + s + "%")) ||
+                    (u.Username != null && EF.Functions.ILike(u.Username, "%" + s + "%")) ||
+                    (u.Email != null && EF.Functions.ILike(u.Email, "%" + s + "%"))
+                );
+            }
+
+            var total = await query.CountAsync();
+
+            var items = await query
+                .OrderBy(u => u.DisplayName)
+                .Skip((page - 1) * limit)
+                .Take(limit)
+                .Select(u => new {
+                    id = u.Id,
+                    name = u.DisplayName ?? u.Username ?? string.Empty,
+                    username = u.Username,
+                    email = u.Email,
+                    displayName = u.DisplayName,
+                    role = u.Role,
+                    joinDate = u.JoinDate,
+                    lastLogin = u.LastLogin,
+                    teams = u.Teams
+                })
+                .ToListAsync();
+
+            return Ok(new { total, page, limit, items });
+        }
+
+        // CREATE
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] User u)
+        {
+            u.Id = default;
+            try
+            {
+                _context.Users.Add(u);
+                await _context.SaveChangesAsync();
+                return CreatedAtAction(nameof(GetById), new { id = u.Id }, u);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23505")
+            {
+                _logger.LogWarning(ex, "Duplicate key on Users insert");
+                return Conflict(new { message = "A user with that id already exists." });
+            }
+        }
+
+        // UPDATE
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update(Guid id, [FromBody] User u)
+        {
+            if (id != u.Id) return BadRequest(new { message = "Id mismatch." });
+
+            var existing = await _context.Users.FindAsync(id);
+            if (existing == null) return NotFound(new { message = "User not found." });
+
+            existing.DisplayName = u.DisplayName;
+            existing.Role = u.Role;
+            existing.JoinDate = u.JoinDate;
+            existing.LastLogin = u.LastLogin;
+            existing.Teams = u.Teams;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+                return Ok(existing);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23505")
+            {
+                _logger.LogWarning(ex, "Duplicate key on Users update");
+                return Conflict(new { message = "Duplicate constraint violation." });
+            }
+        }
+
+        // GET by id
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetById(Guid id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
+            return Ok(user);
+        }
+    }
+}

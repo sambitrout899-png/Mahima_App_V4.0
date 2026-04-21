@@ -1,0 +1,8 @@
+public class AuditLog
+{
+    public long Id { get; set; }               // or Guid if you prefer
+    public Guid? UserId { get; set; }          // who should act / recipient
+    public string Type { get; set; } = "";     // e.g., "PrayerRequestNotification"
+    public string Message { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}

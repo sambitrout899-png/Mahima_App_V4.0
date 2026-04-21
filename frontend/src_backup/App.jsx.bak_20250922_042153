@@ -1,0 +1,36 @@
+import React from "react";
+import { Routes, Route, Link } from "react-router-dom";
+import UsersPage from "./features/users/UsersPage";
+import TeamsPage from "./features/teams/TeamsPage";
+import TasksPage from "./features/tasks/TasksPage";
+import SermonsPage from "./features/sermons/SermonsPage";
+import PrayerrequestsPage from "./features/prayerrequests/PrayerrequestsPage";
+import MeetingsPage from "./features/meetings/MeetingsPage";
+import AttachmentsPage from "./features/attachments/AttachmentsPage";
+
+export default function App(){
+  return (
+    <div className="p-4">
+      <nav className="mb-4 flex gap-4">
+        <Link to="/users">Users</Link>
+        <Link to="/teams">Teams</Link>
+        <Link to="/tasks">Tasks</Link>
+        <Link to="/sermons">Sermons</Link>
+        <Link to="/prayerrequests">PrayerRequests</Link>
+        <Link to="/meetings">Meetings</Link>
+        <Link to="/attachments">Attachments</Link>
+      </nav>
+
+      <Routes>
+        <Route path="/users" element={<UsersPage/>}/>
+        <Route path="/teams" element={<TeamsPage/>}/>
+        <Route path="/tasks" element={<TasksPage/>}/>
+        <Route path="/sermons" element={<SermonsPage/>}/>
+        <Route path="/prayerrequests" element={<PrayerrequestsPage/>}/>
+        <Route path="/meetings" element={<MeetingsPage/>}/>
+        <Route path="/attachments" element={<AttachmentsPage/>}/>
+        <Route path="*" element={<div>Welcome to Mahima Admin UI</div>}/>
+      </Routes>
+    </div>
+  );
+}

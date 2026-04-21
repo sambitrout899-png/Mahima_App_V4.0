@@ -1,0 +1,38 @@
+{
+  "hero": {
+    "enabled": true,
+    "welcomeText": "Come and be blessed - all are welcome",
+    "heading": "Worship • Heal • Send",
+    "body": "Mahima Ministry is a place where faith finds practical expression.",
+    "backgroundImage": "/assets/mahimachurch-hero.jpg",
+    "posterImage": "/glory-to-grace.jpg",
+    "nightPrayerText": "Night Prayer - every Friday 10:30 pm onwards"
+  },
+
+  "contact": {
+    "phones": ["+91 89711 24659", "+91 77430 48757"],
+    "email": "andreas@mahimaministries.com",
+    "address": "Jalandhar, Punjab"
+  },
+
+  "sections": {
+    "quickActions": true,
+    "about": true,
+    "ministries": true,
+    "coreValues": true,
+    "getInvolved": true
+  },
+
+  "ministries": [
+    {
+      "title": "Worship & Services",
+      "description": "Biblical teaching and worship",
+      "icon": "Play"
+    },
+    {
+      "title": "Healing Ministry",
+      "description": "Prayer and deliverance",
+      "icon": "Heart"
+    }
+  ]
+}

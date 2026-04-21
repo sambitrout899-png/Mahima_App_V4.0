@@ -1,0 +1,21 @@
+import { call, cleanPayload } from "./_helper";
+
+export const prayerrequestsApi = {
+  list: () => call("/api/prayerrequests"),
+  get: (id) => call(`/api/prayerrequests/${id}`),
+  create: (p) => {
+    const payload = cleanPayload(p) || {};
+    delete payload.id; delete payload.Id;
+    try { console.debug("[prayerrequestsApi.create] payload:", payload); } catch(e) {}
+    return call("/api/prayerrequests", { method: "POST", body: JSON.stringify(payload) });
+  },
+  update: async (id, p) => {
+    const payload = cleanPayload(p) || {};
+    try { return await call(`/api/prayerrequests/${id}`, { method: "PUT", body: JSON.stringify(payload) }); }
+    catch (e) {
+      if (e && e.status === 405) return await call("/api/prayerrequests", { method: "POST", body: JSON.stringify({...payload, id}) });
+      throw e;
+    }
+  },
+  remove: (id) => call(`/api/prayerrequests/${id}`, { method: "DELETE" })
+};

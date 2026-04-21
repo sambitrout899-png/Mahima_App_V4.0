@@ -1,0 +1,26 @@
+import React from "react";
+import { Routes, Route } from "react-router-dom";
+import Layout from "./components/Layout";
+import UsersPage from "./features/users/Page";
+import TeamsPage from "./features/teams/Page";
+import TasksPage from "./features/tasks/Page";
+import SermonsPage from "./features/sermons/Page";
+import PrayerRequestsPage from "./features/prayerrequests/Page";
+import MeetingsPage from "./features/meetings/Page";
+import AttachmentsPage from "./features/attachments/Page";
+
+export default function App() {
+  return (
+    <Layout>
+      <Routes>
+        <Route path="/users" element={<UsersPage />} />
+        <Route path="/teams" element={<TeamsPage />} />
+        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/sermons" element={<SermonsPage />} />
+        <Route path="/prayerrequests" element={<PrayerRequestsPage />} />
+        <Route path="/meetings" element={<MeetingsPage />} />
+        <Route path="/attachments" element={<AttachmentsPage />} />
+      </Routes>
+    </Layout>
+  );
+}

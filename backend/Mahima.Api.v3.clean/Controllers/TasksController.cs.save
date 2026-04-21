@@ -1,0 +1,173 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Mahima.Api.v3.clean.Helpers;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Npgsql;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/tasks")]
+    public class TasksController : ControllerBase
+    {
+        private readonly string _connStr;
+        private readonly ILogger<TasksController> _logger;
+
+        public TasksController(IConfiguration config, ILogger<TasksController> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            _connStr = config.GetConnectionString("DefaultConnection")
+                       ?? config["ConnectionStrings:DefaultConnection"]
+                       ?? throw new InvalidOperationException("Connection string not found");
+
+            SmsHelper.Initialize(config, logger);
+        }
+
+public class TaskDto
+{
+    public long? Id { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public DateTime? DueDate { get; set; }
+    public DateTime? CreatedAt { get; set; }
+
+    // ✅ FIX: accept ANY JSON (string OR object)
+    public object? Status { get; set; }
+}
+        // =========================
+        // ✅ TASKS
+        // =========================
+
+        [HttpGet]
+        public IActionResult GetAllTasks()
+        {
+            var sql = @"SELECT ""Id"", ""Title"", ""Description"", ""DueDate"", ""CreatedAt"", ""Status""
+                        FROM public.""Tasks""
+                        ORDER BY ""Id"" DESC;";
+
+            var list = new List<TaskDto>();
+
+            try
+            {
+                using var conn = new NpgsqlConnection(_connStr);
+                conn.Open();
+
+                using var cmd = new NpgsqlCommand(sql, conn);
+                using var rdr = cmd.ExecuteReader();
+
+                while (rdr.Read())
+                {
+                    list.Add(new TaskDto
+                    {
+                        Id = rdr.GetInt64(0),
+                        Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                        Description = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                        DueDate = rdr.IsDBNull(3) ? null : rdr.GetDateTime(3),
+                        CreatedAt = rdr.IsDBNull(4) ? null : rdr.GetDateTime(4),
+                        Status = rdr.IsDBNull(5) ? null : rdr.GetString(5)
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading tasks");
+                return StatusCode(500, "Database error");
+            }
+
+            return Ok(list);
+        }
+
+        [HttpGet("{id:long}")]
+        public async Task<IActionResult> GetTaskById(long id)
+        {
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+
+                var sql = @"SELECT ""Id"", ""Title"", ""Description"", ""Status""
+                            FROM public.""Tasks""
+                            WHERE ""Id""=@id;";
+
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("id", id);
+
+                await using var rdr = await cmd.ExecuteReaderAsync();
+
+                if (!await rdr.ReadAsync())
+                    return NotFound();
+
+                return Ok(new TaskDto
+                {
+                    Id = rdr.GetInt64(0),
+                    Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                    Description = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                    Status = rdr.IsDBNull(3) ? null : rdr.GetString(3)
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading task");
+                return StatusCode(500, "Database error");
+            }
+        }
+
+[HttpPost]
+public async Task<IActionResult> CreateTask([FromBody] TaskDto dto)
+{
+    try
+    {
+        await using var conn = new NpgsqlConnection(_connStr);
+        await conn.OpenAsync();
+
+        
+        var sql = @"INSERT INTO public.""Tasks"" 
+                    (""Title"", ""Description"", ""Status"", ""CreatedAt"")
+                    VALUES (@t, @d, @s, now())
+                    RETURNING ""Id"";";
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("t", (object?)dto.Title ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("d", (object?)dto.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("s", status);
+
+        var id = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+
+        return Ok(new { id });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error creating task");
+        return StatusCode(500, "Database error");
+    }
+} 
+
+       [HttpDelete("{id:long}")]
+        public async Task<IActionResult> DeleteTask(long id)
+        {
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+
+                var sql = @"DELETE FROM public.""Tasks"" WHERE ""Id""=@id;";
+
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("id", id);
+
+                await cmd.ExecuteNonQueryAsync();
+
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting task");
+                return StatusCode(500, "Database error");
+            }
+        }
+    }
+}

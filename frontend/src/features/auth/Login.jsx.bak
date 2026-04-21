@@ -1,0 +1,291 @@
+// src/features/auth/Login.jsx
+
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { login } from "../../utils/fetch-auth-shim";
+import { API_BASE } from "../../api";
+export default function Login() {
+  const navigate = useNavigate();
+
+  const [mode, setMode] = useState("login"); // login | register | forgot
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  /* ---------------- LOGIN ---------------- */
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await login({
+        usernameOrEmail: username,
+        password: password,
+      });
+
+      // 🔥 HANDLE DIFFERENT RESPONSE SHAPES SAFELY
+      const token = res?.token || res?.data?.token;
+      const user = res?.user || res?.data?.user;
+
+      if (!token) throw new Error("Invalid login response");
+
+      // ✅ STORE STANDARD KEYS (IMPORTANT)
+      //localStorage.setItem("token", token);
+
+     // if (user) {
+       // localStorage.setItem("user", JSON.stringify(user));
+      //}
+// ✅ STANDARD KEYS (MANDATORY)
+localStorage.setItem("authToken", token);
+localStorage.setItem("mahima_user", JSON.stringify(user));
+
+// ✅ Optional backward compatibility
+localStorage.setItem("token", token);
+localStorage.setItem("user", JSON.stringify(user));
+      console.log("✅ Logged in user:", user);
+
+      navigate("/home", { replace: true });
+
+    } catch (err) {
+      setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- REGISTER ---------------- */
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const payload = {
+        username,
+        password,
+        displayname: username,
+        role: "Member",
+        joindate: new Date().toISOString(),
+      };
+
+     // const res = await fetch("/api/users", {
+const res =  await fetch(`${API_BASE}/users`, {       
+ method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error("Account creation failed");
+
+      alert("Account created successfully! Please login.");
+      setMode("login");
+      setPassword("");
+
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- FORGOT ---------------- */
+
+  async function handleForgot(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      alert("Password reset link sent (mock)");
+      setMode("login");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- UI ---------------- */
+
+  return (
+    <div style={page}>
+      <div style={card}>
+        <h2 style={{ marginBottom: 5 }}>Mahima Ministry</h2>
+        <p style={{ color: "#666", marginBottom: 20 }}>
+          {mode === "login"
+            ? "Welcome back 👋"
+            : mode === "register"
+            ? "Create your account ✨"
+            : "Reset your password 🔑"}
+        </p>
+
+        {/* TABS */}
+        <div style={tabRow}>
+          <button
+            style={mode === "login" ? activeTab : tab}
+            onClick={() => setMode("login")}
+          >
+            Sign In
+          </button>
+          <button
+            style={mode === "register" ? activeTab : tab}
+            onClick={() => setMode("register")}
+          >
+            Create Account
+          </button>
+        </div>
+
+        {/* FORM */}
+        <form
+          onSubmit={
+            mode === "login"
+              ? handleLogin
+              : mode === "register"
+              ? handleRegister
+              : handleForgot
+          }
+        >
+          <input
+            style={input}
+            placeholder="Username / Email"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+          />
+
+          {mode !== "forgot" && (
+            <div style={{ position: "relative" }}>
+              <input
+                style={input}
+                type={showPwd ? "text" : "password"}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <span onClick={() => setShowPwd(!showPwd)} style={eye}>
+                {showPwd ? "🙈" : "👁"}
+              </span>
+            </div>
+          )}
+
+          {mode === "login" && (
+            <div style={row}>
+              <span style={link} onClick={() => setMode("forgot")}>
+                Forgot Password?
+              </span>
+            </div>
+          )}
+
+          {error && <div style={errorText}>{error}</div>}
+
+          <button style={button} disabled={loading}>
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+              ? "Login"
+              : mode === "register"
+              ? "Create Account"
+              : "Reset Password"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- STYLES ---------------- */
+
+const page = {
+  minHeight: "100vh",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
+};
+
+const card = {
+  width: 380,
+  padding: 30,
+  borderRadius: 14,
+  background: "#fff",
+  boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
+  textAlign: "center",
+};
+
+const tabRow = {
+  display: "flex",
+  marginBottom: 20,
+  gap: 8,
+};
+
+const activeTab = {
+  flex: 1,
+  padding: 10,
+  background: "#f59e0b",
+  color: "#fff",
+  border: "none",
+  borderRadius: 8,
+  cursor: "pointer",
+};
+
+const tab = {
+  flex: 1,
+  padding: 10,
+  background: "#eee",
+  border: "none",
+  borderRadius: 8,
+  cursor: "pointer",
+};
+
+const input = {
+  width: "100%",
+  padding: 12,
+  marginBottom: 12,
+  borderRadius: 8,
+  border: "1px solid #ddd",
+  fontSize: 14,
+};
+
+const eye = {
+  position: "absolute",
+  right: 10,
+  top: 12,
+  cursor: "pointer",
+};
+
+const row = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginBottom: 10,
+};
+
+const link = {
+  color: "#2563eb",
+  cursor: "pointer",
+  fontSize: 14,
+};
+
+const button = {
+  width: "100%",
+  padding: 12,
+  background: "#f59e0b",
+  color: "#fff",
+  border: "none",
+  borderRadius: 8,
+  cursor: "pointer",
+  fontWeight: "bold",
+};
+
+const errorText = {
+  color: "red",
+  marginBottom: 10,
+};

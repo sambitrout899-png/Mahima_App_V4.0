@@ -1,0 +1,184 @@
+// src/components/Layout.jsx
+
+import React, { useEffect, useState } from "react";
+import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { logout as authLogout } from "../features/auth/authService";
+import mahimaLogo from "../assets/mahima-logo.png";
+import { getCurrentUser } from "../features/auth/permissionService";
+
+export default function Layout() {
+  const navigate = useNavigate();
+
+  const [user, setUser] = useState(null);
+  const [allowedNav, setAllowedNav] = useState([]);
+
+  /* 🔥 MASTER NAV (ALL POSSIBLE PAGES) */
+  const ALL_NAV = [
+    { key: "DASHBOARD", label: "Home", to: "/home" },
+    { key: "USERS", label: "Users", to: "/users" },
+    { key: "TEAMS", label: "Teams", to: "/teams" },
+    { key: "TASKS", label: "Tasks", to: "/tasks" },
+    { key: "ROLES", label: "Roles", to: "/roles" },
+    { key: "PAGES", label: "Pages", to: "/pages" },
+    { key: "PAYROLL", label: "Payroll", to: "/payroll" },
+    { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+    { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+    { key: "MARRIAGE", label: "Marriage", to: "/marriage" },
+    { key: "BAPTISM", label: "Baptism", to: "/baptism" },
+    { key: "COUNSELLING", label: "Counselling", to: "/counselling" },
+    { key: "ADMIN", label: "Admin", to: "/admin/dashboard" },
+    { key: "COSTS", label: "Costs", to: "/costs" }
+  ];
+
+  /* 🔥 FALLBACK ROLE NAV */
+  const ROLE_NAV = {
+    admin: ALL_NAV,
+
+    member: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+
+    staff: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "TASKS", label: "Tasks", to: "/tasks" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+
+    volunteer: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "TASKS", label: "Tasks", to: "/tasks" },
+      { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/prayerrequests" },
+      { key: "PAGES", label: "Resources", to: "/pages" },
+    ],
+
+    /* ✅ FIX: Added Pastor */
+    pastor: [
+      { key: "DASHBOARD", label: "Home", to: "/home" },
+      { key: "USERS", label: "Users", to: "/users" },
+      { key: "ATTENDANCE", label: "Attendance", to: "/attendance" },
+      { key: "BAPTISM", label: "Baptism", to: "/baptism" },
+      { key: "COUNSELLING", label: "Counselling", to: "/counselling" },
+      { key: "PAYROLL", label: "Payroll", to: "/payroll" },
+    ],
+  };
+
+  useEffect(() => {
+    (async () => {
+      const u = await getCurrentUser();
+      setUser(u);
+
+      if (!u) return;
+
+      const role = (u.role || "").toLowerCase();
+
+      /* 🔥 FIX: normalize pages */
+      const userPages = (u.pages || []).map(p =>
+        String(p).toUpperCase()
+      );
+
+      if (userPages.length > 0) {
+        const filtered = ALL_NAV.filter((n) =>
+          userPages.includes(n.key)
+        );
+
+        /* 🔥 FIX: fallback if empty */
+        setAllowedNav(
+          filtered.length
+            ? filtered
+            : ROLE_NAV[role] || [{ label: "Home", to: "/home" }]
+        );
+      } else {
+        const nav =
+          ROLE_NAV[role] || [{ label: "Home", to: "/home" }];
+        setAllowedNav(nav);
+      }
+
+      /* 🔥 DEBUG (safe to keep or remove) */
+      console.log("USER:", u);
+      console.log("ROLE:", role);
+      console.log("PAGES:", userPages);
+
+    })();
+  }, []);
+
+  function onLogout() {
+    authLogout();
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
+      {/* HEADER */}
+      <header style={header}>
+        <Link to="/home" style={logoWrap}>
+          <img src={mahimaLogo} style={{ width: 40 }} />
+          <b>Mahima Ministry</b>
+        </Link>
+
+        {/* NAV */}
+        <nav style={nav}>
+          {allowedNav.map((p) => (
+            <NavLink
+              key={p.to}
+              to={p.to}
+              style={({ isActive }) => ({
+                ...link,
+                fontWeight: isActive ? "bold" : "normal",
+                color: isActive ? "#2f5bd8" : "#333",
+              })}
+            >
+              {p.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div>
+          <span style={{ marginRight: 10 }}>
+            {user?.username || "User"}
+          </span>
+          <button onClick={onLogout}>Logout</button>
+        </div>
+      </header>
+
+      <main style={{ padding: 20 }}>
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+
+/* ---------------- STYLES ---------------- */
+
+const header = {
+  display: "flex",
+  justifyContent: "space-between",
+  padding: 10,
+  background: "#fff",
+  alignItems: "center",
+  position: "sticky",
+  top: 0,
+  zIndex: 100,
+};
+
+const nav = {
+  display: "flex",
+  gap: 14,
+};
+
+const link = {
+  textDecoration: "none",
+  padding: "6px 10px",
+  borderRadius: 6,
+};
+
+const logoWrap = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  textDecoration: "none",
+  color: "#000",
+};

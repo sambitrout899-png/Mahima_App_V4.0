@@ -1,0 +1,6 @@
+@Mahima.Api.v3.clean_HostAddress = http://localhost:5113
+
+GET {{Mahima.Api.v3.clean_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

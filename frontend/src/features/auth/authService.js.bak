@@ -1,0 +1,87 @@
+/* File: src/features/auth/authService.js*/
+import api from "../../api";
+
+
+const TOKEN_KEY = "mahima_token";
+const USERNAME_KEY = "mahima_username";
+const ME_KEY = "me";
+
+
+/* --- simple normalizer so app always has `username` and `phone` fields ---*/
+function normalizeUser(u = {}) {
+if (!u || typeof u !== "object") return u;
+
+
+const username =
+u.username ??
+u.userName ??
+u.name ??
+(u.firstName || u.lastName ? [u.firstName, u.lastName].filter(Boolean).join(" ") : null) ??
+(u.email ? String(u.email).split("@")[0] : null);
+
+
+const phone =
+u.phone ?? u.mobile ?? u.phoneNumber ?? u.mobileNumber ?? u.contactNumber ?? null;
+
+
+return {
+...u,
+...(username ? { username } : {}),
+...(phone ? { phone } : {}),
+};
+}
+
+
+/* token helpers */
+export function getToken() {
+try {
+return localStorage.getItem(TOKEN_KEY);
+} catch {
+return null;
+}
+}
+
+
+export function setToken(token) {
+try {
+if (token) {
+localStorage.setItem(TOKEN_KEY, token);
+api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+} else {
+localStorage.removeItem(TOKEN_KEY);
+delete api.defaults.headers.common["Authorization"];
+}
+window.dispatchEvent(new CustomEvent("auth:change", { detail: { token } }));
+} catch {}
+}
+
+
+export function saveToken(token) {
+setToken(token);
+}
+
+
+export function removeToken() {
+try {
+localStorage.removeItem(TOKEN_KEY);
+delete api.defaults.headers.common["Authorization"];
+window.dispatchEvent(new CustomEvent("auth:change", { detail: { token: null } }));
+} catch {}
+}
+
+
+export const logout = removeToken;
+
+
+/* username helpers */
+export function getSavedUsername() {
+try {
+return localStorage.getItem(USERNAME_KEY);
+} catch {
+return null;
+}
+}
+
+
+export function setSavedUsername(name) {
+try {

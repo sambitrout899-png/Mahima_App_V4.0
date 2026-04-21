@@ -1,0 +1,442 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Mahima.Api.v3.clean.Helpers; // SmsHelper
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/tasks")]
+    public class TasksController : ControllerBase
+    {
+        private readonly string _connStr;
+        private readonly ILogger<TasksController> _logger;
+
+        public TasksController(IConfiguration config, ILogger<TasksController> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            if (config == null) throw new ArgumentNullException(nameof(config));
+
+            _connStr = config.GetConnectionString("DefaultConnection")
+                       ?? config["ConnectionStrings:DefaultConnection"]
+                       ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+            SmsHelper.Initialize(config, logger);
+        }
+
+        // DTO
+        public class TaskDto
+        {
+            public long? Id { get; set; }                   // bigint -> long
+            public string? Title { get; set; }
+            public string? Description { get; set; }
+
+            // Accept multiple assignees
+            public List<string>? AssigneeIds { get; set; }
+            // legacy single-assignee support
+            public string? AssigneeId { get; set; }
+
+            // read-only results
+            public List<string>? AssignedToNames { get; set; }
+            public List<string>? AssignedPhones { get; set; }
+
+            public long? TeamId { get; set; }
+            public bool? Completed { get; set; }
+            public int? Status { get; set; }               // integer -> int
+            public int? Priority { get; set; }
+            public DateTime? DueDate { get; set; }
+            public DateTime? CreatedAt { get; set; }
+            public DateTime? UpdatedAt { get; set; }
+        }
+
+        // GET /api/tasks  (returns assignee arrays)
+        [HttpGet]
+        public IActionResult GetAll()
+        {
+            var sql = @"
+SELECT 
+    t.""Id"", t.""Title"", t.""Description"", t.""TeamId"", t.""Status"", t.""Priority"",
+    t.""DueDate"", t.""CreatedAt"", t.""UpdatedAt"",
+    COALESCE(array_agg(ta.""UserId""::text) FILTER (WHERE ta.""UserId"" IS NOT NULL), ARRAY[]::text[]) AS ""AssigneeIds"",
+    COALESCE(array_agg(u.""displayname""::text) FILTER (WHERE u.""displayname"" IS NOT NULL), ARRAY[]::text[]) AS ""AssignedToNames"",
+    COALESCE(array_agg(u.""phone""::text) FILTER (WHERE u.""phone"" IS NOT NULL), ARRAY[]::text[]) AS ""AssignedPhones""
+FROM public.tasks t
+LEFT JOIN public.taskassignees ta ON ta.""TaskId"" = t.""Id""
+LEFT JOIN public.users u ON u.id = ta.""UserId""
+GROUP BY 
+    t.""Id"", t.""Title"", t.""Description"", t.""TeamId"", t.""Status"", t.""Priority"", t.""DueDate"", t.""CreatedAt"", t.""UpdatedAt""
+ORDER BY t.""Id"" DESC;
+";
+
+            var list = new List<TaskDto>();
+            try
+            {
+                using var conn = new NpgsqlConnection(_connStr);
+                conn.Open();
+                using var cmd = new NpgsqlCommand(sql, conn);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    var dto = new TaskDto
+                    {
+                        Id = rdr.IsDBNull(0) ? null : (long?)rdr.GetInt64(0),
+                        Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                        Description = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                        TeamId = rdr.IsDBNull(3) ? null : (long?)rdr.GetInt64(3),
+                        Status = rdr.IsDBNull(4) ? null : (int?)rdr.GetInt32(4),
+                        Priority = rdr.IsDBNull(5) ? null : (int?)rdr.GetInt32(5),
+                        DueDate = rdr.IsDBNull(6) ? null : (DateTime?)rdr.GetDateTime(6),
+                        CreatedAt = rdr.IsDBNull(7) ? null : (DateTime?)rdr.GetDateTime(7),
+                        UpdatedAt = rdr.IsDBNull(8) ? null : (DateTime?)rdr.GetDateTime(8),
+                        AssigneeIds = rdr.IsDBNull(9) ? new List<string>() : ((string[])rdr.GetValue(9)).ToList(),
+                        AssignedToNames = rdr.IsDBNull(10) ? new List<string>() : ((string[])rdr.GetValue(10)).ToList(),
+                        AssignedPhones = rdr.IsDBNull(11) ? new List<string>() : ((string[])rdr.GetValue(11)).ToList()
+                    };
+                    list.Add(dto);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading tasks");
+                return StatusCode(500, "Database error");
+            }
+
+            return Ok(list);
+        }
+
+        // GET /api/tasks/{id}
+        [HttpGet("{id:long}")]
+        public async Task<IActionResult> GetById(long id)
+        {
+            var sql = @"
+SELECT t.""Id"", t.""Title"", t.""Description"", t.""TeamId"", t.""Status"", t.""Priority"", t.""DueDate"", t.""CreatedAt"", t.""UpdatedAt""
+FROM public.tasks t
+WHERE t.""Id"" = @id;";
+
+            var assigneesSql = @"
+SELECT ta.""UserId""::text AS uid, u.""DisplayName"" AS name, u.""Phone"" AS phone
+FROM public.taskassignees ta
+LEFT JOIN public.users u ON u.id = ta.""UserId""
+WHERE ta.""TaskId"" = @id;";
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+                await using var rdr = await cmd.ExecuteReaderAsync();
+                if (!await rdr.ReadAsync()) return NotFound();
+
+                var dto = new TaskDto
+                {
+                    Id = rdr.IsDBNull(0) ? null : (long?)rdr.GetInt64(0),
+                    Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                    Description = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                    TeamId = rdr.IsDBNull(3) ? null : (long?)rdr.GetInt64(3),
+                    Status = rdr.IsDBNull(4) ? null : (int?)rdr.GetInt32(4),
+                    Priority = rdr.IsDBNull(5) ? null : (int?)rdr.GetInt32(5),
+                    DueDate = rdr.IsDBNull(6) ? null : (DateTime?)rdr.GetDateTime(6),
+                    CreatedAt = rdr.IsDBNull(7) ? null : (DateTime?)rdr.GetDateTime(7),
+                    UpdatedAt = rdr.IsDBNull(8) ? null : (DateTime?)rdr.GetDateTime(8),
+                };
+
+                await rdr.CloseAsync();
+
+                // load assignees
+                await using var aCmd = new NpgsqlCommand(assigneesSql, conn);
+                aCmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+                await using var aRdr = await aCmd.ExecuteReaderAsync();
+                var ids = new List<string>();
+                var names = new List<string>();
+                var phones = new List<string>();
+                while (await aRdr.ReadAsync())
+                {
+                    ids.Add(aRdr["uid"]?.ToString() ?? string.Empty);
+                    names.Add(aRdr["name"]?.ToString() ?? string.Empty);
+                    phones.Add(aRdr["phone"]?.ToString() ?? string.Empty);
+                }
+                dto.AssigneeIds = ids;
+                dto.AssignedToNames = names;
+                dto.AssignedPhones = phones;
+
+                return Ok(dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading task {TaskId}", id);
+                return StatusCode(500, "Database error");
+            }
+        }
+
+        // POST /api/tasks  (create) — supports AssigneeIds array
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] TaskDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            if (dto == null) return BadRequest("Empty payload");
+
+            var insertSql = @"
+INSERT INTO public.tasks 
+    (""Title"", ""Description"", ""TeamId"", ""Status"", ""Priority"", ""DueDate"", ""CreatedAt"", ""UpdatedAt"")
+VALUES (@title, @desc, @team, @status, @priority, @duedate, now(), now())
+RETURNING ""Id"";";
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+                await using var tx = await conn.BeginTransactionAsync();
+
+                // create task
+                await using var cmd = new NpgsqlCommand(insertSql, conn, tx);
+                cmd.Parameters.AddWithValue("title", (object?)dto.Title ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("team", dto.TeamId.HasValue ? (object)dto.TeamId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("status", dto.Status.HasValue ? (object)dto.Status.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("priority", dto.Priority.HasValue ? (object)dto.Priority.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("duedate", dto.DueDate.HasValue ? (object)dto.DueDate.Value : DBNull.Value);
+
+                var newIdObj = await cmd.ExecuteScalarAsync();
+                if (newIdObj == null) { await tx.RollbackAsync(); return StatusCode(500, "Failed to create task"); }
+                var newId = Convert.ToInt64(newIdObj);
+
+                // handle assignees (if provided) - also support legacy single field
+                var assigneeIds = dto.AssigneeIds ?? (string.IsNullOrWhiteSpace(dto.AssigneeId) ? new List<string>() : new List<string> { dto.AssigneeId });
+                if (assigneeIds.Any())
+                {
+                    // bulk insert into TaskAssignees
+                    await using var insertAssigneeCmd = new NpgsqlCommand("", conn, tx);
+                    var sb = new System.Text.StringBuilder();
+                    var paramIndex = 0;
+                    foreach (var userIdStr in assigneeIds)
+                    {
+                        if (!Guid.TryParse(userIdStr, out var userGuid)) continue;
+                        var pName = $"p{paramIndex++}";
+                        sb.AppendLine($@"INSERT INTO public.taskassignees (""TaskId"",""UserId"") VALUES (@task, @{pName});");
+                        insertAssigneeCmd.Parameters.AddWithValue(pName, NpgsqlDbType.Uuid, userGuid);
+                    }
+                    insertAssigneeCmd.CommandText = sb.ToString();
+                    if (!string.IsNullOrWhiteSpace(insertAssigneeCmd.CommandText))
+                    {
+                        insertAssigneeCmd.Parameters.AddWithValue("task", NpgsqlDbType.Bigint, newId);
+                        await insertAssigneeCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+                return CreatedAtAction(nameof(GetById), new { id = newId }, new { Id = newId });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating task");
+                return StatusCode(500, "Database error");
+            }
+        }
+
+        // PUT /api/tasks/{id} (update) — supports replacing assignees
+        [HttpPut("{id:long}")]
+        public async Task<IActionResult> Update(long id, [FromBody] TaskDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            if (dto == null) return BadRequest("Empty payload");
+
+            var updateSql = @"
+UPDATE public.tasks SET
+    ""Title"" = @title,
+    ""Description"" = @desc,
+    ""TeamId"" = @team,
+    ""Status"" = @status,
+    ""Priority"" = @priority,
+    ""DueDate"" = @duedate,
+    ""UpdatedAt"" = now()
+WHERE ""Id"" = @id;";
+
+            var deleteAssigneesSql = @"DELETE FROM public.taskassignees WHERE ""TaskId"" = @task;";
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+                await using var tx = await conn.BeginTransactionAsync();
+
+                await using var cmd = new NpgsqlCommand(updateSql, conn, tx);
+                cmd.Parameters.AddWithValue("title", (object?)dto.Title ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("team", dto.TeamId.HasValue ? (object)dto.TeamId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("status", dto.Status.HasValue ? (object)dto.Status.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("priority", dto.Priority.HasValue ? (object)dto.Priority.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("duedate", dto.DueDate.HasValue ? (object)dto.DueDate.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+
+                var rows = await cmd.ExecuteNonQueryAsync();
+                if (rows == 0) { await tx.RollbackAsync(); return NotFound(); }
+
+                // update assignees: delete existing and insert provided list if any
+                await using var delCmd = new NpgsqlCommand(deleteAssigneesSql, conn, tx);
+                delCmd.Parameters.AddWithValue("task", NpgsqlDbType.Bigint, id);
+                await delCmd.ExecuteNonQueryAsync();
+
+                var assigneeIds = dto.AssigneeIds ?? (string.IsNullOrWhiteSpace(dto.AssigneeId) ? new List<string>() : new List<string> { dto.AssigneeId });
+                if (assigneeIds.Any())
+                {
+                    await using var insertAssigneeCmd = new NpgsqlCommand("", conn, tx);
+                    var sb = new System.Text.StringBuilder();
+                    var paramIndex = 0;
+                    foreach (var userIdStr in assigneeIds)
+                    {
+                        if (!Guid.TryParse(userIdStr, out var userGuid)) continue;
+                        var pName = $"p{paramIndex++}";
+                        sb.AppendLine($@"INSERT INTO public.taskassignees (""TaskId"",""UserId"") VALUES (@task, @{pName});");
+                        insertAssigneeCmd.Parameters.AddWithValue(pName, NpgsqlDbType.Uuid, userGuid);
+                    }
+                    insertAssigneeCmd.CommandText = sb.ToString();
+                    if (!string.IsNullOrWhiteSpace(insertAssigneeCmd.CommandText))
+                    {
+                        insertAssigneeCmd.Parameters.AddWithValue("task", NpgsqlDbType.Bigint, id);
+                        await insertAssigneeCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                await tx.CommitAsync();
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating task {TaskId}", id);
+                return StatusCode(500, "Database error");
+            }
+        }
+
+        // DELETE /api/tasks/{id}
+        [HttpDelete("{id:long}")]
+        public async Task<IActionResult> DeleteTask(long id)
+        {
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+
+                // delete assignees first (cascade exists but we do explicit delete to be explicit)
+                var delA = @"DELETE FROM public.taskassignees WHERE ""TaskId"" = @id;";
+                await using (var c = new NpgsqlCommand(delA, conn)) { c.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id); await c.ExecuteNonQueryAsync(); }
+
+                var sql = @"DELETE FROM public.tasks WHERE ""Id"" = @id;";
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+
+                var rows = await cmd.ExecuteNonQueryAsync();
+                if (rows == 0)
+                    return NotFound(new { message = $"Task with id {id} not found" });
+
+                return Ok(new { message = "Task deleted successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete task {TaskId}", id);
+                return StatusCode(500, "Error deleting task");
+            }
+        }
+
+        // POST /api/tasks/{id}/send  — send notifications to all assignees
+        [HttpPost("{id:long}/send")]
+        public async Task<IActionResult> SendTask(long id)
+        {
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connStr);
+                await conn.OpenAsync();
+
+                // load task title/description and recipients
+                var sql = @"
+SELECT t.""Title"", t.""Description"", u.""Email"", u.""Phone"", u.""DisplayName""
+FROM public.taskassignees ta
+JOIN public.users u ON u.id = ta.""UserId""
+JOIN public.tasks t ON t.""Id"" = ta.""TaskId""
+WHERE ta.""TaskId"" = @id;";
+
+                var recipients = new List<(string Phone, string Email, string Name)>();
+                string? title = null;
+                string? desc = null;
+                await using (var cmd = new NpgsqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+                    await using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        if (title == null) title = rdr["Title"]?.ToString();
+                        if (desc == null) desc = rdr["Description"]?.ToString();
+
+                        var email = rdr["Email"]?.ToString();
+                        var phone = rdr["Phone"]?.ToString();
+                        var name = rdr["DisplayName"]?.ToString();
+                        recipients.Add((phone ?? "", email ?? "", name ?? ""));
+                    }
+
+                    if (recipients.Count == 0)
+                        return BadRequest("No assignees found for this task.");
+                }
+
+                // build message body once
+                var bodyBase = $"{title ?? ""}\n{desc ?? ""}";
+
+                // Send notifications to each recipient (sequential here; you can parallelize if desired)
+                var sendErrors = new List<string>();
+                foreach (var r in recipients)
+                {
+                    try
+                    {
+                        var personalized = $"Task assigned: {r.Name}\n{bodyBase}";
+                        if (!string.IsNullOrWhiteSpace(r.Phone))
+                        {
+                            await SmsHelper.SendSmsAsync(r.Phone, personalized, _logger);
+                            await SmsHelper.SendWhatsappAsync(r.Phone, personalized, _logger);
+                        }
+                        if (!string.IsNullOrWhiteSpace(r.Email))
+                        {
+                            _logger.LogInformation("Would send EMAIL to {Email} for task {TaskId}", r.Email, id);
+                            // integrate real email provider here if available
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send to recipient {Phone}/{Email}", r.Phone, r.Email);
+                        sendErrors.Add($"Failed to notify {r.Phone ?? r.Email}: {ex.Message}");
+                    }
+                }
+
+                // Update task status to In-Progress (best-effort)
+                var updateSql = @"UPDATE public.tasks SET ""Status"" = 1, ""UpdatedAt"" = now() WHERE ""Id"" = @id;";
+                await using (var ucmd = new NpgsqlCommand(updateSql, conn)) { ucmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id); await ucmd.ExecuteNonQueryAsync(); }
+
+                if (sendErrors.Any())
+                    return StatusCode(207, new { message = "Some notifications failed", errors = sendErrors });
+
+                return Ok(new { message = "Notification(s) sent", status = "In-Progress", recipients = recipients.Count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send notifications for task {TaskId}", id);
+                return StatusCode(500, "Error sending notification");
+            }
+        }
+
+        // helper to fetch title + description succinctly (for message)
+        private static async Task<string> GetTaskTitleDescription(NpgsqlConnection conn, long id)
+        {
+            var sql = @"SELECT coalesce(""Title"",'') || ' - ' || coalesce(""Description"",'') FROM public.tasks WHERE ""Id"" = @id;";
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("id", NpgsqlDbType.Bigint, id);
+            var obj = await cmd.ExecuteScalarAsync();
+            return obj?.ToString() ?? "";
+        }
+    }
+}

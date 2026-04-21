@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mahima Frontend</title>
+
+    <!-- fonts -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+      html,body {
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        margin: 0;
+        height: 100%;
+      }
+    </style>
+
+    <!--
+      Runtime API base override:
+      - During local development this ensures frontend hits your backend at http://localhost:5001/api
+      - If you want to override this in another environment, set window.__API_BASE__ before this file is loaded.
+    -->
+    <script>
+      (function () {
+        try {
+          // Only set when not already set (so deployments can inject their own value)
+          if (typeof window !== "undefined" && !window.__API_BASE__) {
+            window.__API_BASE__ = "https://www.mahimaministries.com/api";
+	    -window.__API_BASE__ = "http://localhost:5001/api";
+            console.info("window.__API_BASE__ set to", window.__API_BASE__);
+          }
+        } catch (e) {
+          // noop
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-D9XsZYEy.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BNQ9G_xC.css">
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- app entry -->
+  </body>
+</html>
+
+

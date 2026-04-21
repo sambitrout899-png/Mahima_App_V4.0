@@ -1,0 +1,279 @@
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
+const BTN = "bg-amber-500 text-white px-4 py-2 rounded";
+const CARD = "bg-white p-4 rounded shadow";
+
+export default function CostsPage() {
+  const [accounts, setAccounts] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [ledger, setLedger] = useState([]);
+
+  const [view, setView] = useState("dashboard");
+  const [selectedAccount, setSelectedAccount] = useState(null);
+
+  const [expenseModal, setExpenseModal] = useState(false);
+  const [accountModal, setAccountModal] = useState(false);
+  const [balanceModal, setBalanceModal] = useState(null);
+
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const [balanceSheet, setBalanceSheet] = useState({ assets: [], liabilities: [] });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // ================= FETCH =================
+  const fetchData = async () => {
+    try {
+      const [a, b] = await Promise.all([
+        axios.get("/api/accounting/accounts"),
+        axios.get("/api/accounting/balances"),
+      ]);
+
+      setAccounts(a.data || []);
+      setBalances(b.data || []);
+    } catch (err) {
+      console.error("Fetch error", err);
+    }
+  };
+
+  // ================= LEDGER =================
+  const loadLedger = async (acc) => {
+    try {
+      setSelectedAccount(acc);
+
+      const res = await axios.get(
+        `/api/accounting/ledger/${acc.id}?fromDate=${fromDate}&toDate=${toDate}`
+      );
+
+      setLedger(res.data || []);
+      setView("ledger");
+    } catch (e) {
+      console.error(e);
+      alert("Error loading ledger");
+    }
+  };
+
+  // ================= BALANCE SHEET =================
+  const loadBalanceSheet = async () => {
+    try {
+      const res = await axios.get("/api/accounting/balances");
+
+      const assets = res.data.filter(x => x.type === "ASSET");
+      const liabilities = res.data.filter(x => x.type === "LIABILITY");
+
+      setBalanceSheet({ assets, liabilities });
+      setView("bs");
+    } catch (e) {
+      console.error(e);
+      alert("Error loading balance sheet");
+    }
+  };
+
+  // ================= SAVE EXPENSE =================
+  const saveExpense = async (form) => {
+    try {
+      if (!form.date || !form.description || !form.amount || !form.debitAccountId || !form.creditAccountId) {
+        alert("Please fill all fields");
+        return;
+      }
+
+      if (form.debitAccountId === form.creditAccountId) {
+        alert("Debit and Credit cannot be same");
+        return;
+      }
+
+      await axios.post("/api/accounting/journal", {
+        date: new Date(form.date).toISOString(),
+        description: form.description,
+        lines: [
+          {
+            accountId: Number(form.debitAccountId),
+            debit: Number(form.amount),
+            credit: 0
+          },
+          {
+            accountId: Number(form.creditAccountId),
+            debit: 0,
+            credit: Number(form.amount)
+          }
+        ]
+      });
+
+      alert("Saved Successfully");
+      setExpenseModal(false);
+      fetchData();
+
+    } catch (err) {
+      console.error(err);
+      alert("Error saving entry");
+    }
+  };
+
+  // ================= OPENING BALANCE =================
+  const saveOpeningBalance = async (data) => {
+    try {
+      await axios.post("/api/accounting/opening-balance", {
+        accountId: data.accountId,
+        amount: Number(data.amount),
+      });
+
+      setBalanceModal(null);
+      fetchData();
+    } catch (e) {
+      alert("Error saving balance");
+    }
+  };
+
+  // ================= EBITDA =================
+  const revenue = balances
+    .filter(b => b.type === "INCOME")
+    .reduce((s, b) => s + Math.abs(b.balance), 0);
+
+  const expense = balances
+    .filter(b => b.type === "EXPENSE")
+    .reduce((s, b) => s + b.balance, 0);
+
+  const ebidta = revenue - expense;
+
+  return (
+    <div className="p-6 bg-gray-100 min-h-screen">
+
+      {/* HEADER */}
+      <div className="flex justify-between mb-4">
+        <h1 className="text-2xl font-bold">Mahima Accounting</h1>
+
+        <div className="flex gap-2">
+          <button onClick={() => window.print()} className="bg-gray-700 text-white px-3 py-1 rounded">Print</button>
+          <button onClick={() => setExpenseModal(true)} className={BTN}>+ Expense</button>
+          <button onClick={() => setAccountModal(true)} className="bg-blue-500 text-white px-3 py-1 rounded">+ Account</button>
+        </div>
+      </div>
+
+      {/* DATE FILTER */}
+      <div className="flex gap-2 mb-4">
+        <input type="date" onChange={e => setFromDate(e.target.value)} />
+        <input type="date" onChange={e => setToDate(e.target.value)} />
+      </div>
+
+      {/* NAV */}
+      <div className="flex gap-2 mb-4">
+        {["dashboard", "coa", "ledger", "pnl", "bs"].map(v => (
+          <button key={v}
+            onClick={() => v === "bs" ? loadBalanceSheet() : setView(v)}
+            className={`px-3 py-1 rounded ${view === v ? "bg-amber-500 text-white" : "bg-gray-200"}`}>
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* DASHBOARD */}
+      {view === "dashboard" && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {balances.map(b => (
+            <div key={b.accountId}
+              onClick={() => setBalanceModal(b)}
+              className={`${CARD} cursor-pointer`}>
+              <div>{b.accountName}</div>
+              <div className="font-bold text-lg">₹{b.balance}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* COA */}
+      {view === "coa" && (
+        <div className={CARD}>
+          {["ASSET", "LIABILITY", "INCOME", "EXPENSE"].map(type => (
+            <div key={type}>
+              <h4 className="font-bold">{type}</h4>
+              {accounts.filter(a => a.type === type).map(a => (
+                <div key={a.id}>{a.name}</div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* LEDGER */}
+      {view === "ledger" && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className={CARD}>
+            {accounts.map(a => (
+              <div key={a.id}
+                className="cursor-pointer"
+                onClick={() => loadLedger(a)}>
+                {a.name}
+              </div>
+            ))}
+          </div>
+
+          <div className={`${CARD} col-span-2`}>
+            {ledger.length === 0 && <div>No entries</div>}
+            {ledger.map((l, i) => (
+              <div key={i} className="flex justify-between border-b py-1">
+                <span>{l.description}</span>
+                <span>Dr {l.debit} | Cr {l.credit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PNL */}
+      {view === "pnl" && (
+        <div className={CARD}>
+          <div>Revenue ₹{revenue}</div>
+          <div>Expense ₹{expense}</div>
+          <div className="font-bold">EBITDA ₹{ebidta}</div>
+        </div>
+      )}
+
+      {/* BALANCE SHEET */}
+      {view === "bs" && (
+        <div className={CARD}>
+          <h3 className="font-bold mb-2">Balance Sheet</h3>
+          <div className="grid grid-cols-2 gap-4">
+
+            <div>
+              <h4 className="font-bold">Assets</h4>
+              {balanceSheet.assets.map((a, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>{a.accountName}</span>
+                  <span>₹{a.balance}</span>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <h4 className="font-bold">Liabilities</h4>
+              {balanceSheet.liabilities.map((l, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>{l.accountName}</span>
+                  <span>₹{l.balance}</span>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      {expenseModal && (
+        <ExpenseModal accounts={accounts} onClose={() => setExpenseModal(false)} onSave={saveExpense} />
+      )}
+
+      {accountModal && (
+        <AccountModal onClose={() => setAccountModal(false)} onSaved={fetchData} />
+      )}
+
+      {balanceModal && (
+        <BalanceModal data={balanceModal} onClose={() => setBalanceModal(null)} onSave={saveOpeningBalance} />
+      )}
+    </div>
+  );
+}

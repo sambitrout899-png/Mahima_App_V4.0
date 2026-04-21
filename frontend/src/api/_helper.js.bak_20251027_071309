@@ -1,0 +1,33 @@
+﻿// _helper.js - call() centralizes base URL and JSON handling
+const BASE = import.meta.env.VITE_API_BASE_URL || "";
+
+export async function call(pathOrUrl, opts = {}) {
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : (BASE.replace(/\/$/, "") + (pathOrUrl.startsWith("/") ? "" : "/") + pathOrUrl);
+  const options = { credentials: "include", headers: { "Content-Type": "application/json", ...(opts.headers||{}) }, ...opts };
+  const res = await fetch(url, options);
+  const text = await res.text();
+  const ct = res.headers.get("content-type")||"";
+  if (!res.ok) {
+    const err = new Error(`API error (${res.status}): ${res.statusText}`);
+    err.status = res.status;
+    try { err.body = ct.includes("application/json") ? JSON.parse(text) : text } catch { err.body = text }
+    throw err;
+  }
+  if (!text) return null;
+  if (ct.includes("application/json")) return JSON.parse(text);
+  return text;
+}
+
+// remove undefined and empty-string fields
+export function cleanPayload(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = {};
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v === undefined) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    out[k] = v;
+  }
+  return out;
+}
+

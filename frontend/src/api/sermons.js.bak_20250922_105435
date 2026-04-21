@@ -1,0 +1,13 @@
+import { call, cleanPayload } from "./_helper";
+
+export const sermonsApi = {
+  list: () => call("/api/sermons"),
+  get: (id) => call(`/api/sermons/${id}`),
+  // backend may not support create/update/delete for sermons
+  create: (p) => {
+    const payload = cleanPayload(p) || {};
+    delete payload.id; delete payload.Id;
+    try { console.debug("[sermonsApi.create] payload:", payload); } catch(e) {}
+    return call("/api/sermons", { method: "POST", body: JSON.stringify(payload) });
+  }
+};

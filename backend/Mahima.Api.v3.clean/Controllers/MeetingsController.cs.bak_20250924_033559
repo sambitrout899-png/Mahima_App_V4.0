@@ -1,0 +1,34 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Mahima.Api.v3.clean;
+using Mahima.Api.v3.clean.Models;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class MeetingsController : ControllerBase
+    {
+        private readonly MahimaDbContext _db;
+        public MeetingsController(MahimaDbContext db) { _db = db; }
+
+        [HttpGet]
+        public async Task<IActionResult> List() => Ok(await _db.Meetings.ToListAsync());
+
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] Meeting m)
+        {
+            _db.Meetings.Add(m);
+            await _db.SaveChangesAsync();
+            return CreatedAtAction(nameof(Get), new { id = m.Id }, m);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(long id)
+        {
+            var m = await _db.Meetings.FindAsync(id);
+            return m == null ? NotFound() : Ok(m);
+        }
+    }
+}

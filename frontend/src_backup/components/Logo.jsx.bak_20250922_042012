@@ -1,0 +1,17 @@
+﻿import React from "react";
+import { Link } from "react-router-dom";
+
+export default function Logo({ size = 60 }) {
+  return (
+    <Link to="/" className="flex items-center space-x-2">
+      <img
+        src="/logo.png"
+        alt="Mahima Ministry"
+        width={size}
+        height={size}
+        className="rounded"
+      />
+      <span className="text-2xl font-bold text-red-700">Mahima Ministry</span>
+    </Link>
+  );
+}

@@ -1,0 +1,25 @@
+using Mahima.Api.v3.clean.Data;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Mahima.Api.v3.clean;
+
+namespace Mahima.Api.v3.clean.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class SermonsController : ControllerBase
+    {
+        private readonly MahimaDbContext _db;
+        public SermonsController(MahimaDbContext db) { _db = db; }
+
+        [HttpGet]
+        public async Task<IActionResult> List() => Ok(await _db.Sermons.ToListAsync());
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(long id)
+        {
+            var s = await _db.Sermons.FindAsync(id);
+            return s == null ? NotFound() : Ok(s);
+        }
+    }
+}

@@ -1,0 +1,198 @@
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : Saturday, October 18, 2025 10:48:25 PM
+   Source : C:\users\Administrator\projects\mahima-frontend\dist\
+     Dest : C:\inetpub\wwwroot\
+
+    Files : *.*
+	    
+  Options : *.* /NDL /NFL /S /E /DCOPY:DA /COPY:DAT /PURGE /MIR /Z /NP /R:3 /W:3 
+
+------------------------------------------------------------------------------
+
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\
+	  *EXTRA File 		     652	C:\inetpub\wwwroot\MahimaApi\publish\appsettings.Development.json
+	  *EXTRA File 		     675	C:\inetpub\wwwroot\MahimaApi\publish\appsettings.json
+	  *EXTRA File 		   1.0 m	C:\inetpub\wwwroot\MahimaApi\publish\AWSSDK.Core.dll
+	  *EXTRA File 		  628736	C:\inetpub\wwwroot\MahimaApi\publish\AWSSDK.S3.dll
+	  *EXTRA File 		  104960	C:\inetpub\wwwroot\MahimaApi\publish\AWSSDK.SecretsManager.dll
+	  *EXTRA File 		   62489	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.deps.json
+	  *EXTRA File 		  393216	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.dll
+Access is denied.
+
+	  *EXTRA File 		  157696	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.exe
+	  *EXTRA File 		   88592	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.pdb
+	  *EXTRA File 		     557	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.runtimeconfig.json
+	  *EXTRA File 		      53	C:\inetpub\wwwroot\MahimaApi\publish\Mahima.Api.staticwebassets.endpoints.json
+	  *EXTRA File 		   48256	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+Access is denied.
+
+	  *EXTRA File 		   65696	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.AspNetCore.OpenApi.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.AspNetCore.OpenApi.dll
+Access is denied.
+
+	  *EXTRA File 		   34704	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.EntityFrameworkCore.Abstractions.dll
+	  *EXTRA File 		   1.9 m	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.EntityFrameworkCore.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.EntityFrameworkCore.dll
+Access is denied.
+
+	  *EXTRA File 		   1.7 m	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.EntityFrameworkCore.Relational.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.EntityFrameworkCore.Relational.dll
+Access is denied.
+
+	  *EXTRA File 		   28448	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Configuration.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Configuration.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   61240	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   31016	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Diagnostics.Abstractions.dll
+	  *EXTRA File 		   23728	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.FileProviders.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.FileProviders.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   51888	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Hosting.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Hosting.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   65336	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Logging.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Logging.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   25384	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.ObjectPool.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.ObjectPool.dll
+Access is denied.
+
+	  *EXTRA File 		   65296	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Options.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Options.dll
+Access is denied.
+
+	  *EXTRA File 		   44312	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Primitives.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.Extensions.Primitives.dll
+Access is denied.
+
+	  *EXTRA File 		   16800	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Abstractions.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Abstractions.dll
+Access is denied.
+
+	  *EXTRA File 		   72088	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.JsonWebTokens.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.JsonWebTokens.dll
+Access is denied.
+
+	  *EXTRA File 		   33168	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Logging.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Logging.dll
+Access is denied.
+
+	  *EXTRA File 		   36216	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Protocols.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Protocols.dll
+Access is denied.
+
+	  *EXTRA File 		  111008	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+Access is denied.
+
+	  *EXTRA File 		  923016	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Tokens.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.IdentityModel.Tokens.dll
+Access is denied.
+
+	  *EXTRA File 		  211344	C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.OpenApi.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Microsoft.OpenApi.dll
+Access is denied.
+
+	  *EXTRA File 		  695336	C:\inetpub\wwwroot\MahimaApi\publish\Newtonsoft.Json.dll
+	  *EXTRA File 		   1.2 m	C:\inetpub\wwwroot\MahimaApi\publish\Npgsql.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Npgsql.dll
+Access is denied.
+
+	  *EXTRA File 		  565248	C:\inetpub\wwwroot\MahimaApi\publish\Npgsql.EntityFrameworkCore.PostgreSQL.dll
+	  *EXTRA File 		   12672	C:\inetpub\wwwroot\MahimaApi\publish\package-lock.json
+	  *EXTRA File 		      90	C:\inetpub\wwwroot\MahimaApi\publish\package.json
+	  *EXTRA File 		   79872	C:\inetpub\wwwroot\MahimaApi\publish\SendGrid.dll
+	  *EXTRA File 		   26112	C:\inetpub\wwwroot\MahimaApi\publish\StarkbankEcdsa.dll
+	  *EXTRA File 		   15360	C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.Swagger.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.Swagger.dll
+Access is denied.
+
+	  *EXTRA File 		   96768	C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.SwaggerGen.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.SwaggerGen.dll
+Access is denied.
+
+	  *EXTRA File 		   3.2 m	C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.SwaggerUI.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Swashbuckle.AspNetCore.SwaggerUI.dll
+Access is denied.
+
+	  *EXTRA File 		  164632	C:\inetpub\wwwroot\MahimaApi\publish\System.Diagnostics.DiagnosticSource.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\System.Diagnostics.DiagnosticSource.dll
+Access is denied.
+
+	  *EXTRA File 		   88984	C:\inetpub\wwwroot\MahimaApi\publish\System.IdentityModel.Tokens.Jwt.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\System.IdentityModel.Tokens.Jwt.dll
+Access is denied.
+
+	  *EXTRA File 		   80144	C:\inetpub\wwwroot\MahimaApi\publish\System.IO.Pipelines.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\System.IO.Pipelines.dll
+Access is denied.
+
+	  *EXTRA File 		   55600	C:\inetpub\wwwroot\MahimaApi\publish\System.Net.WebSockets.WebSocketProtocol.dll
+	  *EXTRA File 		   71344	C:\inetpub\wwwroot\MahimaApi\publish\System.Text.Encodings.Web.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\System.Text.Encodings.Web.dll
+Access is denied.
+
+	  *EXTRA File 		   53424	C:\inetpub\wwwroot\MahimaApi\publish\System.Threading.Channels.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\System.Threading.Channels.dll
+Access is denied.
+
+	  *EXTRA File 		   5.1 m	C:\inetpub\wwwroot\MahimaApi\publish\Twilio.dll
+2025/10/18 22:48:25 ERROR 5 (0x00000005) Deleting Extra File C:\inetpub\wwwroot\MahimaApi\publish\Twilio.dll
+Access is denied.
+
+	  *EXTRA File 		     496	C:\inetpub\wwwroot\MahimaApi\publish\web.config
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\publish\
+	  *EXTRA File 		     652	C:\inetpub\wwwroot\MahimaApi\publish\publish\appsettings.Development.json
+	  *EXTRA File 		     675	C:\inetpub\wwwroot\MahimaApi\publish\publish\appsettings.json
+	  *EXTRA File 		   62489	C:\inetpub\wwwroot\MahimaApi\publish\publish\Mahima.Api.deps.json
+	  *EXTRA File 		     557	C:\inetpub\wwwroot\MahimaApi\publish\publish\Mahima.Api.runtimeconfig.json
+	  *EXTRA File 		      53	C:\inetpub\wwwroot\MahimaApi\publish\publish\Mahima.Api.staticwebassets.endpoints.json
+	  *EXTRA File 		   12672	C:\inetpub\wwwroot\MahimaApi\publish\publish\package-lock.json
+	  *EXTRA File 		      90	C:\inetpub\wwwroot\MahimaApi\publish\publish\package.json
+	  *EXTRA File 		     496	C:\inetpub\wwwroot\MahimaApi\publish\publish\web.config
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\
+	  *EXTRA File 		     652	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\appsettings.Development.json
+	  *EXTRA File 		     675	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\appsettings.json
+	  *EXTRA File 		   68640	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\Mahima.Api.deps.json
+	  *EXTRA File 		     557	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\Mahima.Api.runtimeconfig.json
+	  *EXTRA File 		      53	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\Mahima.Api.staticwebassets.endpoints.json
+	  *EXTRA File 		   12672	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\package-lock.json
+	  *EXTRA File 		      90	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\package.json
+	  *EXTRA File 		     477	C:\inetpub\wwwroot\MahimaApi\publish\publish\publish\web.config
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\runtimes\
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\runtimes\browser\
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\runtimes\browser\lib\
+	*EXTRA Dir        -1	C:\inetpub\wwwroot\MahimaApi\publish\runtimes\browser\lib\net7.0\
+	  *EXTRA File 		   71344	C:\inetpub\wwwroot\MahimaApi\publish\runtimes\browser\lib\net7.0\System.Text.Encodings.Web.dll
+2025/10/18 22:48:25 ERROR 32 (0x00000020) Deleting Extra Directory C:\inetpub\wwwroot\MahimaApi\publish\
+The process cannot access the file because it is being used by another process.
+
+	  *EXTRA File 		    1220	C:\inetpub\wwwroot\web.config
+
+------------------------------------------------------------------------------
+
+               Total    Copied   Skipped  Mismatch    FAILED    Extras
+    Dirs :         2         0         2         0         0         8
+   Files :         9         4         5         0         0        68
+   Bytes :    2.70 m   430.8 k    2.28 m         0         0   19.74 m
+   Times :   0:00:00   0:00:00                       0:00:00   0:00:00
+
+
+   Speed :           110,294,000 Bytes/sec.
+   Speed :             6,311.073 MegaBytes/min.
+   Ended : Saturday, October 18, 2025 10:48:25 PM
+

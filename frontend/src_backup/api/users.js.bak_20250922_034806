@@ -1,0 +1,32 @@
+﻿import { call, cleanPayload } from "./_helper";
+
+export const usersApi = {
+  list: () => call("/api/users"),
+
+  get: (id) => call('/api/users/),
+
+  create: (p) => call('/api/users, { method: "POST", body: JSON.stringify(cleanPayload(p)) }),
+
+  update: async (id, p) => {
+    const payload = cleanPayload(p);
+    try {
+      // try PUT first (standard)
+      return await call('/api/users/, { method: "PUT", body: JSON.stringify(payload) });
+    } catch (e) {
+      // if server says method not allowed (405), fallback to POST to collection with id in payload
+      try {
+        if (e && e.status === 405) {
+          const fallback = { ...payload, id: id };
+          try { console.debug('[API fallback] PUT returned 405, retrying with POST to /api/users', fallback); } catch {}
+          return await call('/api/users, { method: "POST", body: JSON.stringify(fallback) });
+        }
+      } catch (inner) {
+        // rethrow original or inner error
+        throw inner || e;
+      }
+      throw e;
+    }
+  },
+
+  remove: (id) => call('/api/users/, { method: "DELETE" })
+};

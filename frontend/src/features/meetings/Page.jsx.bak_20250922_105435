@@ -1,0 +1,111 @@
+import React, { useEffect, useState } from 'react';
+import { meetingsApi } from '../../api/meetings';
+
+export default function Page() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await meetingsApi.list();
+      setItems(Array.isArray(res) ? res : []);
+    } catch (e) {
+      console.error('Load error:', e);
+      setError(e && e.message ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function handleAdd() {
+    // simple prompt for JSON to keep this minimal â€” paste something like: {"name":"Test","description":"x"}
+    const raw = prompt('Enter JSON for new meetings (example: {\"name\":\"Test\"}):');
+    if (!raw) return;
+    let payload;
+    try { payload = JSON.parse(raw); } catch (ex) { alert('Invalid JSON'); return; }
+    try {
+      console.debug('[meetings create] payload', payload);
+      await meetingsApi.create(payload);
+      await load();
+      alert('Created');
+    } catch (e) {
+      console.error('Create error', e);
+      alert('Create failed: ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Delete record ' + id + '?')) return;
+    try {
+      await meetingsApi.remove(id);
+      await load();
+      alert('Deleted');
+    } catch (e) {
+      console.error('Delete error', e);
+      alert('Delete failed: ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  if (loading) return <div className='text-center py-10'>Loading...</div>;
+  if (error) return <div className='text-center py-10 text-red-600'>Error: {String(error)}</div>;
+
+  // show empty state
+  if (!items || items.length === 0) {
+    return (
+      <div className='space-y-4'>
+        <div className='flex justify-between items-center'>
+          <h2 className='text-xl font-semibold capitalize'>{'meetings'}</h2>
+          <div>
+            <button className='px-3 py-1 bg-red-600 text-white rounded' onClick={handleAdd}>Add Record</button>
+          </div>
+        </div>
+        <div className='p-6 bg-white rounded shadow'>No records found.</div>
+      </div>
+    );
+  }
+
+  // derive columns from first item
+  const cols = Object.keys(items[0]);
+
+  return (
+    <div>
+      <div className='flex justify-between items-center mb-4'>
+        <h2 className='text-xl font-semibold capitalize'>{'meetings'}</h2>
+        <div>
+          <button className='px-3 py-1 bg-red-600 text-white rounded' onClick={handleAdd}>Add Record</button>
+        </div>
+      </div>
+
+      <div className='overflow-auto rounded shadow'>
+        <table className='min-w-full divide-y divide-red-200 bg-red-50'>
+          <thead className='bg-red-100'>
+            <tr>
+              {cols.map(c => (
+                <th key={c} className='px-4 py-2 text-left text-sm font-medium text-red-700'>{c}</th>
+              ))}
+              <th className='px-4 py-2 text-left text-sm font-medium text-red-700'>Actions</th>
+            </tr>
+          </thead>
+          <tbody className='bg-white divide-y divide-red-200'>
+            {items.map((it, idx) => (
+              <tr key={idx} className='hover:bg-red-50'>
+                {cols.map(c => (
+                  <td key={c} className='px-4 py-2 text-sm text-gray-700'>{String(it[c] ?? '')}</td>
+                ))}
+                <td className='px-4 py-2'>
+                  <button className='px-2 py-1 mr-2 border rounded text-sm' onClick={() => navigator.clipboard?.writeText(JSON.stringify(it))}>Copy</button>
+                  <button className='px-2 py-1 bg-red-600 text-white rounded text-sm' onClick={() => handleDelete(it.id ?? it.Id ?? it.ID ?? it.ID)}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

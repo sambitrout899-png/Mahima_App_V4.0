@@ -1,0 +1,9 @@
+{
+  "hero": {
+    "enabled": true,
+    "backgroundImage": "/assets/mahimachurch-hero.jpg",
+    "posterPrimary": "/glory-to-grace.jpg",
+    "posterFallback": "/assets/glory-to-grace.jpg",
+    "phones": ["+91 89711 24659", "+91 77430 48757"]
+  }
+}

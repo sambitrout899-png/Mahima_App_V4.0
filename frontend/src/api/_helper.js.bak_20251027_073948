@@ -1,0 +1,65 @@
+﻿/**
+ * _helper.js - normalized API call helper (deploy-provided)
+ * Exports: cleanPayload, call
+ */
+const getApiBase = () => {
+  const base = (typeof window !== "undefined" && window.__API_BASE__) || process.env.REACT_APP_API_URL || "/api";
+  return base.toString().replace(/\/+$/g, "");
+};
+
+function buildUrl(pathOrUrl) {
+  if (!pathOrUrl) return getApiBase();
+  let p = pathOrUrl.toString();
+  if (/^https?:\/\//i.test(p)) return p;
+  p = p.replace(/^\/+/, '');
+  const base = getApiBase();
+  if (/\/?api$/i.test(base) && /^api\//i.test(p)) { p = p.replace(/^api\//i, ''); }
+  if (!p) return base || '/api';
+  return base.replace(/\/+$/g, '') + '/' + p.replace(/^\/+/, '');
+}
+
+export function cleanPayload(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  const result = Array.isArray(obj) ? [] : {};
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') {
+      const cleaned = cleanPayload(v);
+      if (cleaned === null) continue;
+      if (typeof cleaned === 'object' && !Array.isArray(cleaned) && Object.keys(cleaned).length === 0) continue;
+      result[k] = cleaned;
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+export async function call(pathOrUrl, opts = {}) {
+  const url = buildUrl(pathOrUrl);
+  const defaultHeaders = { Accept: 'application/json' };
+
+  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+    opts.headers = opts.headers || {};
+    if (!opts.headers['Content-Type'] && !opts.headers['content-type']) {
+      opts.headers['Content-Type'] = 'application/json';
+    }
+    opts.body = JSON.stringify(cleanPayload(opts.body));
+  }
+
+  const fetchOpts = Object.assign({}, { credentials: 'same-origin' }, opts);
+  fetchOpts.headers = Object.assign({}, defaultHeaders, (fetchOpts.headers || {}));
+
+  const res = await fetch(url, fetchOpts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let body;
+    try { body = text ? JSON.parse(text) : null } catch { body = text; }
+    const err = new Error(`HTTP ${res.status} ${res.statusText}`);
+    err.status = res.status; err.response = body; throw err;
+  }
+  const ct = res.headers.get('content-type') || '';
+  return ct.indexOf('application/json') !== -1 ? res.json() : res.text();
+}

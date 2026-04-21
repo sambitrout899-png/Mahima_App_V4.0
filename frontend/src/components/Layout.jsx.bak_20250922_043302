@@ -1,0 +1,34 @@
+import React from "react";
+import { NavLink } from "react-router-dom";
+import Logo from "./Logo";
+
+/**
+ * Simple site layout for Mahima frontend.
+ * Replace or edit this file if you had a custom layout â€” a backup was created.
+ */
+export default function Layout({ children }) {
+  return (
+    <div className="min-h-screen bg-red-50">
+      <header className="flex items-center justify-between px-6 py-4 bg-red-100 shadow">
+        <Logo size={52} />
+        <nav className="space-x-4">
+          <NavLink to="/users" className="hover:text-red-700">Users</NavLink>
+          <NavLink to="/teams" className="hover:text-red-700">Teams</NavLink>
+          <NavLink to="/tasks" className="hover:text-red-700">Tasks</NavLink>
+          <NavLink to="/sermons" className="hover:text-red-700">Sermons</NavLink>
+          <NavLink to="/prayerrequests" className="hover:text-red-700">PrayerRequests</NavLink>
+          <NavLink to="/meetings" className="hover:text-red-700">Meetings</NavLink>
+          <NavLink to="/attachments" className="hover:text-red-700">Attachments</NavLink>
+        </nav>
+      </header>
+
+      <main className="p-6 max-w-7xl mx-auto">
+        {children}
+      </main>
+
+      <footer className="p-4 text-center text-sm text-gray-500">
+        Â© {new Date().getFullYear()} Mahima Ministry
+      </footer>
+    </div>
+  );
+}

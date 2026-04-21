@@ -1,0 +1,21 @@
+import { call, cleanPayload } from "./_helper";
+
+export const teamsApi = {
+  list: () => call("/api/teams"),
+  get: (id) => call(`/api/teams/${id}`),
+  create: (p) => {
+    const payload = cleanPayload(p) || {};
+    delete payload.id; delete payload.Id;
+    try { console.debug("[teamsApi.create] payload:", payload); } catch(e) {}
+    return call("/api/teams", { method: "POST", body: JSON.stringify(payload) });
+  },
+  update: async (id, p) => {
+    const payload = cleanPayload(p) || {};
+    try { return await call(`/api/teams/${id}`, { method: "PUT", body: JSON.stringify(payload) }); }
+    catch (e) {
+      if (e && e.status === 405) return await call("/api/teams", { method: "POST", body: JSON.stringify({...payload, id}) });
+      throw e;
+    }
+  },
+  remove: (id) => call(`/api/teams/${id}`, { method: "DELETE" })
+};
