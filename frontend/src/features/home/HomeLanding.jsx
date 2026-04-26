@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { canAccessPage } from "../auth/permissionService";
 import { getToken } from "../auth/authService";
 
+
 function scrollToSection(id) {
   const el = document.getElementById(id);
   if (el) {
@@ -25,7 +26,6 @@ function scrollToSection(id) {
   }
 }
 //import axios from "axios";
-
 /* -------------------- Simple i18n setup -------------------- */
 
 const translations = {
@@ -446,6 +446,8 @@ export function ErrorBoundary({ children }) {
 }
 
 function HomeLandingFallback() {
+
+
   const { t } = useLanguage() || { t: (k) => translations.en[k] || k };
   return (
     <main className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-amber-50 p-6">
@@ -613,13 +615,67 @@ function TopNav({ onOpenDonate }) {
           </select>
         </label>
       </nav>
-	<div style={{ marginLeft: "auto" }}>
-  <button onClick={() => (window.location.hash = "#/login")}>
-  Login
-</button>
-</div>
 
-    </header>
+
+	<div style={{ marginLeft: "auto" }}>
+  <button
+    onClick={() => {
+      const token =
+        localStorage.getItem("mahima_token") ||
+        localStorage.getItem("mahima:user") ||
+        getToken?.();
+
+      if (!token) {
+        window.location.hash = "#/login";
+      }
+    }}
+    disabled={
+      !!(
+        localStorage.getItem("mahima_token") ||
+        localStorage.getItem("mahima:user") ||
+        getToken?.()
+      )
+    }
+    style={{
+      padding: "10px 22px",
+      fontSize: "14px",
+      fontWeight: "600",
+      color: "#fff",
+      background: (
+        localStorage.getItem("mahima_token") ||
+        localStorage.getItem("mahima:user") ||
+        getToken?.()
+      )
+        ? "#94a3b8" // disabled grey
+        : "linear-gradient(135deg, #ff7a18, #ff3d81)", // ?? warm ministry theme
+      border: "none",
+      borderRadius: "999px", // pill shape
+      cursor: (
+        localStorage.getItem("mahima_token") ||
+        localStorage.getItem("mahima:user") ||
+        getToken?.()
+      )
+        ? "not-allowed"
+        : "pointer",
+      boxShadow: (
+        localStorage.getItem("mahima_token") ||
+        localStorage.getItem("mahima:user") ||
+        getToken?.()
+      )
+        ? "none"
+        : "0 6px 18px rgba(255, 61, 129, 0.4)",
+      transition: "all 0.25s ease"
+    }}
+  >
+    {(
+      localStorage.getItem("mahima_token") ||
+      localStorage.getItem("mahima:user") ||
+      getToken?.()
+    )
+      ? "Logged In"
+      : "Login"}
+  </button>
+</div>    </header>
   );
 }
 
@@ -701,24 +757,33 @@ function QuickActions() {
       </button>
 
       <button
-        onClick={() => {
-          window.location.hash = "#/prayerrequests";
-        }}
-        className="group block rounded-2xl p-4 shadow-lg active:-translate-y-0.5 transition bg-gradient-to-r from-rose-500 to-pink-500 text-white"
-      >
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white">
-            <Heart size={20} />
-          </div>
-          <div>
-            <div className="text-white font-semibold">{t("qa.prayerTitle")}</div>
-            <div className="text-white/90 text-sm mt-1">
-              {t("qa.prayerSubtitle")}
-            </div>
-          </div>
-        </div>
-      </button>
+  onClick={() => {
+    const token =
+      localStorage.getItem("mahima_token") ||
+      localStorage.getItem("mahima:user") ||
+      getToken(); // you already have this
+
+    if (!token) {
+      alert("Please Create User/Login to enter a prayer request");
+      return;
+    }
+
+    window.location.hash = "#/prayerrequests";
+  }}
+  className="group block rounded-2xl p-4 shadow-lg active:-translate-y-0.5 transition bg-gradient-to-r from-rose-500 to-pink-500 text-white"
+>
+  <div className="flex items-start gap-4">
+    <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white">
+      <Heart size={20} />
     </div>
+    <div>
+      <div className="text-white font-semibold">{t("qa.prayerTitle")}</div>
+      <div className="text-white/90 text-sm mt-1">
+        {t("qa.prayerSubtitle")}
+      </div>
+    </div>
+  </div>
+</button>    </div>
   );
 }
 
@@ -856,89 +921,80 @@ function Hero({ vibrant = false, onOpenDonate }) {
   }
 
   async function handleRequestPrayer() {
+  try {
+    const token =
+      localStorage.getItem("mahima_token") ||
+      localStorage.getItem("mahima:user") ||
+      getToken();
+
+    // ?? Check login
+    if (!token) {
+      alert("Please Create User/Login to enter a prayer request");
+      return;
+    }
+
+    // ? If logged in ? navigate
     try {
-      try {
-        navigate("/prayerrequests");
-        return;
-      } catch {}
-      try {
-        navigate("/prayer-requests");
-      } catch {
-        window.location.hash = "#/prayerrequests";
-      }
+      navigate("/prayerrequests");
+      return;
     } catch {}
+
+    try {
+      navigate("/prayer-requests");
+      return;
+    } catch {}
+
+    // fallback
+    window.location.hash = "#/prayerrequests";
+  } catch (e) {
+    console.log("Prayer navigation error:", e);
   }
+}
 
   const dailyCandidates = [
-    {
-      url: "https://beta.ourmanna.com/v1/get/?format=json",
-      parser: (data) => {
-        const v = data && data.verse && data.verse.details;
-        if (v && (v.text || v.reference))
-          return { text: v.text || v.content, reference: v.reference || "" };
-        return null;
-      }
-    },
-    {
-      url: "https://labs.bible.org/?passage=votd&type=json",
-      parser: (data) => {
-        if (!data) return null;
-        if (Array.isArray(data) && data.length) {
-          const text = data.map((d) => d.text).join(" ");
-          const refParts = data
-            .map((d) => `${d.bookname} ${d.chapter}:${d.verse}`)
-            .join(", ");
-          return { text, reference: refParts };
-        }
-        return null;
-      }
-    },
-    {
-      url: "https://bible-api.com/John%203:16",
-      parser: (data) => {
-        if (!data) return null;
-        if (data.text || (Array.isArray(data.verses) && data.verses.length)) {
-          const text =
-            data.text || data.verses.map((v) => v.text).join(" ");
-          const reference = data.reference || "";
-          return { text, reference };
-        }
-        return null;
-      }
-    }
-  ];
-
-  async function loadDailyVerse() {
-    setDailyVerse(null);
-    setDailyError(null);
-    setDailyLoading(true);
-
-    for (const candidate of dailyCandidates) {
+  {
+    url: "https://bible-api.com/?random=verse",
+    parser: (data) => {
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        const { ok, data } = await fetchFromUrl(candidate.url, {
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-        if (!ok) {
-          continue;
-        }
-        try {
-          const parsed = candidate.parser(data);
-          if (parsed && parsed.text) {
-            setDailyVerse(parsed);
-            setDailyLoading(false);
-            return;
-          }
-        } catch {}
-      } catch {}
-    }
+        const text =
+          data?.text ||
+          data?.verses?.map((v) => v.text).join(" ") ||
+          "";
 
-    setDailyError(t("daily.error"));
+        const reference = data?.reference || "";
+
+        if (!text || text.trim().length < 5) return null;
+
+        return {
+          text: text.trim(),
+          reference
+        };
+      } catch {
+        return null;
+      }
+    }
+  }
+];  async function loadDailyVerse() {
+  setDailyLoading(true);
+  setDailyError(null);
+
+  try {
+    // ? Hardcoded daily verse (guaranteed to work)
+    const verse = {
+      text: "For God so loved the world that He gave His only begotten Son, that whoever believes in Him should not perish but have everlasting life.",
+      reference: "John 3:16"
+    };
+
+    // simulate small delay (optional)
+    await new Promise((r) => setTimeout(r, 500));
+
+    setDailyVerse(verse);
+  } catch (e) {
+    setDailyError("Failed to load verse");
+  } finally {
     setDailyLoading(false);
   }
-
+}
   function openDaily() {
     setShowDaily(true);
     if (!dailyVerse && !dailyLoading && !dailyError) loadDailyVerse();
@@ -1004,11 +1060,12 @@ function Hero({ vibrant = false, onOpenDonate }) {
           </div>
 
           <figure className="mt-2 w-56 sm:w-64 md:w-80 rounded-xl overflow-hidden bg-white shadow border border-rose-100">
-          <img
-  		src="/images/easter-banner.jpg"
-  		alt="Easter Celebration poster"
-  		className="w-full h-auto object-cover"
-		/>             
+         
+	      
+	  <img 
+	  src="/images/Mahima-Word.png" style={{ width: "500%", borderRadius: "10px" }}
+          className="w-full h-auto object-cover"
+	 />   
 
 	</figure>
 
@@ -1029,28 +1086,12 @@ function Hero({ vibrant = false, onOpenDonate }) {
               <Play size={16} /> {t("hero.watchSermons")}
             </button>
 
-            <a
-              href="#get-involved"
-              className="inline-flex items-center gap-2 rounded-full border-2 border-rose-200 py-2.5 sm:py-3 px-4 sm:px-5 text-rose-700 bg-white/90 font-semibold shadow-sm active:scale-95"
-            >
-              <Users size={16} /> <button onClick={() => setShowJoinPopup(true)}>
-  {t("hero.joinGroup")}
-</button>
-            </a>
-
-            <button
-              type="button"
-              onClick={"/home/prayerrequests"}
-              className="inline-flex items-center gap-2 rounded-full bg-white/90 py-2.5 sm:py-3 px-4 sm:px-5 text-rose-700 font-medium shadow-sm"
-            >
-              <MessageSquare size={16} /> {t("hero.requestPrayer")}
-            </button>
-          </div>
+            </div>
 
           <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-1 sm:mt-2">
             <div className="flex items-center gap-2">
               <PhoneCall size={16} />{" "}
-              <span>+91 89711 24659 / +91 77430 48757</span>
+              <span>+91 9646628466</span>
             </div>
             <div className="flex items-center gap-2">
               <Calendar size={16} />{" "}
@@ -1131,10 +1172,22 @@ function Hero({ vibrant = false, onOpenDonate }) {
 	 </div>
 	  {/* ?? Ministry Moments Section */}
 <div style={{ marginTop: "20px" }}>
-  <h3 style={{ fontWeight: "600", marginBottom: "10px" }}>
-    Ministry Moments
-  </h3>
-
+  <h3
+  style={{
+    fontFamily: "'Playfair Display', serif",
+    fontWeight: "700",
+    fontSize: "28px",
+    letterSpacing: "1px",
+    background: "linear-gradient(90deg, #FFD700, #FF8C00)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    marginBottom: "12px",
+    textAlign: "center",
+    textShadow: "0 2px 10px rgba(0,0,0,0.2)"
+  }}
+>
+  ? Ministry Moments ?
+</h3>
   <div
     style={{
       display: "grid",
@@ -1142,9 +1195,13 @@ function Hero({ vibrant = false, onOpenDonate }) {
       gap: "12px"
     }}
   >
+    <div className="img-card">
     <img src="/images/prayer.jpg" style={{ width: "100%", borderRadius: "10px" }} />
-    <img src="/images/welcome.jpg" style={{ width: "100%", borderRadius: "10px" }} />
     <img src="/images/worship.jpg" style={{ width: "100%", borderRadius: "10px" }} />
+    
+    </div>
+
+
   </div>
 </div>
 
@@ -1179,7 +1236,7 @@ function Hero({ vibrant = false, onOpenDonate }) {
               ) : dailyVerse ? (
                 <>
                   <div className="text-lg italic text-gray-800 dark:text-gray-100 mb-3">
-                    “{dailyVerse.text}”
+                    {`"${dailyVerse.text}"`}
                   </div>
                   <div className="text-sm text-rose-700 dark:text-rose-300 font-semibold">
                     {dailyVerse.reference}
@@ -1325,10 +1382,10 @@ function AboutSection() {
         </h4>
         <div className="mt-3 text-sm text-gray-700 dark:text-gray-300 space-y-2">
           <div className="flex items-center gap-2">
-            <PhoneCall size={16} /> +91 89711 24659 / +91 77430 48757
+            <PhoneCall size={16} /> +91 9646628466
           </div>
           <div className="flex items-center gap-2">
-            <MessageSquare size={16} /> PawanK@mahimaministies.in
+            <MessageSquare size={16} /> PawanK@mahimaministries.in
           </div>
           <div>
             Universal Public School, Gurunanak Nagar, Gulab Devi Road Near
@@ -1465,9 +1522,9 @@ function CoreValues({ compact = false }) {
             {t("values.connect")}
           </div>
           <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">
-            Office: +91 89711 24659 / +91 77430 48757
+            Office: +91 9646628466
             <br />
-            Email: PawanK@smahimaministies.in
+            Email: PawanK@mahimaministries.in
             <br />
             Location: Jalandhar, Punjab
           </div>
@@ -1520,11 +1577,22 @@ function GetInvolved({ onOpenDonate }) {
           </div>
         </button>
 
-        <a
-          href="#/prayerrequests"
-          className="block rounded-xl border p-4 hover:shadow-md transition bg-gradient-to-r from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5"
-        >
-          <div className="font-semibold text-rose-700 dark:text-rose-300">
+       <a
+  href="#/prayerrequests"
+  onClick={(e) => {
+    const token =
+      localStorage.getItem("mahima_token") ||
+      localStorage.getItem("mahima:user") ||
+      getToken();
+
+    if (!token) {
+      e.preventDefault(); // ?? stop navigation
+      alert("Please Create User/Login to enter a prayer request");
+      return;
+    }
+  }}
+  className="block rounded-xl border p-4 hover:shadow-md transition bg-gradient-to-r from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5"
+>          <div className="font-semibold text-rose-700 dark:text-rose-300">
             {t("involved.requestPrayerTitle")}
           </div>
           <div className="text-sm text-gray-600 dark:text-gray-300 mt-2">
@@ -1720,6 +1788,18 @@ function InnerHomeLanding({ showDonate, setShowDonate }) {
     <img src="/images/prayer.jpg" style={{ width: "100%", borderRadius: "12px" }} />
     <img src="/images/welcome.jpg" style={{ width: "100%", borderRadius: "12px" }} />
     <img src="/images/worship.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/Mahima-Word.png" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236883.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236884.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236885.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236887.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236888.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236889.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236890.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236891.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236892.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+    <img src="/images/1000236893.jpg" style={{ width: "100%", borderRadius: "12px" }} />
+ 
   </div>
 </section>
 

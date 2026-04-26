@@ -10,7 +10,9 @@ export default function Login() {
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");	
   const [showPwd, setShowPwd] = useState(false);
+ const [displayName, setDisplayName] = useState("");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,18 +22,23 @@ export default function Login() {
   async function handleLogin(e) {
     e.preventDefault();
     setError("");
+
+  // ? ONLY username + password required
+  if (!username || !password) {
+    setError("Username and Password are required");
+    return;
+  }	
     setLoading(true);
 
     try {
       const res = await login({
-        usernameOrEmail: username,
-        password: password,
-      });
-
+  usernameOrEmail: username,
+  password: password,
+});	
       const token = res?.token || res?.data?.token;
       const user = res?.user || res?.data?.user;
 
-      if (!token) throw new Error("Invalid login response");
+      if (!token) throw new Error("If you are first time User - Please contact Mahima Ministry Adminstrator to Activate your Id. For All other Users - Check your User Credentials and contact Admin");
 
       localStorage.setItem("authToken", token);
       localStorage.setItem("mahima_user", JSON.stringify(user));
@@ -54,18 +61,23 @@ export default function Login() {
   async function handleRegister(e) {
     e.preventDefault();
     setError("");
-    setLoading(true);
+
+ if (!displayName || !username || !phone || !password) {
+  setError("Display Name, Username, Mobile Number and Password are required");
+  return;
+}    setLoading(true);
 
     try {
-      const payload = {
-        username,
-        password,
-        displayname: username,
-        role: "Member",
-        joindate: new Date().toISOString(),
-      };
+const payload = {
+  username,
+  password,
+  phone,
+  displayname: displayName, // ?? EXACT KEY
+  role: "Member",
+  joindate: new Date().toISOString(),
+};
 
-      const res = await fetch(`${API_BASE}/users`, {
+    const res = await fetch(`${API_BASE}/users`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -156,6 +168,25 @@ export default function Login() {
             required
           />
 
+{mode === "register" && (
+  <input
+    style={input}
+    placeholder="Display Name"
+    value={displayName}
+    onChange={(e) => setDisplayName(e.target.value)}
+    required
+  />
+)}
+
+	{mode === "register" && (
+  <input
+    style={input}
+    placeholder="Mobile Number"
+    value={phone}
+    onChange={(e) => setPhone(e.target.value)}
+    required
+  />
+)}
           {mode !== "forgot" && (
             <div style={{ position: "relative" }}>
               <input

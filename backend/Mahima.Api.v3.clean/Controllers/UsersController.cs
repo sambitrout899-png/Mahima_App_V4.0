@@ -105,7 +105,7 @@ namespace Mahima.Api.v3.clean.Controllers
                             ""EmergencyContactPhone"",
                             ""IsPastor""
                         FROM users
-                        ORDER BY joindate DESC, id
+                        ORDER BY COALESCE(displayname, username) ASC
                         LIMIT @limit OFFSET @offset;", conn);
 
                     cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
@@ -166,7 +166,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 {
                     var sql = @"
 WITH q AS (
-  SELECT plainto_tsquery('english', @q) AS query
+  SELECT websearch_to_tsquery('english', @q) AS query
 )
 SELECT COUNT(*) OVER() AS total,
        u.id          AS ""Id"",
@@ -193,9 +193,10 @@ SELECT COUNT(*) OVER() AS total,
        u.""EmergencyContactPhone"",
        u.""IsPastor"",
        ts_rank(
-         setweight(to_tsvector('english', coalesce(u.displayname,'')), 'A') ||
-         setweight(to_tsvector('english', coalesce(u.username,'')), 'B') ||
-         setweight(to_tsvector('english', coalesce(u.email,'')), 'C'),
+setweight(to_tsvector('english', coalesce(u.displayname,'')), 'A') ||
+setweight(to_tsvector('english', coalesce(u.username,'')), 'A') ||
+setweight(to_tsvector('english', coalesce(u.email,'')), 'B') ||
+setweight(to_tsvector('english', coalesce(u.phone,'')), 'A'),
          q.query
        ) AS rank
 FROM users u, q
@@ -204,7 +205,7 @@ WHERE (
          setweight(to_tsvector('english', coalesce(u.username,'')), 'B') ||
          setweight(to_tsvector('english', coalesce(u.email,'')), 'C')
       ) @@ q.query
-ORDER BY rank DESC
+ORDER BY rank DESC, COALESCE(u.displayname, u.username) ASC
 LIMIT @limit OFFSET @offset;
 ";
                     await using var cmd = new NpgsqlCommand(sql, conn);
@@ -296,7 +297,12 @@ SELECT COUNT(*) OVER() AS total,
        u.""EmergencyContactPhone"",
        u.""IsPastor""
 FROM users u
-WHERE u.username ILIKE @p OR u.email ILIKE @p OR u.displayname ILIKE @p
+WHERE 
+    u.username ILIKE @p 
+    OR u.email ILIKE @p 
+    OR u.displayname ILIKE @p
+    OR u.phone ILIKE @p
+ORDER BY COALESCE(u.displayname, u.username) ASC
 ORDER BY u.id
 LIMIT @limit OFFSET @offset;
 ";
@@ -619,7 +625,8 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
         var username = Get(body, "username");
         var email = Get(body, "email");
         var password = Get(body, "password");
-
+	var phone = Get(body, "phone");
+	var displayName = Get(body, "displayname", "displayName", "DisplayName", "name");
         if (string.IsNullOrWhiteSpace(username))
             return BadRequest("username required");
 
@@ -636,28 +643,36 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
 
-        const string sql = @"
-            INSERT INTO users (username, email, passwordhash, role, joindate)
-            VALUES (@username, @email, @passwordhash, 'Member', NOW())
-            RETURNING id;
-        ";
-
-        await using var cmd = new NpgsqlCommand(sql, conn);
+const string sql = @"
+    INSERT INTO users (username, email, passwordhash, role, joindate, phone, displayname)
+    VALUES (@username, @email, @passwordhash, 'Member', NOW(), @phone, @displayname)
+    RETURNING id;
+";        await using var cmd = new NpgsqlCommand(sql, conn);
 
         cmd.Parameters.AddWithValue("username", username);
         cmd.Parameters.AddWithValue("email", (object?)email ?? DBNull.Value);
         cmd.Parameters.AddWithValue("passwordhash", hash);
+	cmd.Parameters.AddWithValue("phone", (object?)phone ?? DBNull.Value);
+	cmd.Parameters.AddWithValue(
+    "displayname",
+    !string.IsNullOrWhiteSpace(displayName)
+        ? displayName
+        : !string.IsNullOrWhiteSpace(username)
+            ? username
+            : DBNull.Value
+);
 
         var id = await cmd.ExecuteScalarAsync();
 
-        return Ok(new
-        {
-            id,
-            username,
-            email,
-            role = "Member"
-        });
-    }
+    return Ok(new
+{
+    id,
+    username,
+    email,
+    phone,
+    displayName,
+    role = "Member"
+});   }
     catch (Exception ex)
     {
         _logger.LogError(ex, "Create user failed");

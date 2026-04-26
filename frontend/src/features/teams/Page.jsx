@@ -529,6 +529,11 @@ export default function TeamsPage() {
             )}
           </div>
         </div>
+ <div style={{ marginTop: 20 }}>
+    <Outlet />
+  </div>
+
+</div>
       </div>
 
       {/* Floating create button */}
@@ -561,10 +566,7 @@ export default function TeamsPage() {
         </div>
       )}
 
-      {/* child route outlet */}
-      <div style={{ marginTop: 16 }}>
-        <Outlet />
-      </div>
+      
     </div>
   );
 }

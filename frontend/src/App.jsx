@@ -97,14 +97,22 @@ export default function App() {
         />
 
         <Route
-          path="teams"
-          element={
-            <RequireRole allowedRoles={["admin"]} requiredPage="TEAMS">
-              <TeamsPage />
-            </RequireRole>
-          }
-        />
-
+  path="teams"
+  element={
+    <RequireRole allowedRoles={["admin"]} requiredPage="TEAMS">
+      <TeamsPage />
+    </RequireRole>
+  }
+>
+  <Route
+    path=":teamId/members"
+    element={
+      <RequireRole allowedRoles={["admin", "staff"]}>
+        <MembersPage />
+      </RequireRole>
+    }
+  />
+</Route>
         <Route
           path="roles"
           element={
@@ -142,15 +150,7 @@ export default function App() {
         />
 
         {/* Teams Members */}
-        <Route
-          path="teams/:teamId/members"
-          element={
-            <RequireRole allowedRoles={["admin", "staff"]}>
-              <MembersPage />
-            </RequireRole>
-          }
-        />
-
+       
         {/* Tasks */}
         <Route
           path="tasks"

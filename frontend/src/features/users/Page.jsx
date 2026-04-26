@@ -45,6 +45,7 @@ function defaultForm() {
     username: "",
     email: "",
     phone: "",
+    password: "",
     role: "",
     joinDate: new Date().toISOString(),
     UserCode: "",
@@ -74,7 +75,13 @@ export default function UsersPageCathedralAdvanced() {
   const [users, setUsers] = useState([]);
   const [allUsers, setAllUsers] = useState(null);
   const [meta, setMeta] = useState({ total: 0, page: 1, limit: 10 });
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(""); 
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+useEffect(() => {
+  const t = setTimeout(() => setDebouncedSearch(search), 300);
+  return () => clearTimeout(t);
+}, [search]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -111,37 +118,39 @@ export default function UsersPageCathedralAdvanced() {
 
   /* ---------- API calls ---------- */
   const fetchUsers = async (page = 1, limit = 10, searchTerm = "") => {
-    try {
-      setLoading(true);
-      setError(null);
-      //const q = new URLSearchParams({
-        //search: searchTerm ?? "",
-        //page: String(page),
-        //limit: String(limit),
-      //});
-      //const resp = await fetch(`${API_BASE}/users`);
-      const resp = await api.get("/users");
-	if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        throw new Error(`HTTP ${resp.status} - ${txt || "error"}`);
-      }
-      const data = await resp.json();
-      const { items, meta: newMeta } = normalizeResponse(data);
-      setUsers(items || []);
-      setMeta((prev) => ({
-        ...prev,
-        page: newMeta.page ?? page,
-        limit: newMeta.limit ?? limit,
-        total: newMeta.total ?? prev.total,
-      }));
-    } catch (err) {
-      setError(String(err));
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    setLoading(true);
+    setError(null);
 
+    const resp = await api.get("/users", {
+      params: {
+        search: searchTerm || "",
+        page: page,
+        limit: limit,
+      },
+    });
+
+    const { items, meta: newMeta } = normalizeResponse(resp.data);
+
+    const sorted = (items || []).sort((a, b) => {
+  const nameA = (a.displayName || a.username || "").toLowerCase();
+  const nameB = (b.displayName || b.username || "").toLowerCase();
+  return nameA.localeCompare(nameB);
+});
+setUsers(sorted);
+    setMeta((prev) => ({
+      ...prev,
+      page: newMeta.page ?? page,
+      limit: newMeta.limit ?? limit,
+      total: newMeta.total ?? prev.total,
+    }));
+  } catch (err) {
+    setError(err?.message || String(err));
+    setUsers([]);
+  } finally {
+    setLoading(false);
+  }
+};
   const fetchAllUsers = async () => {
     if (allUsers !== null) return;
     try {
@@ -188,12 +197,13 @@ if (!resp.ok) {
     }
   };
 
-  useEffect(() => {
-    fetchUsers(meta.page, meta.limit, search);
-    fetchRoles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+useEffect(() => {
+  fetchUsers(meta.page, meta.limit, debouncedSearch);
+}, [debouncedSearch]);
 
+useEffect(() => {
+  fetchRoles();
+}, []);
   /* ---------- actions ---------- */
   const openAdd = () => {
     const memberRole = roles.find(
@@ -254,7 +264,7 @@ const openEdit = (u) => {
   setForm({
     id: u.id ?? null,
     UserCode: u.UserCode ?? u.userCode ?? "",
-    displayName: u.displayName ?? u.name ?? "",
+    displayName: u.displayName ?? u.displayname ?? u.name ?? "",
     username: u.username ?? u.userName ?? "",
     email: u.email ?? "",
     phone: u.phone ?? "",
@@ -315,11 +325,15 @@ const openEdit = (u) => {
     e?.preventDefault?.();
 
     const usernameTrim = (form.username ?? "").trim();
-    if (!usernameTrim) {
-      alert("Username is required.");
-      return;
-    }
+   if (!usernameTrim) {
+  alert("Username is required.");
+  return;
+}
 
+if (!form.id && !form.password) {
+  alert("Password is required for new user.");
+  return;
+}
     if (form.phone && !phoneFinalRegex.test(form.phone)) {
       if (
         !window.confirm(
@@ -348,15 +362,18 @@ const openEdit = (u) => {
         }
       }
 
-      const payload = {
-        DisplayName: (form.displayName ?? "").trim() || null,
-        Username: usernameTrim,
-        Email: (form.email ?? "").trim() || null,
-        Phone: (form.phone ?? "").trim() || null,
-        JoinDate: form.joinDate ? new Date(form.joinDate).toISOString() : null,
-        ...(form.id ? { Id: form.id } : {}),
-      };
+ const payload = {
+  DisplayName: (form.displayName ?? "").trim() || null,
+  Username: usernameTrim,
+  Password: form.password || null,
+  Email: (form.email ?? "").trim() || null,
+  Phone: (form.phone ?? "").trim() || null,
+  JoinDate: form.joinDate ? new Date(form.joinDate).toISOString() : null,
+  ...(form.id ? { Id: form.id } : {}),
+};
 
+// 🔥 ADD THIS LINE
+payload.displayName = payload.DisplayName;
       if (roleIdNumber != null) {
         payload.Role = roleIdNumber;
         payload.RoleId = roleIdNumber;
@@ -371,6 +388,7 @@ const openEdit = (u) => {
       // mirror to camelCase for frontend compatibility
       payload.displayName = payload.DisplayName;
       payload.username = payload.Username;
+      payload.password = payload.Password;
       payload.email = payload.Email;
       payload.phone = payload.Phone;
       payload.joinDate = payload.JoinDate;
@@ -804,7 +822,7 @@ const openEdit = (u) => {
           />
           <button
             className="btn btn-muted"
-            onClick={() => fetchUsers(1, meta.limit, search)}
+            onClick={() => fetchUsers(1, meta.limit, debouncedSearch)}
           >
             Search
           </button>
@@ -1119,6 +1137,45 @@ const openEdit = (u) => {
                       />
                     </label>
                   </div>
+			<div className="form-row">
+  <div className="form-col">
+    <label>
+      Password *
+      <div style={{ position: "relative" }}>
+        <input
+          value={form.password || ""}
+          onChange={(e) => setField("password", e.target.value)}
+          placeholder="Enter or generate password"
+        />
+
+        <button
+          type="button"
+          onClick={() => {
+            if (!form.username) {
+              alert("Enter Username first");
+              return;
+            }
+            setField("password", form.username + "123");
+          }}
+          style={{
+            position: "absolute",
+            right: 6,
+            top: 6,
+            padding: "5px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "none",
+            background: "#2563eb",
+            color: "#fff",
+            cursor: "pointer"
+          }}
+        >
+          Generate
+        </button>
+      </div>
+    </label>
+  </div>
+</div>
                 </div>
 
                 {form.id && (
