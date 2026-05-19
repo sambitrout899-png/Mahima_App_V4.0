@@ -1,355 +1,1716 @@
-// src/components/ChatWindow.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+﻿// src/components/chat/ChatWindow.jsx
+//
+// WhatsApp-style conversation view for Jai Masih.
+// Features:
+//   - Lucide icons (no mojibake â† âœ"âœ" âž¤ ðŸ’¬)
+//   - Sound + haptic on incoming messages (chatNotifications.js)
+//   - Date separators (Today / Yesterday / DD MMM YYYY)
+//   - Read receipts (single tick / double tick / blue double tick)
+//   - Live "typing..." indicator
+//   - Auto-scroll to bottom on new messages
+//   - Auto-grow textarea (Enter sends, Shift+Enter newlines)
+//   - Mark-as-read on focus
+//   - Mute toggle
+//   - Optimistic send with retry on failure
+//
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import dayjs from "dayjs";
+import {
+  ArrowLeft,
+  Send,
+  Check,
+  CheckCheck,
+  Volume2,
+  VolumeX,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  Phone,
+  Video,
+  Paperclip,
+  MoreVertical,
+  Trash2,
+  FileText,
+  X,
+  Ban,
+  Mic,
+  MicOff,
+} from "lucide-react";
 import { getToken } from "../utils/auth";
+import { optionalImportModule, speakText } from "../utils/speech";
+import {
+  playReceiveSound,
+  playSendSound,
+  unlockAudio,
+  isMuted as readMuted,
+  setMuted as writeMuted,
+} from "../utils/chatNotifications";
 
-/* ------------------------------- styles ------------------------------- */
-const injectCWStyles = () => {
-  if (document.getElementById("chatwindow-styles")) return;
-  const css = `
-  :root{
-    --cw-bg:#ffffff;--cw-surface:#f3f4f6;--cw-me:#dbeafe;--cw-them:#ffffff;--cw-border:rgba(0,0,0,.08);
-    --cw-text:#0f172a;--cw-dim:#6b7280;--cw-primary:#2d6cdf;
-  }
-  .cw-wrap{display:flex;flex-direction:column;height:100%;background:var(--cw-bg);} 
-  .cw-head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--cw-border);z-index:3}
-  .cw-head-row{display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem}
-  .cw-title{margin:0;font-size:1rem;font-weight:800;color:var(--cw-text)}
-  .cw-sub{font-size:.8rem;color:var(--cw-dim)}
-  .cw-actions{margin-left:auto;display:flex;gap:.35rem}
-  .cw-body{flex:1;overflow:auto;background:var(--cw-surface);padding:.75rem;scroll-behavior:smooth}
-  .cw-row{display:flex;gap:.5rem;margin:.25rem 0;align-items:flex-end}
-  .cw-row.me{justify-content:flex-end}
-  .cw-bubble{max-width:82%;padding:.55rem .7rem;border-radius:14px;border:1px solid var(--cw-border);background:var(--cw-them);color:var(--cw-text)}
-  .cw-row.me .cw-bubble{background:var(--cw-me)}
-  .cw-meta{display:flex;gap:.35rem;align-items:center;margin-top:2px;color:var(--cw-dim);font-size:.72rem}
-  .cw-inputbar{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--cw-border);padding:.55rem .6rem;display:grid;grid-template-columns:auto 1fr auto;gap:.45rem;align-items:end}
-  .cw-textarea{width:100%;min-height:42px;max-height:140px;resize:none;border:1px solid var(--cw-border);border-radius:14px;padding:.55rem .7rem;outline:none}
-  .cw-send{appearance:none;border:none;border-radius:14px;background:var(--cw-primary);color:#fff;padding:.6rem .9rem;cursor:pointer}
-  `;
-  const style = document.createElement("style");
-  style.id = "chatwindow-styles";
-  style.innerHTML = css;
-  document.head.appendChild(style);
-};
-
-/* ----------------------------- helpers -------------------------------- */
-function useAutoScroll(dep) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.scrollTop = ref.current.scrollHeight + 9999;
+const API_BASE = (() => {
+  // 1. Runtime override from index.html (covers Capacitor / Android build).
+  try {
+    if (typeof window !== "undefined" && window.__API_BASE__) {
+      return String(window.__API_BASE__).trim().replace(/\/+$/, "");
     }
-  }, [dep]);
-  return ref;
+  } catch {}
+
+  // 2. Vite env var (picked up by web + mobile builds).
+  const envBase = (import.meta?.env?.VITE_API_BASE || "").toString().trim().replace(/\/+$/, "");
+  if (envBase) return envBase;
+
+  // 3. Capacitor native — fall back to the public site so /uploads/... resolves.
+  try {
+    if (typeof window !== "undefined") {
+      const isNative =
+        import.meta?.env?.MODE === "mobile" ||
+        Boolean(window.Capacitor?.isNativePlatform?.()) ||
+        window.location?.protocol === "capacitor:" ||
+        (window.location?.protocol === "https:" && window.location?.hostname === "localhost");
+      if (isNative) return "https://mahimaministries.in/api";
+    }
+  } catch {}
+
+  // 4. Vite dev proxy.
+  if (typeof window !== "undefined" && window.location?.port === "5173") {
+    return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+  }
+
+  return "/api";
+})();
+
+// Origin used to absolute-ize relative media URLs (e.g. /uploads/voice/abc.webm).
+const MEDIA_ORIGIN = (() => {
+  // If API_BASE is absolute, strip /api to get the bare origin.
+  if (/^https?:\/\//i.test(API_BASE)) {
+    return API_BASE.replace(/\/api\/?$/i, "");
+  }
+  // Relative API_BASE — on Capacitor https://localhost we still need a real origin,
+  // otherwise audio/<img> elements will fetch from localhost and silently fail.
+  try {
+    if (typeof window !== "undefined") {
+      const onLocalhost =
+        window.location?.protocol === "capacitor:" ||
+        (window.location?.protocol === "https:" && window.location?.hostname === "localhost") ||
+        Boolean(window.Capacitor?.isNativePlatform?.());
+      if (onLocalhost) return "https://mahimaministries.in";
+    }
+  } catch {}
+  return "";
+})();
+
+function resolveMediaUrl(url = "") {
+  const value = String(url || "");
+  if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
+  return `${MEDIA_ORIGIN}${value.startsWith("/") ? "" : "/"}${value}`;
+}
+const ATTACHMENT_MARKER = "jm-attachment";
+const MESSAGE_DELETE_KEY = "jm_chat_deleted_messages_v1";
+
+function readJsonStore(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE || "" ).replace(/\/$/, "");
+function writeJsonStore(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
 
-const normalizeMessage = (m) => ({
-  id: m.id ?? m.messageId ?? m._id ?? crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
-  chatId: m.chatId ?? m.ChatId ?? m.chatID,
-  senderId: m.senderId ?? m.fromUserId ?? m.userId ?? (m.sender && (m.sender.id ?? m.sender.userId)) ?? null,
-  text: m.text ?? m.content ?? m.body ?? "",
-  createdAt: m.createdAt ?? m.sentAt ?? m.timestamp ?? new Date().toISOString(),
-  attachments: Array.isArray(m.attachments) ? m.attachments : [],
-  status: m.status ?? "sent",
-});
+function deletedMessageKey(chatId, messageId) {
+  return `${chatId}:${messageId}`;
+}
 
-/* ---------------------------- component ------------------------------- */
+function encodeAttachmentMarker(attachments = []) {
+  if (!attachments.length) return "";
+  try {
+    const json = JSON.stringify(attachments.map((a) => ({
+      url: a.url,
+      contentType: a.contentType,
+      kind: a.kind,
+    })));
+    return `[${ATTACHMENT_MARKER}:${btoa(unescape(encodeURIComponent(json)))}]`;
+  } catch {
+    return "";
+  }
+}
+
+function extractAttachmentMarker(text = "") {
+  const source = String(text || "");
+  const re = new RegExp(`\\s*\\[${ATTACHMENT_MARKER}:([A-Za-z0-9+/=]+)\\]`, "g");
+  const found = [];
+  let cleaned = source;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    try {
+      const json = decodeURIComponent(escape(atob(match[1])));
+      const parsed = JSON.parse(json);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item?.url) {
+            found.push({
+              url: resolveMediaUrl(item.url),
+              contentType: item.contentType || guessContentType(item.url),
+              kind: item.kind || kindFromContentType(item.contentType || guessContentType(item.url)),
+            });
+          }
+        }
+      }
+      cleaned = cleaned.replace(match[0], "");
+    } catch { /* ignore malformed marker */ }
+  }
+  return { text: cleaned.trim(), attachments: found };
+}
+
+/* helpers */
+
+const normalizeMessage = (m) => {
+  // Normalise attachments: backend may send `attachments: [...]`, a single
+  // `attachmentUrl: "..."`, or both. Surface a single array of
+  // { url, contentType, kind } objects.
+  let attachments = Array.isArray(m.attachments) ? m.attachments
+    : Array.isArray(m.Attachments) ? m.Attachments
+    : [];
+  attachments = attachments.map((a) => {
+    if (!a) return null;
+    if (typeof a === "string") {
+      const url = resolveMediaUrl(a);
+      return { url, contentType: guessContentType(url), kind: kindFromContentType(guessContentType(url)) };
+    }
+    const rawUrl = a.url || a.Url || a.location || a.path;
+    const url = resolveMediaUrl(rawUrl);
+    const ct = a.contentType || a.ContentType || a.mimeType || guessContentType(url);
+    return { url, contentType: ct, kind: a.kind || kindFromContentType(ct) };
+  }).filter((a) => a && a.url);
+
+  const single = m.attachmentUrl || m.AttachmentUrl;
+  if (single && !attachments.some((a) => a.url === single)) {
+    const ct = m.contentType || m.ContentType || guessContentType(single);
+    attachments.unshift({ url: resolveMediaUrl(single), contentType: ct, kind: kindFromContentType(ct) });
+  }
+
+  const marker = extractAttachmentMarker(m.text ?? m.content ?? m.body ?? "");
+  for (const item of marker.attachments) {
+    if (!attachments.some((a) => a.url === item.url)) attachments.push(item);
+  }
+
+  return {
+    id:
+      m.id ?? m.messageId ?? m._id
+      ?? (typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2)),
+    chatId: m.chatId ?? m.ChatId ?? m.chatID,
+    senderId: m.senderId ?? m.fromUserId ?? m.userId
+      ?? (m.sender && (m.sender.id ?? m.sender.userId)) ?? null,
+    text: marker.text,
+    createdAt: m.createdAt ?? m.sentAt ?? m.timestamp ?? new Date().toISOString(),
+    attachments,
+    status: m.status ?? "sent",          // sending | sent | delivered | read | failed
+  };
+};
+
+function guessContentType(url = "") {
+  const u = String(url).toLowerCase();
+  if (u.startsWith("data:")) return u.slice(5).split(";")[0] || "";
+  if (/\.(jpe?g|png|webp|gif|heic|avif)(\?|$)/.test(u)) return "image/" + u.match(/\.(\w+)(\?|$)/)[1];
+  if (/voice-[^/]*\.webm(\?|$)/.test(u)) return "audio/webm";
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(u)) return "video/" + u.match(/\.(\w+)(\?|$)/)[1];
+  if (/\.(m4a|mp4a)(\?|$)/.test(u)) return "audio/mp4";
+  if (/\.mp3(\?|$)/.test(u)) return "audio/mpeg";
+  if (/\.(aac|ogg|oga|wav|webm)(\?|$)/.test(u)) return "audio/" + u.match(/\.(\w+)(\?|$)/)[1];
+  return "";
+}
+
+function kindFromContentType(ct = "") {
+  if (ct.startsWith("image/")) return "image";
+  if (ct.startsWith("video/")) return "video";
+  if (ct.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+const dateLabel = (input) => {
+  const d = dayjs(input);
+  if (!d.isValid()) return "";
+  const today = dayjs().startOf("day");
+  if (d.isSame(today, "day")) return "Today";
+  if (d.isSame(today.subtract(1, "day"), "day")) return "Yesterday";
+  if (d.isAfter(today.subtract(7, "day"))) return d.format("dddd");
+  return d.format("DD MMM YYYY");
+};
+
+const initialsFrom = (name = "?") => {
+  const parts = String(name || "?").trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase()).join("") || "?";
+};
+
+const mediaUrlFrom = (url) => {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:")) return value;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}${value.startsWith("/") ? value : `/${value}`}`;
+};
+
+const isTouchDevice = () => {
+  if (typeof window === "undefined") return false;
+  return ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+};
+
+function isNativeAppMode() {
+  try {
+    return (
+      import.meta.env.MODE === "mobile" ||
+      Boolean(window.Capacitor?.isNativePlatform?.()) ||
+      window.location?.protocol === "capacitor:" ||
+      (window.location?.protocol === "https:" && window.location?.hostname === "localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pickVoiceRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+
+  const nativeCandidates = [
+    "audio/mp4",
+    "audio/aac",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+  ];
+  const webCandidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/aac",
+  ];
+
+  const candidates = isNativeAppMode() ? nativeCandidates : webCandidates;
+  return candidates.find((type) => MediaRecorder.isTypeSupported?.(type)) || "";
+}
+
+function audioExtensionForType(type = "") {
+  const clean = String(type || "").toLowerCase();
+  if (clean.includes("mp4") || clean.includes("m4a")) return "m4a";
+  if (clean.includes("aac")) return "aac";
+  if (clean.includes("ogg") || clean.includes("oga")) return "oga";
+  if (clean.includes("wav")) return "wav";
+  return "webm";
+}
+
+async function nativeSpeechToText(lang = "en-IN") {
+  const [{ Capacitor }, { SpeechRecognition }] = await Promise.all([
+    optionalImportModule("@capacitor/core"),
+    optionalImportModule("@capacitor-community/speech-recognition"),
+  ]);
+
+  if (!Capacitor?.isNativePlatform?.() || !SpeechRecognition?.start) return "";
+  await SpeechRecognition.requestPermissions?.();
+  const result = await SpeechRecognition.start({
+    language: lang,
+    maxResults: 1,
+    prompt: "Speak your message",
+    partialResults: false,
+    popup: true,
+  });
+
+  return (
+    result?.matches?.[0] ||
+    result?.value?.matches?.[0] ||
+    result?.value?.[0] ||
+    result?.text ||
+    ""
+  );
+}
+
+const colorFromId = (id) => {
+  const palette = [
+    "#10b981", "#06b6d4", "#3b82f6", "#8b5cf6",
+    "#ec4899", "#f97316", "#f59e0b", "#84cc16",
+  ];
+  let h = 0;
+  const s = String(id || "");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+};
+
+function mergeMessages(existing, incoming) {
+  const byId = new Map();
+  for (const msg of existing) byId.set(String(msg.id), msg);
+  for (const msg of incoming) {
+    const key = String(msg.id);
+    const current = byId.get(key);
+    if (!current) {
+      byId.set(key, msg);
+      continue;
+    }
+
+    const incomingAttachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+    const currentAttachments = Array.isArray(current.attachments) ? current.attachments : [];
+    byId.set(key, {
+      ...current,
+      ...msg,
+      attachments: incomingAttachments.length ? incomingAttachments : currentAttachments,
+      status: current.status === "sending" ? current.status : msg.status,
+    });
+  }
+  return Array.from(byId.values()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+}
+/* component */
+
 export default function ChatWindow({
   chat,
   connection,
   isConnected,
+  onlineUserIds = new Set(),
   currentUserId,
   usersMap = {},
   onMessageCreated = () => {},
   onBack = () => {},
+  onStartAudioCall = () => {},
+  onStartVideoCall = () => {},
 }) {
-  injectCWStyles();
-
-  // normalized current user id (string)
   const meId = useMemo(() => {
     if (currentUserId) return String(currentUserId);
     try {
-      const raw = localStorage.getItem("current_user") || localStorage.getItem("user") || localStorage.getItem("me");
+      const raw = localStorage.getItem("mahima_user")
+        || localStorage.getItem("current_user")
+        || localStorage.getItem("user")
+        || localStorage.getItem("me");
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       return parsed?.id ? String(parsed.id) : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }, [currentUserId]);
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [muted, setMutedState] = useState(() => readMuted());
+  const [pendingAttachment, setPendingAttachment] = useState(null); // { file, previewUrl, kind }
+  const [uploading, setUploading] = useState(false);
+  const [messageMenu, setMessageMenu] = useState(null);
+  const [deletedForMe, setDeletedForMe] = useState(() => readJsonStore(MESSAGE_DELETE_KEY, {}));
+  const [blockStatus, setBlockStatus] = useState(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
 
-  const bodyRef = useAutoScroll(messages.length);
+  const scrollerRef = useRef(null);
+  const taRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const lastReceiveSoundRef = useRef(0);
+  const voiceRecognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingStreamRef = useRef(null);
+  const recordingTimerRef = useRef(null);
 
-  /* ------------------------------- load history ------------------------------ */
+  // Cleanup blob URL preview on change/unmount.
   useEffect(() => {
-    let abort = false;
-    async function loadHistory() {
-      if (!chat?.id) {
-        setMessages([]);
+    return () => {
+      if (pendingAttachment?.previewUrl) {
+        try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch {}
+      }
+    };
+  }, [pendingAttachment]);
+
+  // Auto-scroll on new messages or when typing indicator pops.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight + 9999;
+  }, [messages.length, typing]);
+
+  // Auto-grow textarea height.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      try { voiceRecognitionRef.current?.stop?.(); } catch {}
+      voiceRecognitionRef.current = null;
+      stopVoiceRecording(true);
+    };
+  }, []);
+
+  function stopVoiceInput() {
+    try { voiceRecognitionRef.current?.stop?.(); } catch {}
+    voiceRecognitionRef.current = null;
+    setVoiceListening(false);
+    setVoiceBusy(false);
+  }
+
+  async function startVoiceInput() {
+    if (isDirectBlocked || loading || uploading) return;
+    unlockAudio();
+    stopVoiceInput();
+    const baseText = text.trim();
+    setVoiceBusy(true);
+    setVoiceListening(true);
+
+    try {
+      const nativeText = await nativeSpeechToText("en-IN").catch(() => "");
+      if (nativeText) {
+        setText([baseText, nativeText.trim()].filter(Boolean).join(" "));
+        setVoiceBusy(false);
+        setVoiceListening(false);
+        window.setTimeout(() => taRef.current?.focus(), 50);
         return;
       }
-      setLoading(true);
+    } finally {
+      setVoiceBusy(false);
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceListening(false);
+      alert("Voice typing is not supported on this device/browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    voiceRecognitionRef.current = recognition;
+    recognition.lang = "en-IN";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    let finalText = "";
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const value = event.results[i][0]?.transcript || "";
+        transcript += value;
+        if (event.results[i].isFinal) finalText += value;
+      }
+      const spoken = (finalText || transcript).trim();
+      if (spoken) setText([baseText, spoken].filter(Boolean).join(" "));
+    };
+    recognition.onerror = () => {
+      setVoiceListening(false);
+      voiceRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setVoiceListening(false);
+      voiceRecognitionRef.current = null;
+      const spoken = finalText.trim();
+      if (spoken) setText([baseText, spoken].filter(Boolean).join(" "));
+      window.setTimeout(() => taRef.current?.focus(), 50);
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      voiceRecognitionRef.current = null;
+    }
+  }
+
+  function stopRecordingTracks() {
+    try {
+      recordingStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    } catch {}
+    recordingStreamRef.current = null;
+  }
+
+  function clearRecordingTimer() {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (isDirectBlocked || loading || uploading || recording) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      alert("Voice recording is not supported on this device/browser.");
+      return;
+    }
+
+    unlockAudio();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickVoiceRecordingMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      recordingChunksRef.current = [];
+      recordingStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        clearRecordingTimer();
+        setRecording(false);
+        const chunks = recordingChunksRef.current;
+        recordingChunksRef.current = [];
+        stopRecordingTracks();
+        mediaRecorderRef.current = null;
+
+        if (!chunks.length) return;
+        const type = (recorder.mimeType || mimeType || "audio/webm").split(";")[0] || "audio/webm";
+        const ext = audioExtensionForType(type);
+        const blob = new Blob(chunks, { type });
+        const file = new File([blob], `voice-${Date.now()}.${ext}`, { type });
+        if (pendingAttachment?.previewUrl) {
+          try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch {}
+        }
+        setPendingAttachment({
+          file,
+          previewUrl: URL.createObjectURL(blob),
+          kind: "audio",
+        });
+      };
+
+      recorder.start();
+      setRecordingSeconds(0);
+      setRecording(true);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      stopRecordingTracks();
+      clearRecordingTimer();
+      setRecording(false);
+      alert("Could not start voice recording. Please allow microphone access.");
+    }
+  }
+
+  function stopVoiceRecording(silent = false) {
+    clearRecordingTimer();
+    try {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      } else {
+        stopRecordingTracks();
+        mediaRecorderRef.current = null;
+      }
+    } catch {
+      stopRecordingTracks();
+      mediaRecorderRef.current = null;
+    }
+    setRecording(false);
+    if (!silent) setRecordingSeconds(0);
+  }
+
+  function speakMessage(msg) {
+    const messageText = String(msg?.text || "").trim();
+    const attachmentText = Array.isArray(msg?.attachments) && msg.attachments.length
+      ? msg.attachments.some((a) => a?.kind === "audio") ? "Voice message." : "Attachment message."
+      : "";
+    const textToSpeak = [messageText, attachmentText].filter(Boolean).join(" ");
+    if (!textToSpeak) return;
+    speakText(textToSpeak, { lang: "en-IN", rate: 0.92, maxLength: 180 });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setBlockStatus(null);
+    if (!chat?.id || chat?.isGroup) return;
+
+    async function loadBlockStatus() {
       try {
-        const res = await fetch(`${API_BASE}/chats/${chat.id}/messages?take=50`, {
+        const token = getToken() || localStorage.getItem("mahima_token") || localStorage.getItem("authToken") || localStorage.getItem("token");
+        const res = await fetch(`${API_BASE}/chats/${chat.id}/block-status`, {
+          headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setBlockStatus(json);
+      } catch {
+        if (!cancelled) setBlockStatus(null);
+      }
+    }
+
+    loadBlockStatus();
+    return () => { cancelled = true; };
+  }, [chat?.id, chat?.isGroup]);
+
+  /* load history + polling fallback */
+  useEffect(() => {
+    let cancelled = false;
+    let intervalId = null;
+
+    async function load(showSpinner = false) {
+      if (!chat?.id) { setMessages([]); return; }
+      if (showSpinner) setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/chats/${chat.id}/messages?page=1&size=100`, {
           headers: {
             Accept: "application/json",
             Authorization: `Bearer ${getToken() || ""}`,
           },
           credentials: "include",
         });
+        if (!res.ok) throw new Error(`History load failed (${res.status})`);
         const txt = await res.text();
         let data;
-        try {
-          data = JSON.parse(txt);
-        } catch {
-          data = [];
-        }
-        const list = Array.isArray(data?.items)
-          ? data.items
-          : Array.isArray(data?.data)
-          ? data.data
-          : Array.isArray(data)
-          ? data
+        try { data = JSON.parse(txt); } catch { data = []; }
+        const list = Array.isArray(data?.items) ? data.items
+          : Array.isArray(data?.data) ? data.data
+          : Array.isArray(data) ? data
           : [];
-        const normalized = list.map(normalizeMessage);
-        if (!abort) setMessages(normalized);
+        const normalized = list.map(normalizeMessage)
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        if (!cancelled) {
+          setMessages((prev) => mergeMessages(prev, normalized));
+        }
       } catch (e) {
-        if (!abort) setMessages([]);
+        if (!cancelled && showSpinner) setMessages([]);
         console.warn("[ChatWindow] loadHistory failed", e);
       } finally {
-        if (!abort) setLoading(false);
+        if (!cancelled && showSpinner) setLoading(false);
       }
     }
-    loadHistory();
-    return () => {
-      abort = true;
-    };
-  }, [chat?.id]);
 
-  /* ----------------------------- signalR handlers ---------------------------- */
+    load(true);
+    intervalId = setInterval(() => {
+      if (!document.hidden) load(false);
+    }, isConnected ? 8000 : 3000);
+
+    const onFocus = () => load(false);
+    const onVisibility = () => { if (!document.hidden) load(false); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [chat?.id, isConnected]);
+  /* signalr */
   useEffect(() => {
     if (!connection) return;
 
     const onReceive = (msg) => {
       const n = normalizeMessage(msg);
       if (String(n.chatId) !== String(chat?.id)) return;
-      setMessages((prev) => [...prev, n]);
+      const fromMe = String(n.senderId) === String(meId);
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === n.id)) return prev;
+        if (fromMe) {
+          const draftIndex = prev.findIndex((m) =>
+            m.status === "sending" &&
+            String(m.chatId) === String(n.chatId) &&
+            String(m.text || "") === String(n.text || "")
+          );
+          if (draftIndex >= 0) {
+            const next = [...prev];
+            const draft = prev[draftIndex];
+            const serverAttachments = Array.isArray(n.attachments) ? n.attachments : [];
+            next[draftIndex] = {
+              ...n,
+              attachments: serverAttachments.length ? serverAttachments : draft.attachments,
+              status: "sent",
+            };
+            return next;
+          }
+        }
+        return [...prev, n];
+      });
+
+      // Play notification only for messages from other users, and at most
+      // once per ~600ms to avoid stacking on bursts.
+      if (!fromMe) {
+        const now = Date.now();
+        if (now - lastReceiveSoundRef.current > 600) {
+          lastReceiveSoundRef.current = now;
+          playReceiveSound();
+        }
+      }
     };
 
     const onTyping = (payload) => {
       const cid = payload?.chatId ?? payload?.ChatId;
       if (String(cid) !== String(chat?.id)) return;
+      const fromMe = String(payload?.fromUserId ?? "") === String(meId);
+      if (fromMe) return;
       setTyping(true);
-      setTimeout(() => setTyping(false), 1200);
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => setTyping(false), 2500);
+    };
+
+    const onReadReceipt = (payload) => {
+      if (String(payload?.chatId) !== String(chat?.id)) return;
+      if (String(payload?.userId ?? "") === String(meId)) return;
+      // mark all my messages as read
+      setMessages((prev) => prev.map((m) =>
+        String(m.senderId) === String(meId) ? { ...m, status: "read" } : m
+      ));
+    };
+
+    const onMessageDeleted = (payload) => {
+      const cid = payload?.chatId ?? payload?.ChatId;
+      const mid = payload?.messageId ?? payload?.MessageId;
+      if (String(cid) !== String(chat?.id) || !mid) return;
+      setMessages((prev) => prev.filter((m) => String(m.id) !== String(mid)));
+    };
+
+    const onChatBlockChanged = async (payload) => {
+      const cid = payload?.chatId ?? payload?.ChatId;
+      if (String(cid) !== String(chat?.id)) return;
+      try {
+        const token = getToken() || localStorage.getItem("mahima_token") || localStorage.getItem("authToken") || localStorage.getItem("token");
+        const res = await fetch(`${API_BASE}/chats/${chat.id}/block-status`, {
+          headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: "include",
+        });
+        if (res.ok) setBlockStatus(await res.json());
+      } catch {}
     };
 
     connection.on("ReceiveMessage", onReceive);
     connection.on("UserTyping", onTyping);
-
+    connection.on("ReadReceipt", onReadReceipt);
+    connection.on("MessageDeleted", onMessageDeleted);
+    connection.on("ChatBlockChanged", onChatBlockChanged);
     return () => {
-      connection.off && connection.off("ReceiveMessage", onReceive);
-      connection.off && connection.off("UserTyping", onTyping);
+      try { connection.off?.("ReceiveMessage", onReceive); } catch {}
+      try { connection.off?.("UserTyping", onTyping); } catch {}
+      try { connection.off?.("ReadReceipt", onReadReceipt); } catch {}
+      try { connection.off?.("MessageDeleted", onMessageDeleted); } catch {}
+      try { connection.off?.("ChatBlockChanged", onChatBlockChanged); } catch {}
+      clearTimeout(typingTimeoutRef.current);
     };
-  }, [connection, chat?.id]);
+  }, [connection, chat?.id, meId]);
 
-  /* ------------------------------ sendText -------------------------------- */
-  async function sendText() {
+  /* mark as read on open / focus */
+  useEffect(() => {
+    if (!chat?.id) return;
+    const markRead = async () => {
+      try {
+        await fetch(`${API_BASE}/chats/${chat.id}/read`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getToken() || ""}`,
+          },
+          credentials: "include",
+          body: "{}",
+        });
+      } catch { /* ignore */ }
+    };
+    markRead();
+    const onFocus = () => markRead();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [chat?.id]);
+
+  /* attachments */
+
+  function pickFile() {
+    fileInputRef.current?.click();
+  }
+
+  function onFileChosen(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";  // allow re-picking same file
+    if (!file) return;
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    const isAudio = file.type.startsWith("audio/");
+    const isDocument = /^(application\/pdf|text\/|application\/msword|application\/vnd\.openxmlformats|application\/vnd\.ms-|application\/zip)/i.test(file.type) || /\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip)$/i.test(file.name);
+    if (!isImage && !isVideo && !isAudio && !isDocument) {
+      alert("Please pick an image, video, audio, or document.");
+      return;
+    }
+
+    // Cap at 25 MB to avoid hanging the upload.
+    if (file.size > 100 * 1024 * 1024) {
+      alert("File too large (max 100 MB).");
+      return;
+    }
+
+    setPendingAttachment({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      kind: isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "file",
+    });
+  }
+
+  function clearAttachment() {
+    if (pendingAttachment?.previewUrl) {
+      try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch {}
+    }
+    setPendingAttachment(null);
+  }
+
+  async function uploadAttachment(file) {
+    const token = getToken();
+    const fd = new FormData();
+    fd.append("file", file);
+
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/uploads`, {
+        method: "POST",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+        body: fd,
+      });
+    } catch (err) {
+      throw new Error("Upload service is not reachable. Please check the server and Nginx /api proxy.");
+    }
+
+    if (!res.ok) {
+      const message = await res.text().catch(() => "");
+      throw new Error(message || `Upload failed with HTTP ${res.status}`);
+    }
+
+    const j = await res.json().catch(() => null);
+    const url = j?.absoluteUrl || j?.AbsoluteUrl || j?.url || j?.Url || j?.location;
+    if (!url) throw new Error("Upload completed but the server did not return a file URL.");
+
+    return { url: resolveMediaUrl(url), contentType: file.type };
+  }
+
+  /* sending */
+
+  async function sendMessage() {
     const trimmed = text.trim();
-    if (!chat?.id || (!trimmed)) return;
+    if (!chat?.id) return;
+    if (blockStatus?.isBlocked || blockStatus?.IsBlocked) return;
+    if (!trimmed && !pendingAttachment) return;
+    unlockAudio();
 
-    const now = new Date().toISOString();
+    // Snapshot the attachment so user can keep typing while we upload.
+    const attachmentSnapshot = pendingAttachment;
+    let attachments = [];
+    let attachmentUrl = null;
+    let contentType = "text";
+
+    // Optimistic draft (with local preview URL while upload is in flight).
     const draft = {
-      id: Math.random().toString(36).slice(2),
+      id: "draft-" + Math.random().toString(36).slice(2),
       chatId: chat.id,
       senderId: meId || "me",
       text: trimmed,
-      createdAt: now,
+      createdAt: new Date().toISOString(),
       status: "sending",
-      attachments: [],
+      attachments: attachmentSnapshot
+        ? [{
+            url: attachmentSnapshot.previewUrl,
+            contentType: attachmentSnapshot.file.type,
+            kind: attachmentSnapshot.kind,
+          }]
+        : [],
     };
-
     setMessages((prev) => [...prev, draft]);
     setText("");
+    setPendingAttachment(null);
 
-    const attachments = draft.attachments;
+    const finalize = (status, serverResponse) => {
+      const serverMessage = serverResponse ? normalizeMessage(serverResponse) : null;
+      const serverAttachments = Array.isArray(serverMessage?.attachments) ? serverMessage.attachments : [];
+      const resolvedServerMessage = serverMessage
+        ? {
+            ...serverMessage,
+            attachments: serverAttachments.length ? serverAttachments : attachments,
+            attachmentUrl: serverMessage.attachmentUrl || attachmentUrl,
+          }
+        : null;
 
-    // try SignalR hub (include both text and content keys)
-    try {
-      if (connection?.invoke) {
-        const payload = { chatId: chat.id, text: trimmed, content: trimmed, attachments };
-        // attempt common method name
-        await connection.invoke("SendMessage", payload).catch(async (err) => {
-          // try discrete args if object signature fails
-          return connection.invoke("SendMessage", chat.id, trimmed, attachments);
+      setMessages((prev) => {
+        const next = prev.map((m) => {
+          if (m.id !== draft.id) return m;
+          return resolvedServerMessage
+            ? { ...resolvedServerMessage, status }
+            : { ...m, status, attachments: attachments.length ? attachments : m.attachments, _server: serverResponse };
         });
-        onMessageCreated({ ...draft, status: "sent" });
-        setMessages((prev) => prev.map((m) => (m.id === draft.id ? { ...m, status: "sent" } : m)));
+        return mergeMessages([], next);
+      });
+      if (status === "sent") playSendSound();
+      if (status === "sent") onMessageCreated(resolvedServerMessage || { ...draft, attachments, status: "sent" });
+    };
+
+    // Upload the attachment (if any) first.
+    if (attachmentSnapshot) {
+      setUploading(true);
+      try {
+        const uploaded = await uploadAttachment(attachmentSnapshot.file);
+        attachmentUrl = uploaded.url;
+        contentType = uploaded.contentType || attachmentSnapshot.kind;
+        attachments = [{
+          url: uploaded.url,
+          contentType: uploaded.contentType,
+          kind: attachmentSnapshot.kind,
+        }];
+        // Replace local preview URL with the uploaded URL on the draft.
+        setMessages((prev) => prev.map((m) =>
+          m.id === draft.id
+            ? { ...m, attachments }
+            : m
+        ));
+      } catch (err) {
+        console.error("[ChatWindow] upload failed", err);
+        alert("Couldn't upload attachment: " + (err?.message || err));
+        finalize("failed");
+        setUploading(false);
         return;
+      } finally {
+        setUploading(false);
       }
-      throw new Error("No SignalR connection");
-    } catch (err) {
-      console.warn("[ChatWindow] SignalR send failed, falling back to HTTP", err);
     }
 
-    // HTTP fallback — include Content (capital C) plus text/content for compatibility
+    const attachmentMarker = encodeAttachmentMarker(attachments);
+    const persistedText = attachmentMarker
+      ? `${trimmed}${trimmed ? "\n" : ""}${attachmentMarker}`
+      : trimmed;
+
+    const sendPayload = {
+      chatId: chat.id,
+      text: persistedText,
+      content: persistedText,
+      contentType,
+      attachmentUrl,
+      attachments,
+    };
+
+    // Try SignalR first
+    if (connection?.invoke) {
+      try {
+        const created = await connection.invoke("SendMessage", sendPayload);
+        finalize("sent", created);
+        return;
+      } catch (err) {
+        console.warn("[ChatWindow] SignalR send failed, falling back to HTTP", err);
+      }
+    }
+
+    // HTTP fallback
     try {
-      const token = getToken() || localStorage.getItem("token") || localStorage.getItem("auth_token") || "";
-      const body = { Content: trimmed, content: trimmed, text: trimmed, attachments };
+      const token = getToken()
+        || localStorage.getItem("mahima_token")
+        || localStorage.getItem("authToken")
+        || localStorage.getItem("token");
       const res = await fetch(`${API_BASE}/chats/${chat.id}/messages`, {
         method: "POST",
-        headers: Object.assign({ "Content-Type": "application/json" }, token ? { Authorization: `Bearer ${token}` } : {}),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         credentials: "include",
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          Content: persistedText,
+          content: persistedText,
+          text: persistedText,
+          contentType,
+          attachmentUrl,
+          AttachmentUrl: attachmentUrl,
+          attachments,
+        }),
       });
       if (!res.ok) {
-        let errText = "";
-        try { errText = await res.text(); } catch {}
-        setMessages((prev) => prev.map((m) => (m.id === draft.id ? { ...m, status: "failed" } : m)));
-        alert(`Failed to send message${errText ? ": " + errText : ""}`);
+        finalize("failed");
         return;
       }
-      setMessages((prev) => prev.map((m) => (m.id === draft.id ? { ...m, status: "sent" } : m)));
       const json = await res.json().catch(() => null);
-      onMessageCreated({ ...draft, status: "sent", serverResponse: json });
+      finalize("sent", json);
     } catch (e) {
-      console.error("[ChatWindow] send fallback failed", e);
-      setMessages((prev) => prev.map((m) => (m.id === draft.id ? { ...m, status: "failed" } : m)));
-      alert("Failed to send message (network error). See console for details.");
+      console.error("[ChatWindow] HTTP send failed", e);
+      finalize("failed");
     }
   }
 
-  /* --------------------------- title resolution --------------------------- */
+  function deleteForMe(msg) {
+    if (!chat?.id || !msg?.id) return;
+    const key = deletedMessageKey(chat.id, msg.id);
+    setDeletedForMe((prev) => {
+      const next = { ...prev, [key]: true };
+      writeJsonStore(MESSAGE_DELETE_KEY, next);
+      return next;
+    });
+    setMessages((prev) => prev.filter((m) => String(m.id) !== String(msg.id)));
+    setMessageMenu(null);
+  }
+
+  async function deleteForEveryone(msg) {
+    if (!chat?.id || !msg?.id) return;
+    if (!window.confirm("Delete this message for everyone?")) return;
+    try {
+      const token = getToken() || localStorage.getItem("mahima_token") || localStorage.getItem("authToken") || localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/chats/${chat.id}/messages/${msg.id}/everyone`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+      });
+      if (!res.ok && res.status !== 404) throw new Error(await res.text().catch(() => "Delete failed"));
+      setMessages((prev) => prev.filter((m) => String(m.id) !== String(msg.id)));
+      setMessageMenu(null);
+    } catch (err) {
+      alert("Could not delete message: " + (err?.message || err));
+    }
+  }
+
+  function retryMessage(msg) {
+    if (msg.status !== "failed") return;
+    // Remove the failed draft, push the text back into the box, and let
+    // the user hit send again. Cleaner than silent auto-retry.
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    setText((t) => (t ? t + " " : "") + (msg.text || ""));
+    taRef.current?.focus();
+  }
+
+  /* derived */
+
   const derivedTitle = useMemo(() => {
     if (!chat) return "Conversation";
+    if (!chat.isGroup) {
+      const directName = chat.otherName || chat.otherDisplayName || chat.otherUsername || null;
+      if (directName && String(directName).trim()) return String(directName).trim();
 
-    // helper: get my display name if available
-    const myName = usersMap?.[String(meId)]?.displayName || usersMap?.[String(meId)]?.name || null;
+      const directId = chat.otherId ?? null;
+      if (directId) {
+        const u = usersMap?.[String(directId)];
+        if (u) return u.displayName || u.name || u.username || String(directId);
+      }
+    }
 
-    // 1) explicit chat name — but ignore it when it equals current user's name (server bug)
+    const myName = usersMap?.[String(meId)]?.displayName
+      || usersMap?.[String(meId)]?.name || null;
+
     if (chat.name && String(chat.name).trim()) {
-      const candidate = String(chat.name).trim();
-      if (!(myName && candidate === myName)) {
-        return candidate;
-      }
-      // else fallthrough when chat.name === myName
+      const c = String(chat.name).trim();
+      if (!(myName && c === myName)) return c;
     }
 
-    // 2) prefer lastMessage sender name if last message sent by someone else
-    const lm = chat.lastMessage ?? chat.last_message ?? chat.last ?? (messages.length ? messages[messages.length - 1] : null);
+    const lm = chat.lastMessage ?? (messages.length ? messages[messages.length - 1] : null);
     if (lm) {
-      const lmSenderId = lm.senderId ?? lm.fromUserId ?? lm.userId ?? (lm.sender && (lm.sender.id ?? lm.sender.userId)) ?? null;
-      const lmSenderName = lm.senderName ?? lm.fromName ?? lm.sender?.displayName ?? lm.sender?.name ?? null;
-      if (lmSenderId && String(lmSenderId) !== String(meId)) {
-        if (lmSenderName) return lmSenderName;
-        const u = usersMap?.[String(lmSenderId)];
-        if (u) return u.displayName || u.name || u.username || String(lmSenderId);
-        return String(lmSenderId);
+      const lmId = lm.senderId ?? lm.fromUserId ?? lm.userId
+        ?? (lm.sender && (lm.sender.id ?? lm.sender.userId)) ?? null;
+      const lmName = lm.senderName ?? lm.fromName
+        ?? lm.sender?.displayName ?? lm.sender?.name ?? null;
+      if (lmId && String(lmId) !== String(meId)) {
+        if (lmName) return lmName;
+        const u = usersMap?.[String(lmId)];
+        if (u) return u.displayName || u.name || u.username || String(lmId);
+        return String(lmId);
       }
-      // if senderId is me but senderName exists and is different than myName, still consider it
-      if (lmSenderName && !(myName && lmSenderName === myName)) {
-        return lmSenderName;
-      }
+      if (lmName && !(myName && lmName === myName)) return lmName;
     }
 
-    // 3) other participant via chat.otherId or members/participants
     const otherId = chat.otherId ?? null;
     if (otherId) {
       const u = usersMap?.[String(otherId)];
       if (u) return u.displayName || u.name || u.username || String(otherId);
       return String(otherId);
     }
-
     const members = chat.members ?? chat.participants ?? chat.users ?? [];
-    if (Array.isArray(members) && members.length > 0) {
-      // find the first member that's not me
+    if (Array.isArray(members)) {
       for (const m of members) {
         if (!m) continue;
-        if (typeof m === "string") {
-          if (String(m) !== String(meId)) {
-            const u = usersMap?.[String(m)];
-            if (u) return u.displayName || u.name || u.username || String(m);
-            return String(m);
-          }
-        } else {
-          const id = m.id ?? m.userId ?? m._id ?? m.uuid ?? null;
-          if (id && String(id) !== String(meId)) {
-            const u = usersMap?.[String(id)];
-            if (u) return u.displayName || u.name || u.username || String(id);
-            return m.displayName || m.name || m.username || String(id);
-          }
+        const id = typeof m === "string" ? m : (m.id ?? m.userId ?? m._id ?? m.uuid);
+        if (id && String(id) !== String(meId)) {
+          const u = usersMap?.[String(id)];
+          if (u) return u.displayName || u.name || u.username || String(id);
+          return typeof m === "string" ? id : (m.displayName || m.name || m.username || id);
         }
       }
     }
-
-    // 4) last resort: use chat.title or 'Conversation'
     return chat.title ?? "Conversation";
   }, [chat, messages, usersMap, meId]);
 
-  /* ------------------------------ render --------------------------------- */
-  return (
-    <div className="cw-wrap" role="main" aria-label="Chat window">
-      <div className="cw-head">
-        <div className="cw-head-row">
-          <button className="cw-iconbtn" title="Back" onClick={onBack} style={{ marginRight: 8 }}>
-            ←
-          </button>
-          <div>
-            <div className="cw-title">{derivedTitle}</div>
-            <div className="cw-sub">{isConnected ? "Online" : "Connecting…"} {loading ? "· Loading…" : ""}</div>
-          </div>
-          <div className="cw-actions" />
-        </div>
-      </div>
+  const peerUserId = useMemo(() => {
+    if (!chat || chat.isGroup) return null;
+    const directId = chat.otherId ?? chat.otherUserId ?? chat.other?.id ?? null;
+    if (directId) return String(directId);
 
-      <div ref={bodyRef} className="cw-body">
-        {messages.map((m) => {
-          const mine = meId ? String(m.senderId) === String(meId) : (m.senderId ?? "me") === "me";
-          return (
-            <div key={m.id || m.createdAt} className={`cw-row ${mine ? "me" : ""}`}>
-              <div className="cw-bubble" aria-live="polite">
-                {m.text && <div>{m.text}</div>}
-                <div className="cw-meta">
-                  <span>
-                    {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  {mine && <span>{m.status === "sent" ? "✓✓" : m.status === "failed" ? "✕" : "…"}</span>}
-                </div>
+    const members = chat.members ?? chat.participants ?? chat.users ?? [];
+    if (!Array.isArray(members)) return null;
+    for (const member of members) {
+      const id = typeof member === "string" ? member : (member?.id ?? member?.userId ?? member?._id ?? member?.uuid);
+      if (id && String(id) !== String(meId)) return String(id);
+    }
+    return null;
+  }, [chat, meId]);
+
+  const isPeerOnline = useMemo(() => {
+    if (!peerUserId) return false;
+    if (onlineUserIds instanceof Set) return onlineUserIds.has(String(peerUserId));
+    if (Array.isArray(onlineUserIds)) return onlineUserIds.map(String).includes(String(peerUserId));
+    return false;
+  }, [onlineUserIds, peerUserId]);
+
+  const iBlockedThem = Boolean(blockStatus?.iBlockedThem ?? blockStatus?.IBlockedThem);
+  const theyBlockedMe = Boolean(blockStatus?.theyBlockedMe ?? blockStatus?.TheyBlockedMe);
+  const isDirectBlocked = Boolean((blockStatus?.isBlocked ?? blockStatus?.IsBlocked) ?? (iBlockedThem || theyBlockedMe));
+
+  async function toggleBlockUser() {
+    if (!chat?.id || chat?.isGroup || blockBusy) return;
+    const action = iBlockedThem ? "unblock" : "block";
+    const ok = window.confirm(iBlockedThem
+      ? `Unblock ${derivedTitle}?`
+      : `Block ${derivedTitle}? They will not be able to message or call you.`);
+    if (!ok) return;
+
+    setBlockBusy(true);
+    try {
+      const token = getToken() || localStorage.getItem("mahima_token") || localStorage.getItem("authToken") || localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/chats/${chat.id}/block`, {
+        method: action === "block" ? "POST" : "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Block request failed"));
+      setBlockStatus(await res.json());
+    } catch (err) {
+      alert(err?.message || "Could not update block status.");
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
+  // Insert date separators between messages.
+  const renderedItems = useMemo(() => {
+    const out = [];
+    let lastDay = null;
+    for (const m of messages) {
+      if (deletedForMe[deletedMessageKey(chat?.id, m.id)]) continue;
+      const d = dayjs(m.createdAt).startOf("day").toISOString();
+      if (d !== lastDay) {
+        lastDay = d;
+        out.push({ kind: "date", id: "d-" + d, label: dateLabel(m.createdAt) });
+      }
+      out.push({ kind: "msg", id: m.id, msg: m });
+    }
+    return out;
+  }, [messages, deletedForMe, chat?.id]);
+
+  const onTypingInput = () => {
+    try {
+      connection?.invoke?.("Typing", { chatId: chat?.id }).catch(() => {});
+    } catch { /* ignore */ }
+  };
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMutedState(next);
+    writeMuted(next);
+  };
+
+  if (!chat) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-[#f0f2f5] text-center px-6">
+        <div className="w-20 h-20 rounded-full bg-emerald-600/10 flex items-center justify-center mb-4">
+          <Send className="w-9 h-9 text-emerald-600" />
+        </div>
+        <h2 className="text-lg font-semibold text-slate-800">Jai Masih</h2>
+        <p className="mt-1 text-sm text-slate-500 max-w-sm">
+          Choose a chat from the left, or start a new one to begin a conversation.
+        </p>
+      </div>
+    );
+  }
+
+  /* render */
+
+  return (
+    <div className="h-full min-h-0 flex flex-col bg-[#efeae2]"
+         style={{
+           // WhatsApp-style faint pattern background
+           backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M30 5l5 10-5 10-5-10z'/%3E%3C/g%3E%3C/svg%3E\")",
+         }}
+    >
+      {/* HEADER */}
+      <header className="bg-emerald-700 text-white px-2 sm:px-3 py-2 flex items-center gap-1.5 sm:gap-2 shadow-sm shrink-0">
+        <button
+          onClick={onBack}
+          className="md:hidden w-11 h-11 rounded-full hover:bg-white/10 active:bg-white/20 flex items-center justify-center"
+          aria-label="Back"
+          type="button"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white shadow shrink-0"
+          style={{ background: colorFromId(chat.id) }}
+        >
+          {initialsFrom(derivedTitle)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold truncate">{derivedTitle}</div>
+          <div className="text-[11px] text-emerald-100/90 flex items-center gap-1.5 truncate">
+            {iBlockedThem ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-200 inline-block" />
+                Blocked
+              </>
+            ) : theyBlockedMe ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-200 inline-block" />
+                You are blocked
+              </>
+            ) : typing ? (
+              <span className="inline-flex items-center gap-1.5">
+                <TypingDots /> typing...
+              </span>
+            ) : !isConnected ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Connecting...
+              </span>
+            ) : chat?.isGroup ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-200 inline-block" />
+                Group chat
+              </>
+            ) : isPeerOnline ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-300 inline-block" />
+                Online
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-100/60 inline-block" />
+                Offline
+              </>
+            )}
+            {loading && <span className="hidden sm:inline opacity-75">- loading</span>}
+          </div>
+        </div>
+
+        <button
+          onClick={onStartAudioCall}
+          disabled={isDirectBlocked}
+          type="button"
+          title="Voice call"
+          aria-label="Voice call"
+          className="w-11 h-11 rounded-full hover:bg-white/10 active:bg-white/20 flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Phone className="w-5 h-5" />
+        </button>
+        <button
+          onClick={onStartVideoCall}
+          disabled={isDirectBlocked}
+          type="button"
+          title="Video call"
+          aria-label="Video call"
+          className="w-11 h-11 rounded-full hover:bg-white/10 active:bg-white/20 flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Video className="w-5 h-5" />
+        </button>
+        <button
+          onClick={toggleMute}
+          type="button"
+          title={muted ? "Unmute notifications" : "Mute notifications"}
+          aria-label={muted ? "Unmute notifications" : "Mute notifications"}
+          className="w-11 h-11 rounded-full hover:bg-white/10 active:bg-white/20 flex items-center justify-center shrink-0"
+        >
+          {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        </button>
+        {!chat?.isGroup && peerUserId && (
+          <button
+            onClick={toggleBlockUser}
+            disabled={blockBusy}
+            type="button"
+            title={iBlockedThem ? "Unblock user" : "Block user"}
+            aria-label={iBlockedThem ? "Unblock user" : "Block user"}
+            className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${iBlockedThem ? "bg-red-500/80 hover:bg-red-500" : "hover:bg-white/10 active:bg-white/20"}`}
+          >
+            {blockBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Ban className="w-5 h-5" />}
+          </button>
+        )}
+      </header>
+
+      {/* MESSAGES */}
+      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-6 py-3">
+        {messages.length === 0 && !loading && (
+          <div className="text-center py-10 text-slate-500 text-sm">
+            No messages yet. Say hello!
+          </div>
+        )}
+        {renderedItems.map((it) => {
+          if (it.kind === "date") {
+            return (
+              <div key={it.id} className="flex justify-center my-3">
+                <span className="bg-white/80 backdrop-blur text-[11px] font-semibold text-slate-600 rounded-full px-3 py-1 shadow-sm">
+                  {it.label}
+                </span>
               </div>
-            </div>
+            );
+          }
+          const m = it.msg;
+          const mine = meId ? String(m.senderId) === String(meId) : (m.senderId === "me");
+          return (
+            <MessageBubble
+              key={m.id}
+              msg={m}
+              mine={mine}
+              onRetry={() => retryMessage(m)}
+              onOpenMenu={() => setMessageMenu(messageMenu?.id === m.id ? null : m)}
+              menuOpen={messageMenu?.id === m.id}
+              canDeleteForEveryone={mine && !String(m.id).startsWith("draft-")}
+              onDeleteForMe={() => deleteForMe(m)}
+              onDeleteForEveryone={() => deleteForEveryone(m)}
+              onSpeak={() => speakMessage(m)}
+            />
           );
         })}
       </div>
 
-      {typing && <div className="cw-typing">Typing…</div>}
+      {/* INPUT */}
+      <div className="bg-[#f0f2f5] px-2 py-2 flex flex-col gap-2 border-t border-slate-200 shrink-0"
+           style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
 
-      <div className="cw-inputbar">
-        <textarea
-          className="cw-textarea"
-          placeholder="Type a message"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            try { connection?.send?.("Typing", { chatId: chat?.id }); } catch {}
-          }}
-          rows={1}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendText();
-            }
-          }}
+        {isDirectBlocked && (
+          <div className="mx-1 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 text-center">
+            {iBlockedThem
+              ? `You blocked ${derivedTitle}. Unblock to send messages or calls.`
+              : `${derivedTitle} has blocked this chat.`}
+          </div>
+        )}
+
+        {/* Hidden file input — triggered by the paperclip button. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+          className="hidden"
+          onChange={onFileChosen}
         />
-        <button className="cw-send" onClick={sendText} disabled={!text.trim()}>
-          ➤
-        </button>
+
+        {/* Pending attachment preview */}
+        {pendingAttachment && (
+          <div className="bg-white rounded-xl p-2 flex items-center gap-2 border border-slate-200">
+            {pendingAttachment.kind === "image" ? (
+              <img
+                src={pendingAttachment.previewUrl}
+                alt="preview"
+                className="w-12 h-12 rounded-lg object-cover"
+              />
+            ) : pendingAttachment.kind === "video" ? (
+              <video
+                src={pendingAttachment.previewUrl}
+                className="w-12 h-12 rounded-lg object-cover"
+                muted
+              />
+            ) : pendingAttachment.kind === "audio" ? (
+              <div className="min-w-0 flex-1">
+                <audio
+                  src={pendingAttachment.previewUrl}
+                  controls
+                  preload="auto"
+                  playsInline
+                  className="w-full max-w-[320px]"
+                />
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+                <FileText className="w-5 h-5" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0 text-xs">
+              <div className="font-medium truncate">{pendingAttachment.file.name}</div>
+              <div className="text-slate-500">
+                {(pendingAttachment.file.size / 1024).toFixed(0)} KB
+                {uploading && " - uploading..."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={clearAttachment}
+              className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"
+              aria-label="Remove attachment"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-end gap-1.5 sm:gap-2">
+          <button
+            type="button"
+            onClick={pickFile}
+            disabled={uploading || isDirectBlocked}
+            title="Attach photo or video"
+            aria-label="Attach photo or video"
+            className="w-11 h-11 rounded-full hover:bg-slate-200/70 active:bg-slate-300/70 flex items-center justify-center text-slate-600 shrink-0 disabled:opacity-50"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={voiceListening ? stopVoiceInput : startVoiceInput}
+            disabled={isDirectBlocked || loading || uploading || voiceBusy}
+            aria-label={voiceListening ? "Stop voice typing" : "Voice to text"}
+            title={voiceListening ? "Stop voice typing" : "Voice to text"}
+            type="button"
+            className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 ${
+              voiceListening
+                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                : "text-slate-600 hover:bg-slate-200/70 active:bg-slate-300/70"
+            }`}
+          >
+            {voiceListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
+
+          <button
+            onClick={recording ? () => stopVoiceRecording(false) : startVoiceRecording}
+            disabled={isDirectBlocked || loading || uploading || voiceBusy || voiceListening}
+            aria-label={recording ? "Stop voice message" : "Record voice message"}
+            title={recording ? "Stop voice message" : "Record voice message"}
+            type="button"
+            className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 ${
+              recording
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "text-slate-600 hover:bg-slate-200/70 active:bg-slate-300/70"
+            }`}
+          >
+            {recording ? <MicOff className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+
+          <div className="flex-1 bg-white rounded-2xl shadow-sm flex items-end min-w-0">
+            <textarea
+              ref={taRef}
+              value={text}
+              onChange={(e) => { setText(e.target.value); if (!isDirectBlocked) onTypingInput(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !isTouchDevice()) {
+                  e.preventDefault();
+                  if (!isDirectBlocked) sendMessage();
+                }
+              }}
+              onFocus={unlockAudio}
+              placeholder={isDirectBlocked ? (iBlockedThem ? "Unblock to send a message" : "Messages unavailable") : "Type a message"}
+              rows={1}
+              disabled={isDirectBlocked}
+              className="flex-1 bg-transparent border-0 outline-none px-3 py-2.5 text-sm resize-none max-h-[140px] min-w-0"
+            />
+            {recording && (
+              <div className="pr-3 pb-2 text-xs font-bold text-red-600">
+                {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={sendMessage}
+            disabled={isDirectBlocked || (!text.trim() && !pendingAttachment) || uploading}
+            aria-label="Send message"
+            type="button"
+            className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white flex items-center justify-center shrink-0 transition shadow-sm"
+          >
+            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+/* ----- bubble ----- */
+
+function MessageBubble({
+  msg,
+  mine,
+  onRetry,
+  onOpenMenu,
+  menuOpen,
+  canDeleteForEveryone,
+  onDeleteForMe,
+  onDeleteForEveryone,
+  onSpeak,
+}) {
+  const time = dayjs(msg.createdAt).format("HH:mm");
+  const hasAttachments = Array.isArray(msg.attachments) && msg.attachments.length > 0;
+
+  return (
+    <div className={`flex ${mine ? "justify-end" : "justify-start"} my-1`}>
+      <div className={`relative max-w-[80%] sm:max-w-[60%] rounded-lg overflow-hidden shadow-sm ${
+        mine ? "bg-[#dcf8c6] text-slate-900" : "bg-white text-slate-900"
+      }`}>
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          className="absolute top-1 right-1 z-10 w-7 h-7 rounded-full bg-white/70 hover:bg-white text-slate-500 flex items-center justify-center opacity-80"
+          aria-label="Message options"
+          title="Message options"
+        >
+          <MoreVertical className="w-4 h-4" />
+        </button>
+        {menuOpen && (
+          <div className={`absolute top-8 ${mine ? "right-1" : "left-1"} z-20 w-44 rounded-lg bg-white shadow-xl border border-slate-100 py-1 text-xs`}>
+            <button
+              type="button"
+              onClick={onSpeak}
+              className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Volume2 className="w-3.5 h-3.5" /> Read aloud
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteForMe}
+              className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete for me
+            </button>
+            {canDeleteForEveryone && (
+              <button
+                type="button"
+                onClick={onDeleteForEveryone}
+                className="w-full px-3 py-2 text-left hover:bg-red-50 text-red-600 flex items-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete for everyone
+              </button>
+            )}
+          </div>
+        )}
+        {hasAttachments && (
+          <div className="flex flex-col">
+            {msg.attachments.map((a, i) => <Attachment key={i} att={a} />)}
+          </div>
+        )}
+
+        <div className={hasAttachments ? "px-3 pt-1.5 pb-1.5" : "px-3 py-1.5"}>
+          {msg.text && (
+            <div className="text-sm whitespace-pre-wrap break-words pr-12">
+              {msg.text}
+            </div>
+          )}
+
+          <div className={`flex items-center gap-1 text-[10px] mt-1 justify-end ${
+            mine ? "text-slate-500" : "text-slate-400"
+          }`}>
+            <span>{time}</span>
+            {mine && <Tick status={msg.status} />}
+          </div>
+
+          {msg.status === "failed" && (
+            <button
+              onClick={onRetry}
+              className="mt-1 inline-flex items-center gap-1 text-[11px] text-red-600 font-semibold"
+              title="Retry"
+            >
+              <AlertCircle className="w-3 h-3" /> Failed - tap to retry
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Attachment({ att }) {
+  const url = att?.url;
+  const kind = att?.kind || (att?.contentType?.startsWith("video/") ? "video"
+                            : att?.contentType?.startsWith("image/") ? "image"
+                            : att?.contentType?.startsWith("audio/") ? "audio"
+                            : "file");
+  const audioRef = useRef(null);
+  const [audioError, setAudioError] = useState("");
+  if (!url) return null;
+
+  if (kind === "image") {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          className="max-w-full max-h-[320px] object-cover bg-slate-100"
+        />
+      </a>
+    );
+  }
+  if (kind === "video") {
+    return (
+      <video
+        src={url}
+        controls
+        playsInline
+        preload="metadata"
+        className="max-w-full max-h-[320px] bg-black"
+      />
+    );
+  }
+  if (kind === "audio") {
+    const playVoice = async () => {
+      setAudioError("");
+      unlockAudio();
+      const audio = audioRef.current;
+      if (!audio) return;
+      try {
+        audio.muted = false;
+        audio.volume = 1;
+        await audio.play();
+      } catch (err) {
+        console.warn("Audio play blocked:", url, err);
+        setAudioError("Tap the audio bar or check phone media volume.");
+      }
+    };
+
+    return (
+      <div className="px-3 pt-3 min-w-[240px] space-y-2">
+        {/* No crossOrigin attr — Android WebView's HTML5 audio handles
+            cross-origin "no-cors" media playback fine, and nginx doesn't
+            send CORS headers for /uploads/* so requesting CORS would
+            actually break playback. */}
+        <audio
+          ref={audioRef}
+          src={url}
+          controls
+          preload="auto"
+          playsInline
+          onError={(e) => {
+            console.warn("Audio failed to load:", url, e?.nativeEvent);
+            setAudioError("Voice note could not load. Please retry.");
+          }}
+          className="w-full"
+        />
+        <button
+          type="button"
+          onClick={playVoice}
+          className="inline-flex min-h-9 items-center gap-2 rounded-full bg-emerald-700 px-3 py-1.5 text-xs font-black text-white shadow-sm active:bg-emerald-800"
+        >
+          <Volume2 className="h-4 w-4" />
+          Play voice
+        </button>
+        {audioError ? <div className="text-[11px] font-semibold text-red-600">{audioError}</div> : null}
+      </div>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       className="text-xs text-blue-600 underline px-3 py-2 inline-block">
+      Open file
+    </a>
+  );
+}
+
+function Tick({ status }) {
+  if (status === "sending") return <Loader2 className="w-3 h-3 animate-spin" />;
+  if (status === "failed") return <AlertCircle className="w-3 h-3 text-red-500" />;
+  if (status === "read") return <CheckCheck className="w-3.5 h-3.5 text-blue-500" />;
+  if (status === "delivered") return <CheckCheck className="w-3.5 h-3.5" />;
+  return <Check className="w-3.5 h-3.5" />;
+}
+
+function TypingDots() {
+  return (
+    <span className="inline-flex gap-0.5 items-end">
+      <span className="w-1 h-1 bg-white/80 rounded-full animate-pulse" />
+      <span className="w-1 h-1 bg-white/80 rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+      <span className="w-1 h-1 bg-white/80 rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+    </span>
+  );
+}
+
+
+
+
+

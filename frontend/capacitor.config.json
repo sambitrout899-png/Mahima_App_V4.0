@@ -1,5 +1,21 @@
 {
-  "appId": "com.mahima.app",
-  "appName": "Mahima App",
-  "webDir": "dist"
+  "appId": "com.mahimaministries.app",
+  "appName": "Mahima Ministry",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#047857",
+      "showSpinner": false
+    },
+    "Keyboard": {
+      "resize": "body"
+    }
+  }
 }

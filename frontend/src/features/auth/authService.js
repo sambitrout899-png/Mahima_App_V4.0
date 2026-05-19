@@ -1,16 +1,45 @@
-// src/features/auth/authService.js
+﻿// src/features/auth/authService.js
 
-import api from "../../api";
+import api, { API_BASE } from "../../api";
 
 const TOKEN_KEY = "mahima_token";
 const USERNAME_KEY = "mahima_username";
 const ME_KEY = "me";
 
+function apiUrl(path) {
+  if (/^https?:\/\//i.test(path)) return path;
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (normalized.toLowerCase().startsWith("/api/") && API_BASE.toLowerCase().endsWith("/api")) {
+    return API_BASE + normalized.slice(4);
+  }
+  return API_BASE + normalized;
+}
+
 /* ---------------- TOKEN HELPERS ---------------- */
 
 export function getToken() {
   try {
-    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem("token");
+    const raw =
+      localStorage.getItem(TOKEN_KEY) ||
+      localStorage.getItem("authToken") ||
+      localStorage.getItem("auth_token") ||
+      localStorage.getItem("token");
+
+    if (raw) return raw.replace(/^Bearer\s+/i, "").trim();
+
+    for (const key of ["mahima:user", "mahima_user", "user", "me", "mahima_currentUser", "currentUser"]) {
+      const savedUser = JSON.parse(localStorage.getItem(key) || "{}");
+      const token =
+        savedUser?.token ||
+        savedUser?.accessToken ||
+        savedUser?.jwt ||
+        savedUser?.bearerToken ||
+        savedUser?.data?.token ||
+        savedUser?.data?.accessToken;
+      if (token) return String(token).replace(/^Bearer\s+/i, "").trim();
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -19,11 +48,18 @@ export function getToken() {
 export function setToken(token) {
   try {
     if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      const cleanToken = String(token).replace(/^Bearer\s+/i, "").trim();
+      localStorage.setItem(TOKEN_KEY, cleanToken);
+      localStorage.setItem("authToken", cleanToken);
+      localStorage.setItem("token", cleanToken);
+      if (api?.defaults?.headers?.common) {
+        api.defaults.headers.common["Authorization"] = `Bearer ${cleanToken}`;
+      }
     } else {
       localStorage.removeItem(TOKEN_KEY);
-      delete api.defaults.headers.common["Authorization"];
+      if (api?.defaults?.headers?.common) {
+        delete api.defaults.headers.common["Authorization"];
+      }
     }
 
     window.dispatchEvent(
@@ -35,8 +71,13 @@ export function setToken(token) {
 export function removeToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("auth_token");
     localStorage.removeItem("token");
-    delete api.defaults.headers.common["Authorization"];
+    localStorage.removeItem("mahima_remember_login");
+    if (api?.defaults?.headers?.common) {
+      delete api.defaults.headers.common["Authorization"];
+    }
 
     window.dispatchEvent(
       new CustomEvent("auth:change", { detail: { token: null } })
@@ -101,7 +142,7 @@ async function parseErrorResponse(resp) {
 export async function login({ usernameOrEmail, password = "" }) {
   if (!usernameOrEmail) throw new Error("Username/email required");
 
-  const url = "/auth/login"; // ✅ NO /api
+  const url = apiUrl("/auth/login");
   console.debug("login ->", url);
 
   const resp = await fetch(url, {
@@ -147,7 +188,7 @@ export async function register(payload) {
     throw new Error("Username and password are required");
   }
 
-  const url = "/auth/register"; // ✅ NO /api
+  const url = apiUrl("/auth/register");
   console.debug("register ->", url, payload);
 
   const resp = await fetch(url, {
@@ -203,9 +244,7 @@ export async function authFetch(input, init = {}) {
   const url =
     typeof input === "string" && input.startsWith("http")
       ? input
-      : input.startsWith("/")
-      ? input
-      : `/${input}`; // ✅ this is fine
+      : apiUrl(typeof input === "string" ? input : input?.url || "");
 
   console.debug("authFetch ->", url, init.method || "GET");
 

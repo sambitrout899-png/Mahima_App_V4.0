@@ -1,12 +1,265 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root{
-  --mahima-500: #4f46e5;
-  --mahima-600: #4338ca;
-  --accent-500: #06b6d4;
+:root {
+  --mahima-50: #effcf6;
+  --mahima-100: #d9f6ea;
+  --mahima-500: #059669;
+  --mahima-600: #047857;
+  --mahima-700: #065f46;
+  --mahima-900: #062f28;
+  --accent-500: #0ea5e9;
+  --mahima-gold: #b7791f;
+  --mahima-ink: #0f172a;
+  --mahima-muted: #64748b;
+  --mahima-soft: #f6f8fb;
+  --mahima-surface: #ffffff;
+  --mahima-border: #e2e8f0;
+  --mahima-border-strong: #cbd5e1;
+  --mahima-radius: 16px;
+  --mahima-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --mahima-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+  --mahima-shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.12);
 }
 
-body { background-color: #f8fafc; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+html,
+body,
+#root {
+  min-height: 100%;
+  width: 100%;
+}
 
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(5, 150, 105, 0.08), transparent 30rem),
+    linear-gradient(180deg, #f8fafc 0%, #f6f8fb 45%, #f1f5f9 100%);
+  color: var(--mahima-ink);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+::selection {
+  background: rgba(5, 150, 105, 0.18);
+}
+
+.mahima-app-shell {
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.88)),
+    radial-gradient(circle at 85% 10%, rgba(14, 165, 233, 0.08), transparent 28rem);
+}
+
+.mahima-sidebar {
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(16px);
+  box-shadow: 1px 0 0 rgba(226, 232, 240, 0.72);
+}
+
+.mahima-sidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
+}
+
+.mahima-topbar {
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 1px 0 rgba(226, 232, 240, 0.85);
+}
+
+.mahima-page-host {
+  min-height: calc(100dvh - 3.5rem);
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.94)),
+    radial-gradient(circle at 100% 0%, rgba(5, 150, 105, 0.08), transparent 26rem);
+}
+
+.mahima-page-host-full {
+  display: flex;
+  flex-direction: column;
+}
+
+.mahima-page-frame {
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 2vw, 32px) 40px;
+}
+
+.mahima-page-frame-full {
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.mahima-page-frame > .min-h-screen,
+.mahima-page-frame > .min-h-full {
+  min-height: calc(100dvh - 3.5rem);
+}
+
+.mahima-page-frame > :where(.users-page, .roles-wrap, .ministry-workflow-page) {
+  width: 100%;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: var(--mahima-shadow-sm);
+}
+
+.mahima-page-frame > :where(.users-page, .roles-wrap) {
+  padding: clamp(18px, 2.4vw, 34px);
+}
+
+.mahima-page-frame > :where(.ministry-workflow-page) {
+  padding: clamp(16px, 2vw, 28px) !important;
+}
+
+:where(.users-page, .roles-wrap, .ministry-workflow-page) :where(h1, h2, h3) {
+  letter-spacing: 0;
+  color: var(--mahima-ink);
+}
+
+:where(.users-page, .roles-wrap, .ministry-workflow-page) :where(.card, .panel, section, article) {
+  border-color: var(--mahima-border);
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border-color: var(--mahima-border);
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  outline: none;
+  border-color: var(--mahima-500) !important;
+  box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.12);
+}
+
+.platform-page {
+  color: var(--mahima-ink);
+}
+
+.platform-card,
+.platform-panel {
+  border: 1px solid var(--mahima-border);
+  border-radius: var(--mahima-radius);
+  background: var(--mahima-surface);
+  box-shadow: var(--mahima-shadow-sm);
+}
+
+.platform-card-strong {
+  box-shadow: var(--mahima-shadow);
+}
+
+.platform-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.platform-title {
+  color: var(--mahima-ink);
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.platform-muted {
+  color: var(--mahima-muted);
+}
+
+.platform-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--mahima-border);
+  border-radius: var(--mahima-radius);
+  background: #fff;
+}
+
+.platform-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.platform-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.platform-table th,
+.platform-table td {
+  border-bottom: 1px solid #eef2f7;
+  padding: 0.85rem 1rem;
+  text-align: left;
+}
+
+.platform-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+@media (max-width: 767px) {
+  .mahima-page-host {
+    min-height: calc(100dvh - 3.5rem);
+  }
+
+  .mahima-page-frame {
+    padding: 14px 12px 28px;
+  }
+
+  .mahima-page-frame-full {
+    padding: 0;
+  }
+
+  .mahima-page-frame > :where(.users-page, .roles-wrap, .ministry-workflow-page) {
+    border-radius: 16px;
+    box-shadow: none;
+  }
+
+  .mahima-page-frame > :where(.users-page, .roles-wrap) {
+    padding: 16px;
+  }
+}
+
+@keyframes mahimaLogoSpinY {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+
+.mahima-logo-spin-y {
+  animation: mahimaLogoSpinY 8s linear infinite;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mahima-logo-spin-y { animation: none; }
+}

@@ -1,17 +1,18 @@
 // src/pages/BaptismsPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { getToken as authGetToken } from "../features/auth/authService";
+import { API_BASE as ROOT_API_BASE } from "../api";
 
-const API_BASE = "/api/baptisms";
+const API_BASE = `${ROOT_API_BASE}/baptisms`;
 
 const statusTabs = [
-  "Pending",
-  "ChurchVerified",
-  "AwaitingChurchVerification",
-  "ReadyForToken",
-  "TokenGenerated",
-  "Completed",
+  { key: "Pending", label: "Pending", tone: "#2563eb" },
+  { key: "ChurchVerified", label: "Church Verified", tone: "#0f766e" },
+  { key: "AwaitingChurchVerification", label: "Awaiting Verification", tone: "#c2410c" },
+  { key: "ReadyForToken", label: "Ready For Token", tone: "#7c3aed" },
+  { key: "TokenGenerated", label: "Token Generated", tone: "#0891b2" },
+  { key: "Completed", label: "Completed", tone: "#16a34a" },
 ];
 
 const emptyForm = {
@@ -26,54 +27,97 @@ const emptyForm = {
   preferredService: "",
 };
 
-const BaptismsPage = () => {
+function display(value) {
+  return value || "-";
+}
+
+function arrayFrom(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.Items)) return data.Items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.records)) return data.records;
+  return [];
+}
+
+function getStatusMeta(status) {
+  const map = {
+    Pending: { bg: "#dbeafe", color: "#1d4ed8", label: "Pending" },
+    ChurchVerified: { bg: "#dcfce7", color: "#166534", label: "Church Verified" },
+    AwaitingChurchVerification: {
+      bg: "#ffedd5",
+      color: "#c2410c",
+      label: "Awaiting Verification",
+    },
+    ReadyForToken: { bg: "#ede9fe", color: "#6d28d9", label: "Ready For Token" },
+    TokenGenerated: { bg: "#cffafe", color: "#0e7490", label: "Token Generated" },
+    Completed: { bg: "#dcfce7", color: "#15803d", label: "Completed" },
+  };
+
+  return map[status] || { bg: "#f1f5f9", color: "#334155", label: status || "-" };
+}
+
+export default function BaptismsPage() {
   const [requests, setRequests] = useState([]);
   const [statusFilter, setStatusFilter] = useState("Pending");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
-  const authHeaders = () => {
-    const token = authGetToken ? authGetToken() : localStorage.getItem("token");
-    return token
-      ? {
-          Authorization: `Bearer ${token}`,
-        }
-      : {};
-  };
+  const stats = useMemo(() => {
+    return {
+      visible: requests.length,
+      verified: requests.filter((r) => r.churchVerified).length,
+      consent: requests.filter((r) => r.consentSigned).length,
+      token: requests.filter((r) => r.token).length,
+    };
+  }, [requests]);
 
-  const loadRequests = async () => {
+  function authHeaders() {
+    const token = authGetToken ? authGetToken() : localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function loadRequests() {
     try {
       setLoading(true);
       setError("");
+
       const res = await axios.get(API_BASE, {
         params: statusFilter ? { status: statusFilter } : {},
         headers: authHeaders(),
       });
-      setRequests(Array.isArray(res.data) ? res.data : []);
+
+      setRequests(arrayFrom(res.data));
     } catch (err) {
       console.error("Error loading baptism requests", err);
       setError("Failed to load baptism requests.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     loadRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
-  const handleFormChange = (e) => {
+  function handleFormChange(e) {
     const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
 
-  const handleCreate = async (e) => {
+  async function handleCreate(e) {
     e.preventDefault();
+
+    if (!form.fullName) {
+      setError("Full name is required.");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
 
@@ -81,16 +125,10 @@ const BaptismsPage = () => {
       fullName: form.fullName,
       fatherName: form.fatherName || null,
       motherName: form.motherName || null,
-      //dateOfBirth: form.dateOfBirth
-        //? new Date(form.dateOfBirth).toISOString()
-        //: null,
       dateOfBirth: form.dateOfBirth || null,
       contactNumber: form.contactNumber || null,
       email: form.email || null,
       address: form.address || null,
-      //preferredDate: form.preferredDate
-        //? new Date(form.preferredDate).toISOString()
-        //: null,
       preferredDate: form.preferredDate || null,
       preferredService: form.preferredService || null,
     };
@@ -107,11 +145,12 @@ const BaptismsPage = () => {
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
-  const withActionLoading = async (id, fn) => {
+  async function withActionLoading(id, fn) {
     setActionLoadingId(id);
     setError("");
+
     try {
       await fn();
       await loadRequests();
@@ -121,11 +160,12 @@ const BaptismsPage = () => {
         err?.response?.data ||
         err?.message ||
         "Action failed. Please try again.";
+
       setError(typeof msg === "string" ? msg : "Action failed.");
     } finally {
       setActionLoadingId(null);
     }
-  };
+  }
 
   const handleVerifyChurch = (id) =>
     withActionLoading(id, () =>
@@ -148,12 +188,11 @@ const BaptismsPage = () => {
       })
     );
 
-  // close the workflow (TokenGenerated -> Completed)
   const handleComplete = (id) =>
     withActionLoading(id, () =>
       axios.put(
         `${API_BASE}/${id}/complete`,
-        {}, // send an empty JSON body
+        {},
         {
           headers: {
             ...authHeaders(),
@@ -164,162 +203,140 @@ const BaptismsPage = () => {
     );
 
   return (
-    <div className="p-4 w-full max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <div className="ministry-workflow-page baptism-workflow-page" style={styles.page}>
+      <div style={styles.hero}>
         <div>
-          <h1 className="text-2xl font-semibold">Baptisms</h1>
-          <p className="text-gray-500 text-sm">
-            Manage baptism registrations, verification, consent, and tokens.
+          <div style={styles.kicker}>Baptism Ministry</div>
+          <h1 style={styles.title}>Baptism Registrations</h1>
+          <p style={styles.subtitle}>
+            Manage baptism requests, church verification, consent, token generation,
+            certificates, and completion from one pastoral workflow.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium
-                     bg-blue-600 text-white hover:bg-blue-700 shadow-sm active:scale-[0.98]
-                     transition-transform"
+          onClick={() => setCreating((value) => !value)}
+          style={styles.primaryButton}
         >
-          {creating ? "Close Form" : "New Baptism Request"}
+          {creating ? "Close Form" : "+ New Baptism Request"}
         </button>
       </div>
 
-      {/* Error message */}
-      {error && (
-        <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
-        </div>
-      )}
+      <div style={styles.statsGrid}>
+        <StatCard label="Visible" value={stats.visible} hint="Current status records" />
+        <StatCard label="Church Verified" value={stats.verified} hint="Verified in this view" />
+        <StatCard label="Consent Signed" value={stats.consent} hint="Consent completed" />
+        <StatCard label="Tokens" value={stats.token} hint="Issued tokens" />
+      </div>
 
-      {/* Create form */}
+      {error && <div style={styles.error}>{error}</div>}
+
       {creating && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-lg font-semibold">New Baptism Request</h2>
-          <form
-            onSubmit={handleCreate}
-            className="grid grid-cols-1 md:grid-cols-2 gap-4"
-          >
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Full Name *</label>
-              <input
-                type="text"
-                name="fullName"
-                value={form.fullName}
-                onChange={handleFormChange}
-                required
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+        <div style={styles.formCard}>
+          <div style={styles.formHeader}>
+            <div>
+              <h2 style={styles.formTitle}>New Baptism Request</h2>
+              <p style={styles.formSub}>
+                Capture candidate details and preferred baptism service.
+              </p>
             </div>
+          </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Father&apos;s Name</label>
-              <input
-                type="text"
-                name="fatherName"
-                value={form.fatherName}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+          <form onSubmit={handleCreate} style={styles.formGrid}>
+            <TextField
+              label="Full Name"
+              name="fullName"
+              value={form.fullName}
+              onChange={handleFormChange}
+              required
+            />
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Mother&apos;s Name</label>
-              <input
-                type="text"
-                name="motherName"
-                value={form.motherName}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+            <TextField
+              label="Father's Name"
+              name="fatherName"
+              value={form.fatherName}
+              onChange={handleFormChange}
+            />
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Date of Birth</label>
-              <input
-                type="date"
-                name="dateOfBirth"
-                value={form.dateOfBirth}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+            <TextField
+              label="Mother's Name"
+              name="motherName"
+              value={form.motherName}
+              onChange={handleFormChange}
+            />
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Contact Number</label>
-              <input
-                type="tel"
-                name="contactNumber"
-                value={form.contactNumber}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+            <TextField
+              label="Date of Birth"
+              type="date"
+              name="dateOfBirth"
+              value={form.dateOfBirth}
+              onChange={handleFormChange}
+            />
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Email</label>
-              <input
-                type="email"
-                name="email"
-                value={form.email}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+            <TextField
+              label="Contact Number"
+              type="tel"
+              name="contactNumber"
+              value={form.contactNumber}
+              onChange={handleFormChange}
+            />
 
-            <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-sm font-medium">Address</label>
+            <TextField
+              label="Email"
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleFormChange}
+            />
+
+            <label style={{ ...styles.field, gridColumn: "1 / -1" }}>
+              <span style={styles.label}>Address</span>
               <textarea
                 name="address"
                 value={form.address}
                 onChange={handleFormChange}
-                rows={2}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                rows={3}
+                style={styles.textarea}
               />
-            </div>
+            </label>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Preferred Date</label>
-              <input
-                type="date"
-                name="preferredDate"
-                value={form.preferredDate}
-                onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
+            <TextField
+              label="Preferred Date"
+              type="date"
+              name="preferredDate"
+              value={form.preferredDate}
+              onChange={handleFormChange}
+            />
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Preferred Service</label>
+            <label style={styles.field}>
+              <span style={styles.label}>Preferred Service</span>
               <select
                 name="preferredService"
                 value={form.preferredService}
                 onChange={handleFormChange}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                style={styles.input}
               >
-                <option value="">Select...</option>
+                <option value="">Select</option>
                 <option value="Morning">Morning</option>
                 <option value="Evening">Evening</option>
                 <option value="Special">Special Service</option>
               </select>
-            </div>
+            </label>
 
-            <div className="md:col-span-2 flex justify-end gap-2 mt-2">
+            <div style={styles.formActions}>
               <button
                 type="button"
                 onClick={() => {
                   setCreating(false);
                   setForm(emptyForm);
                 }}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                style={styles.secondaryButton}
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-              >
+
+              <button type="submit" disabled={submitting} style={styles.darkButton}>
                 {submitting ? "Saving..." : "Save Request"}
               </button>
             </div>
@@ -327,177 +344,496 @@ const BaptismsPage = () => {
         </div>
       )}
 
-      {/* Status tabs */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {statusTabs.map((status) => {
-          const active = statusFilter === status;
-          return (
-            <button
-              key={status}
-              type="button"
-              onClick={() => setStatusFilter(status)}
-              className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
-                active
-                  ? "border-blue-600 bg-blue-50 text-blue-700"
-                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              {status}
-            </button>
-          );
-        })}
-      </div>
+      <div style={styles.panel}>
+        <div style={styles.tabs}>
+          {statusTabs.map((tab) => {
+            const active = statusFilter === tab.key;
 
-      {/* List */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                TOKEN
-              </th>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                NAME
-              </th>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                CONTACT
-              </th>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                STATUS
-              </th>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                FLAGS
-              </th>
-              <th className="px-3 py-2 font-semibold text-xs text-gray-500 uppercase tracking-wide">
-                ACTIONS
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setStatusFilter(tab.key)}
+                style={{
+                  ...styles.tab,
+                  background: active ? tab.tone : "#fff",
+                  color: active ? "#fff" : "#334155",
+                  boxShadow: active ? `0 12px 24px ${tab.tone}33` : "none",
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
               <tr>
-                <td
-                  colSpan={6}
-                  className="px-3 py-4 text-center text-gray-500 text-sm"
-                >
-                  Loading...
-                </td>
+                <th style={styles.th}>Candidate</th>
+                <th style={styles.th}>Contact</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>Flags</th>
+                <th style={styles.th}>Token</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Actions</th>
               </tr>
-            ) : requests.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-3 py-4 text-center text-gray-500 text-sm"
-                >
-                  No baptism requests found for this status.
-                </td>
-              </tr>
-            ) : (
-              requests.map((r) => {
-                const isActionLoading = actionLoadingId === r.id;
-                return (
-                  <tr
-                    key={r.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="px-3 py-2 text-xs sm:text-sm text-gray-800">
-                      {r.token || "—"}
-                    </td>
-                    <td className="px-3 py-2 text-xs sm:text-sm text-gray-900">
-                      {r.fullName}
-                    </td>
-                    <td className="px-3 py-2 text-xs sm:text-sm text-gray-700">
-                      {r.contactNumber || "—"}
-                    </td>
-                    <td className="px-3 py-2 text-xs sm:text-sm">
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-800">
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-[11px] sm:text-xs text-gray-700 space-x-1">
-                      {r.churchVerified && (
-                        <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
-                          Church OK
-                        </span>
-                      )}
-                      {r.consentSigned && (
-                        <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                          Consent
-                        </span>
-                      )}
-                      {r.certificatePdfUrl && (
-                        <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700">
-                          Certificate
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-[11px] sm:text-xs">
-                      <div className="flex flex-wrap gap-1">
-                        {!r.churchVerified && (
-                          <button
-                            type="button"
-                            onClick={() => handleVerifyChurch(r.id)}
-                            disabled={isActionLoading}
-                            className="rounded-md bg-emerald-500 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-60"
-                          >
-                            {isActionLoading ? "..." : "Verify"}
-                          </button>
-                        )}
+            </thead>
 
-                        {!r.consentSigned && (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkConsent(r.id)}
-                            disabled={isActionLoading}
-                            className="rounded-md bg-indigo-500 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-indigo-600 disabled:opacity-60"
-                          >
-                            {isActionLoading ? "..." : "Mark Consent"}
-                          </button>
-                        )}
-
-                        {r.churchVerified && r.consentSigned && !r.token && (
-                          <button
-                            type="button"
-                            onClick={() => handleGenerateToken(r.id)}
-                            disabled={isActionLoading}
-                            className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-                          >
-                            {isActionLoading ? "..." : "Token + Cert"}
-                          </button>
-                        )}
-
-                        {r.status === "TokenGenerated" && (
-                          <button
-                            type="button"
-                            onClick={() => handleComplete(r.id)}
-                            disabled={isActionLoading}
-                            className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
-                          >
-                            {isActionLoading ? "..." : "Mark Completed"}
-                          </button>
-                        )}
-
-                        {r.certificatePdfUrl && (
-                          <a
-                            href={`${API_BASE}/${r.id}/certificate`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-md border border-gray-300 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-                          >
-                            PDF
-                          </a>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} style={styles.emptyCell}>
+                    Loading baptism requests...
+                  </td>
+                </tr>
+              ) : requests.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={styles.emptyCell}>
+                    No baptism requests found for this status.
+                  </td>
+                </tr>
+              ) : (
+                requests.map((request) => (
+                  <BaptismRow
+                    key={request.id}
+                    item={request}
+                    isLoading={actionLoadingId === request.id}
+                    onVerify={handleVerifyChurch}
+                    onConsent={handleMarkConsent}
+                    onToken={handleGenerateToken}
+                    onComplete={handleComplete}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
-};
+}
 
-export default BaptismsPage;
+function BaptismRow({ item, isLoading, onVerify, onConsent, onToken, onComplete }) {
+  const meta = getStatusMeta(item.status);
+
+  return (
+    <tr style={styles.tr}>
+      <td style={styles.td}>
+        <div style={styles.name}>{display(item.fullName)}</div>
+        <div style={styles.muted}>
+          Father: {display(item.fatherName)} | Mother: {display(item.motherName)}
+        </div>
+      </td>
+
+      <td style={styles.td}>
+        <div>{display(item.contactNumber)}</div>
+        <div style={styles.muted}>{display(item.email)}</div>
+      </td>
+
+      <td style={styles.td}>
+        <span style={{ ...styles.badge, background: meta.bg, color: meta.color }}>
+          {meta.label}
+        </span>
+      </td>
+
+      <td style={styles.td}>
+        <div style={styles.flagGroup}>
+          {item.churchVerified && <Flag label="Church OK" bg="#dcfce7" color="#166534" />}
+          {item.consentSigned && <Flag label="Consent" bg="#dbeafe" color="#1d4ed8" />}
+          {item.certificatePdfUrl && <Flag label="Certificate" bg="#ede9fe" color="#6d28d9" />}
+          {!item.churchVerified && !item.consentSigned && !item.certificatePdfUrl && (
+            <span style={styles.muted}>-</span>
+          )}
+        </div>
+      </td>
+
+      <td style={styles.td}>
+        <span style={styles.token}>{display(item.token)}</span>
+      </td>
+
+      <td style={{ ...styles.td, textAlign: "right" }}>
+        <div style={styles.actionGroup}>
+          {!item.churchVerified && (
+            <button
+              type="button"
+              onClick={() => onVerify(item.id)}
+              disabled={isLoading}
+              style={styles.actionButton("#0f766e")}
+            >
+              {isLoading ? "..." : "Verify"}
+            </button>
+          )}
+
+          {!item.consentSigned && (
+            <button
+              type="button"
+              onClick={() => onConsent(item.id)}
+              disabled={isLoading}
+              style={styles.actionButton("#4f46e5")}
+            >
+              {isLoading ? "..." : "Mark Consent"}
+            </button>
+          )}
+
+          {item.churchVerified && item.consentSigned && !item.token && (
+            <button
+              type="button"
+              onClick={() => onToken(item.id)}
+              disabled={isLoading}
+              style={styles.actionButton("#2563eb")}
+            >
+              {isLoading ? "..." : "Token + Cert"}
+            </button>
+          )}
+
+          {item.status === "TokenGenerated" && (
+            <button
+              type="button"
+              onClick={() => onComplete(item.id)}
+              disabled={isLoading}
+              style={styles.actionButton("#16a34a")}
+            >
+              {isLoading ? "..." : "Complete"}
+            </button>
+          )}
+
+          {item.certificatePdfUrl && (
+            <a
+              href={`${API_BASE}/${item.id}/certificate`}
+              target="_blank"
+              rel="noreferrer"
+              style={styles.pdfButton}
+            >
+              PDF
+            </a>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function TextField({ label, name, value, onChange, type = "text", required = false }) {
+  return (
+    <label style={styles.field}>
+      <span style={styles.label}>{label}</span>
+      <input
+        type={type}
+        name={name}
+        value={value}
+        onChange={onChange}
+        required={required}
+        style={styles.input}
+      />
+    </label>
+  );
+}
+
+function StatCard({ label, value, hint }) {
+  return (
+    <div style={styles.statCard}>
+      <div style={styles.statLabel}>{label}</div>
+      <div style={styles.statValue}>{value}</div>
+      <div style={styles.statHint}>{hint}</div>
+    </div>
+  );
+}
+
+function Flag({ label, bg, color }) {
+  return <span style={{ ...styles.flag, background: bg, color }}>{label}</span>;
+}
+
+const styles = {
+  page: {
+    padding: 24,
+    borderRadius: 28,
+    background:
+      "radial-gradient(circle at top left, #ecfeff 0, #fff7ed 42%, #f8fafc 100%)",
+    minHeight: "100%",
+  },
+  hero: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 20,
+    padding: 28,
+    borderRadius: 28,
+    background: "linear-gradient(135deg, #123a63, #075985)",
+    color: "#fff",
+    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
+    marginBottom: 18,
+  },
+  kicker: {
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: "0.22em",
+    textTransform: "uppercase",
+    color: "#bae6fd",
+  },
+  title: {
+    margin: "8px 0 0",
+    fontSize: 36,
+    lineHeight: 1,
+    fontWeight: 950,
+  },
+  subtitle: {
+    margin: "12px 0 0",
+    maxWidth: 760,
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 15,
+    lineHeight: 1.7,
+  },
+  primaryButton: {
+    padding: "12px 20px",
+    borderRadius: 999,
+    border: "none",
+    background: "linear-gradient(135deg, #38bdf8, #f59e0b)",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 16px 34px rgba(56, 189, 248, 0.28)",
+    whiteSpace: "nowrap",
+  },
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 14,
+    marginBottom: 18,
+  },
+  statCard: {
+    padding: 18,
+    borderRadius: 22,
+    background: "#fff",
+    boxShadow: "0 16px 34px rgba(15, 23, 42, 0.08)",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  },
+  statValue: {
+    marginTop: 8,
+    fontSize: 32,
+    fontWeight: 950,
+    color: "#0f172a",
+  },
+  statHint: {
+    marginTop: 3,
+    fontSize: 13,
+    color: "#94a3b8",
+  },
+  error: {
+    marginBottom: 14,
+    padding: 16,
+    borderRadius: 16,
+    background: "#fee2e2",
+    color: "#991b1b",
+    fontWeight: 800,
+  },
+  formCard: {
+    marginBottom: 18,
+    padding: 22,
+    borderRadius: 28,
+    background: "#fff",
+    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
+  },
+  formHeader: {
+    marginBottom: 16,
+  },
+  formTitle: {
+    margin: 0,
+    fontSize: 22,
+    fontWeight: 950,
+    color: "#123a63",
+  },
+  formSub: {
+    margin: "6px 0 0",
+    color: "#64748b",
+    fontSize: 14,
+  },
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 14,
+  },
+  field: {
+    display: "block",
+  },
+  label: {
+    display: "block",
+    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: 900,
+    color: "#475569",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "1px solid #cbd5e1",
+    borderRadius: 14,
+    padding: "11px 12px",
+    fontSize: 14,
+    outline: "none",
+  },
+  textarea: {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "1px solid #cbd5e1",
+    borderRadius: 14,
+    padding: "11px 12px",
+    fontSize: 14,
+    outline: "none",
+    resize: "vertical",
+  },
+  formActions: {
+    gridColumn: "1 / -1",
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 8,
+  },
+  secondaryButton: {
+    padding: "10px 16px",
+    borderRadius: 999,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    color: "#334155",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  darkButton: {
+    padding: "10px 18px",
+    borderRadius: 999,
+    border: "none",
+    background: "#123a63",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  panel: {
+    background: "#fff",
+    borderRadius: 28,
+    padding: 18,
+    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
+  },
+  tabs: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 16,
+  },
+  tab: {
+    padding: "10px 16px",
+    borderRadius: 999,
+    border: "1px solid #e2e8f0",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 800,
+  },
+  tableWrap: {
+    overflowX: "auto",
+    borderRadius: 20,
+    border: "1px solid #e2e8f0",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: 980,
+    fontSize: 13,
+  },
+  th: {
+    padding: 14,
+    background: "#f8fafc",
+    color: "#475569",
+    textAlign: "left",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    borderBottom: "1px solid #e2e8f0",
+  },
+  tr: {
+    borderBottom: "1px solid #f1f5f9",
+  },
+  td: {
+    padding: 14,
+    verticalAlign: "top",
+    color: "#1e293b",
+  },
+  name: {
+    fontWeight: 900,
+    color: "#0f172a",
+  },
+  muted: {
+    marginTop: 3,
+    color: "#64748b",
+    fontSize: 12,
+    maxWidth: 320,
+    whiteSpace: "normal",
+  },
+  badge: {
+    display: "inline-flex",
+    padding: "5px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  flagGroup: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  flag: {
+    display: "inline-flex",
+    padding: "5px 9px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  token: {
+    fontFamily: "monospace",
+    fontWeight: 900,
+    color: "#123a63",
+  },
+  actionGroup: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  actionButton: (tone) => ({
+    padding: "7px 12px",
+    borderRadius: 999,
+    background: tone,
+    color: "#fff",
+    border: "none",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  }),
+  pdfButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "7px 12px",
+    borderRadius: 999,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: 900,
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+  },
+  emptyCell: {
+    padding: 28,
+    textAlign: "center",
+    color: "#64748b",
+  },
+};

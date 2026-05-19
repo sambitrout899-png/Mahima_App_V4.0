@@ -294,3 +294,107 @@ header [class*="pill"], header [class*="badge"]{ min-width: auto; max-width: 100
 
 /* Avoid rare GPU stacking glitches */
 .layout-actions *, .section-actions *, .hero-actions * { transform: translateZ(0); }
+
+/* =================== Capacitor / phone app hardening =================== */
+@media (max-width: 767px) {
+  main {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  main > div:not(.h-full) {
+    max-width: 100vw !important;
+  }
+
+  main h1 {
+    font-size: clamp(28px, 11vw, 42px) !important;
+    line-height: 1.05 !important;
+    overflow-wrap: anywhere;
+  }
+
+  main h2 {
+    font-size: clamp(22px, 7vw, 30px) !important;
+    line-height: 1.12 !important;
+  }
+
+  main p,
+  main span,
+  main div {
+    min-width: 0;
+  }
+
+  main table {
+    min-width: 760px !important;
+    font-size: 12px !important;
+  }
+
+  main th,
+  main td {
+    padding: 10px !important;
+    white-space: normal;
+  }
+
+  main input,
+  main select,
+  main textarea {
+    max-width: 100%;
+    font-size: 16px !important;
+  }
+
+  main [role="dialog"] > div,
+  main [aria-modal="true"] > div {
+    max-width: calc(100vw - 20px) !important;
+    max-height: 90dvh !important;
+    overflow: auto !important;
+  }
+
+  .ministry-workflow-page {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-height: calc(100dvh - 56px) !important;
+    border-radius: 0 !important;
+    padding: 14px !important;
+    text-align: left !important;
+    overflow-x: hidden !important;
+  }
+
+  .ministry-workflow-page > div:first-child {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 14px !important;
+    border-radius: 18px !important;
+    padding: 18px !important;
+    text-align: left !important;
+  }
+
+  .ministry-workflow-page h1,
+  .ministry-workflow-page h2,
+  .ministry-workflow-page h3,
+  .ministry-workflow-page p,
+  .ministry-workflow-page label,
+  .ministry-workflow-page td,
+  .ministry-workflow-page th {
+    text-align: left !important;
+  }
+
+  .ministry-workflow-page button {
+    width: auto;
+    min-height: 44px;
+    white-space: normal !important;
+  }
+
+  .ministry-workflow-page table {
+    min-width: 860px !important;
+  }
+
+  .ministry-workflow-page [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .ministry-workflow-page [style*="max-width"] {
+    max-width: calc(100vw - 28px) !important;
+  }
+}

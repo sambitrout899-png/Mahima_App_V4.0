@@ -1,0 +1,18 @@
+{
+  "latestVersion": "1.0.1",
+  "minSupportedVersion": "1.0.0",
+  "message": "New version of the Mahima App is available - Please upgrade now",
+  "downloadPageUrl": "https://mahimaministries.in/#/app-downloads",
+  "androidApkUrl": "https://mahimaministries.in/downloads/mahima-app.apk",
+  "iosUrl": "https://mahimaministries.in/#/app-downloads",
+  "android": {
+    "latestVersion": "1.0.1",
+    "minSupportedVersion": "1.0.0",
+    "apkUrl": "https://mahimaministries.in/downloads/mahima-app.apk"
+  },
+  "ios": {
+    "latestVersion": "1.0.1",
+    "minSupportedVersion": "1.0.0",
+    "url": "https://mahimaministries.in/#/app-downloads"
+  }
+}

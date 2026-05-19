@@ -1,228 +1,1125 @@
-﻿// src/features/tasks/TasksPage.jsx
-console.log("🔥 THIS IS THE ACTIVE TASK PAGE FILE");
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  FiEdit2,
-  FiTrash2,
-  FiSend,
-  FiLink,
-  FiChevronLeft,
-  FiChevronRight,
-  FiPlus,
-  FiRefreshCw,
-  FiDownload,
-} from "react-icons/fi";
+  Plus,
+  RefreshCw,
+  Trash2,
+  Pencil,
+  CheckCircle2,
+  Circle,
+  Clock,
+  AlertTriangle,
+  Search,
+  X,
+  ListTodo,
+  LayoutGrid,
+  Columns3,
+  Flame,
+  Flag,
+  CalendarDays,
+  Filter,
+  SortAsc,
+  Inbox,
+  Loader2,
+  TrendingUp,
+  Pause,
+  PlayCircle,
+  Users,
+  User,
+  ChevronDown,
+} from "lucide-react";
 
-/* --- helpers --- */
-function normalizeResponse(res) {
-  const isArray = Array.isArray(res);
-  const items = isArray ? res : (res && (res.items || res.data || [])) || [];
-  const meta = {
-    total: !isArray ? (res?.total ?? items.length) : items.length,
-    page: !isArray ? (res?.page ?? 1) : 1,
-    limit: !isArray ? (res?.limit ?? items.length) : items.length,
-  };
-  return { items, meta };
-}
-// Allow env override but fall back to your working API
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
-///  import.meta.env.VITE_API_BASE || "https://www.mahimaministries.com/api";
-console.log("🔥 API_BASE VALUE:", API_BASE);
+/* ------------------------------------------------------------------ */
+/*  Config                                                             */
+/* ------------------------------------------------------------------ */
 
-function defaultForm() {
-  return {
-    id: null,
-    title: "",
-    description: "",
-    // multi-assignees:
-    assignedToIds: [], // array of GUID strings
-    assignedToDisplay: "", // computed for UI convenience
-    dueDate: "",
-    status: "Pending",
-    priority: 2,
-    broadcast: false, // ★ BROADCAST: default
-  };
-}
-// status map
-const statusMap = {
-  Pending: 0,
-  "In Progress": 1,
-  "In-Progress": 1,
-  InProgress: 1,
-  Done: 2,
-  Completed: 2,
-  "On Hold": 3,
-  "On-Hold": 3,
+const API_BASE = import.meta.env?.VITE_API_BASE || "/api";
+
+const STATUS = {
+  0: { label: "Pending",     color: "#f59e0b", soft: "#fef3c7", icon: Circle      },
+  1: { label: "In Progress", color: "#3b82f6", soft: "#dbeafe", icon: PlayCircle  },
+  2: { label: "Completed",   color: "#10b981", soft: "#d1fae5", icon: CheckCircle2},
+  3: { label: "On Hold",     color: "#ef4444", soft: "#fee2e2", icon: Pause       },
 };
-// numeric → label mapping for display
-const statusLabels = Object.entries(statusMap).reduce((acc, [k, v]) => {
-  if (!acc[v]) acc[v] = k;
-  return acc;
-}, {});
 
-// label/string/number → numeric code
-function normalizeStatusValue(raw) {
-  if (raw == null) return 0;
-  const asNum = Number(raw);
-  if (!Number.isNaN(asNum)) return asNum;
-  const normalized = String(raw).trim();
-  if (statusMap.hasOwnProperty(normalized)) return statusMap[normalized];
-  // case-insensitive fallback
-  const match = Object.keys(statusMap).find(
-    (k) =>
-      k.toLowerCase().replace(/[-_]/g, " ") ===
-      normalized.toLowerCase().replace(/[-_]/g, " ")
+const PRIORITY = {
+  1: { label: "Low",      color: "#94a3b8", soft: "#f1f5f9" },
+  2: { label: "Normal",   color: "#3b82f6", soft: "#dbeafe" },
+  3: { label: "High",     color: "#f59e0b", soft: "#fef3c7" },
+  4: { label: "Critical", color: "#ef4444", soft: "#fee2e2" },
+  5: { label: "Urgent",   color: "#dc2626", soft: "#fecaca" },
+};
+
+/* ------------------------------------------------------------------ */
+/*  API helpers                                                        */
+/* ------------------------------------------------------------------ */
+
+function getToken() {
+  const keys = ["authToken", "mahima_token", "mahimaToken"];
+  for (const k of keys) {
+    const v = localStorage.getItem(k) || sessionStorage.getItem(k);
+    if (v) return v.replace(/^Bearer\s+/i, "");
+  }
+  return "";
+}
+
+async function api(path, opt = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path.startsWith("/") ? path : "/" + path}`, {
+    ...opt,
+    headers: {
+      ...(opt.headers || {}),
+      ...(opt.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: "include",
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch {}
+  if (!res.ok) throw new Error(json?.message || res.statusText || "Request failed");
+  return json;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Utilities                                                          */
+/* ------------------------------------------------------------------ */
+
+const fmtDate = (d) => {
+  if (!d) return null;
+  const date = new Date(d);
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
+const isOverdue = (t) =>
+  t.dueDate && t.status !== 2 && new Date(t.dueDate).getTime() < Date.now();
+
+const daysUntil = (d) => {
+  if (!d) return null;
+  const ms = new Date(d).setHours(0,0,0,0) - new Date().setHours(0,0,0,0);
+  return Math.round(ms / 86400000);
+};
+
+const dueLabel = (t) => {
+  if (!t.dueDate) return "No due date";
+  const n = daysUntil(t.dueDate);
+  if (n < 0)  return `${Math.abs(n)}d overdue`;
+  if (n === 0) return "Due today";
+  if (n === 1) return "Due tomorrow";
+  if (n < 7)  return `Due in ${n}d`;
+  return fmtDate(t.dueDate);
+};
+
+/* ----- People / teams helpers ----- */
+const initials = (name = "") =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join("")
+    .toUpperCase() || "?";
+
+// deterministic pleasant color from a string
+const AVATAR_COLORS = [
+  "#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444",
+  "#a855f7", "#ec4899", "#14b8a6", "#f97316", "#84cc16",
+];
+const colorFor = (key) => {
+  const s = String(key ?? "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+};
+
+const normalizeUser = (u) => ({
+  id: u.id ?? u.Id,
+  type: "user",
+  name: u.name ?? u.Name ?? u.fullName ?? u.FullName ?? u.displayName ?? u.DisplayName ?? u.email ?? u.Email ?? "User",
+  email: u.email ?? u.Email ?? "",
+  avatarUrl: u.avatarUrl ?? u.AvatarUrl ?? u.avatar ?? u.Avatar ?? null,
+});
+const normalizeTeam = (t) => ({
+  id: t.id ?? t.Id,
+  type: "team",
+  name: t.name ?? t.Name ?? "Team",
+  memberCount: t.memberCount ?? t.MemberCount ?? null,
+  color: t.color ?? t.Color ?? null,
+});
+const normalizeAssignee = (a) => {
+  if (!a) return null;
+  const type = (a.type ?? a.Type ?? a.assigneeType ?? a.AssigneeType ?? "user").toString().toLowerCase();
+  return type === "team" ? normalizeTeam(a) : normalizeUser(a);
+};
+
+const sameAssignee = (a, b) => a && b && a.type === b.type && String(a.id) === String(b.id);
+
+/* ------------------------------------------------------------------ */
+/*  Toast system                                                       */
+/* ------------------------------------------------------------------ */
+
+function useToasts() {
+  const [items, setItems] = useState([]);
+  const push = (msg, kind = "info") => {
+    const id = Math.random().toString(36).slice(2);
+    setItems((s) => [...s, { id, msg, kind }]);
+    setTimeout(() => setItems((s) => s.filter((t) => t.id !== id)), 3200);
+  };
+  return { items, push };
+}
+
+function Toasts({ items }) {
+  return (
+    <div className="toast-stack">
+      {items.map((t) => (
+        <div key={t.id} className={`toast toast-${t.kind}`}>
+          {t.kind === "success" && <CheckCircle2 size={16} />}
+          {t.kind === "error"   && <AlertTriangle size={16} />}
+          {t.kind === "info"    && <TrendingUp size={16} />}
+          <span>{t.msg}</span>
+        </div>
+      ))}
+    </div>
   );
-  return match ? statusMap[match] : 0;
 }
 
-// numeric → label for UI
-function statusCodeToLabel(code) {
-  return statusLabels[Number(code)] || "Pending";
-}
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
-/* --- MultiSelect (mobile-first dropdown) --- */
-function MultiUserSelect({ allUsers = [], value = [], onChange }) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
-  const ref = useRef();
+export default function TasksPage() {
+  const [tasks, setTasks]       = useState([]);
+  const [users, setUsers]       = useState([]);
+  const [teams, setTeams]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState("");
+  const [showModal, setShow]    = useState(false);
+  const [confirmDel, setConf]   = useState(null);
+  const [view, setView]         = useState("grid");      // grid | board
+  const [statusFilter, setSF]   = useState("all");
+  const [priorityFilter, setPF] = useState("all");
+  const [sortBy, setSort]       = useState("due");
+  const [query, setQuery]       = useState("");
+  const [form, setForm]         = useState({
+    id: null, title: "", description: "", priority: 2, status: 0, dueDate: "",
+    assignees: [],
+  });
+  const toast = useToasts();
+
+  /* ------------------ data ------------------ */
+
+  async function fetchTasks() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/tasks");
+      const normalized = Array.isArray(data)
+        ? data.map((t) => {
+            // assignees can be: an array of {id,type}, separate users[]+teams[],
+            // or just a legacy assigneeId — handle all three
+            let assignees = [];
+            const raw = t.assignees ?? t.Assignees;
+            if (Array.isArray(raw)) {
+              assignees = raw.map(normalizeAssignee).filter(Boolean);
+            } else {
+              const us = t.users ?? t.Users;
+              const ts = t.teams ?? t.Teams;
+              if (Array.isArray(us)) assignees.push(...us.map(normalizeUser));
+              if (Array.isArray(ts)) assignees.push(...ts.map(normalizeTeam));
+            }
+            const legacyId = t.assigneeId ?? t.AssigneeId;
+            if (legacyId != null && !assignees.some((a) => a.type === "user" && String(a.id) === String(legacyId))) {
+              assignees.push({ id: legacyId, type: "user", name: `User #${legacyId}` });
+            }
+            return {
+              id: t.id ?? t.Id,
+              title: t.title ?? t.Title ?? "",
+              description: t.description ?? t.Description ?? "",
+              status: Number(t.status ?? t.Status ?? 0),
+              priority: Number(t.priority ?? t.Priority ?? 2),
+              dueDate: t.dueDate ?? t.DueDate ?? null,
+              assigneeId: legacyId ?? null,
+              assignees,
+            };
+          })
+        : [];
+      setTasks(normalized);
+    } catch (e) {
+      setError("Couldn't load tasks. Check your session and try again.");
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchPeople() {
+    // fetch users + teams in parallel; tolerate either being unavailable.
+    // /users returns { items, total, page, limit }; /teams returns a bare array.
+    const [u, tm] = await Promise.allSettled([
+      api("/users?page=1&limit=500"),
+      api("/teams"),
+    ]);
+    if (u.status === "fulfilled" && u.value) {
+      const arr = Array.isArray(u.value) ? u.value : (u.value.items || []);
+      setUsers(arr.map(normalizeUser));
+    }
+    if (tm.status === "fulfilled" && Array.isArray(tm.value)) {
+      setTeams(tm.value.map(normalizeTeam));
+    }
+  }
+
+  // Cached team-members loader for the picker
+  const teamMembersCache = useRef(new Map());
+  async function loadTeamMembers(teamId) {
+    const key = String(teamId);
+    if (teamMembersCache.current.has(key)) return teamMembersCache.current.get(key);
+    try {
+      const data = await api(`/teams/${teamId}/members`);
+      const userIds = Array.isArray(data)
+        ? data.map((m) => m.userId ?? m.UserId ?? m.userid).filter(Boolean).map(String)
+        : [];
+      teamMembersCache.current.set(key, userIds);
+      return userIds;
+    } catch {
+      teamMembersCache.current.set(key, []);
+      return [];
+    }
+  }
 
   useEffect(() => {
-    function onDoc(e) {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("click", onDoc);
-    return () => document.removeEventListener("click", onDoc);
+    fetchTasks();
+    fetchPeople();
   }, []);
 
-  const selectedMap = new Set((value || []).map(String));
-  const filtered = (allUsers || []).filter(
-    (u) =>
-      (u.displayName || "")
-        .toString()
-        .toLowerCase()
-        .includes(filter.trim().toLowerCase()) ||
-      (u.email || "").toString().toLowerCase().includes(filter.trim().toLowerCase())
-  );
-
-  function toggleUser(id) {
-    const s = new Set(selectedMap);
-    if (s.has(String(id))) s.delete(String(id));
-    else s.add(String(id));
-    onChange(Array.from(s));
+  async function handleSave(e) {
+    e.preventDefault();
+    if (!form.title.trim()) {
+      toast.push("Title is required", "error");
+      return;
+    }
+    setSaving(true);
+    const assignees = form.assignees ?? [];
+    // Legacy column is bigint — only safe to populate from numeric IDs.
+    // Once the TaskAssignees join table is live, this can stay null and the
+    // join table becomes the source of truth.
+    const numericId = (() => {
+      for (const a of assignees) {
+        const n = Number(a.id);
+        if (Number.isFinite(n) && String(n) === String(a.id)) return n;
+      }
+      return null;
+    })();
+    const payload = {
+      Title: form.title.trim(),
+      Description: form.description.trim(),
+      Status: parseInt(form.status, 10),
+      Priority: parseInt(form.priority, 10),
+      DueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+      AssigneeId: numericId, // legacy single-assignee column (bigint)
+      Assignees: assignees.map((a) => ({ Id: String(a.id), Type: a.type })),
+    };
+    try {
+      if (form.id) {
+        await api(`/tasks/${form.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        toast.push("Task updated", "success");
+      } else {
+        await api("/tasks", { method: "POST", body: JSON.stringify(payload) });
+        toast.push("Task created", "success");
+      }
+      setShow(false);
+      setForm({ id: null, title: "", description: "", priority: 2, status: 0, dueDate: "", assignees: [] });
+      fetchTasks();
+    } catch (e) {
+      toast.push(e.message || "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
   }
-  function removeChip(id) {
-    const s = new Set(selectedMap);
-    s.delete(String(id));
-    onChange(Array.from(s));
+
+  async function handleDelete(id) {
+    setConf(null);
+    // optimistic
+    const prev = tasks;
+    setTasks((s) => s.filter((t) => t.id !== id));
+    try {
+      await api(`/tasks/${id}`, { method: "DELETE" });
+      toast.push("Task deleted", "success");
+    } catch (e) {
+      setTasks(prev);
+      toast.push("Delete failed", "error");
+    }
+  }
+
+  async function toggleStatus(task) {
+    const next = task.status === 2 ? 0 : 2;
+    // optimistic
+    setTasks((s) => s.map((t) => (t.id === task.id ? { ...t, status: next } : t)));
+    try {
+      const firstUser = (task.assignees || []).find((a) => a.type === "user");
+      await api(`/tasks/${task.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          Title: task.title,
+          Description: task.description,
+          Status: next,
+          Priority: task.priority,
+          DueDate: task.dueDate,
+          AssigneeId: firstUser ? firstUser.id : (task.assigneeId ?? null),
+          Assignees: (task.assignees || []).map((a) => ({ Id: a.id, Type: a.type })),
+        }),
+      });
+    } catch (e) {
+      // revert
+      setTasks((s) => s.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)));
+      toast.push("Couldn't update status", "error");
+    }
+  }
+
+  function openEdit(t) {
+    setForm({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      status: t.status,
+      dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : "",
+      assigneeId: t.assigneeId ?? null,
+      assignees: t.assignees ? [...t.assignees] : [],
+    });
+    setShow(true);
+  }
+
+  function openNew() {
+    setForm({ id: null, title: "", description: "", priority: 2, status: 0, dueDate: "", assignees: [] });
+    setShow(true);
+  }
+
+  /* ------------------ derived ------------------ */
+
+  const stats = useMemo(() => ({
+    total: tasks.length,
+    pending: tasks.filter((t) => t.status === 0).length,
+    progress: tasks.filter((t) => t.status === 1).length,
+    done: tasks.filter((t) => t.status === 2).length,
+    overdue: tasks.filter(isOverdue).length,
+  }), [tasks]);
+
+  const filtered = useMemo(() => {
+    let list = tasks;
+    if (statusFilter !== "all")    list = list.filter((t) => t.status === Number(statusFilter));
+    if (priorityFilter !== "all")  list = list.filter((t) => t.priority === Number(priorityFilter));
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      list = list.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          (t.description || "").toLowerCase().includes(q)
+      );
+    }
+    list = [...list].sort((a, b) => {
+      if (sortBy === "due") {
+        const av = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const bv = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        return av - bv;
+      }
+      if (sortBy === "priority") return b.priority - a.priority;
+      return b.id - a.id; // newest
+    });
+    return list;
+  }, [tasks, statusFilter, priorityFilter, sortBy, query]);
+
+  /* ------------------ render ------------------ */
+
+  return (
+    <div className="tp-root">
+      <Styles />
+
+      {/* Header */}
+      <header className="tp-header">
+        <div className="tp-header-inner">
+          <div className="tp-brand">
+            <div className="tp-logo"><ListTodo size={20} /></div>
+            <div>
+              <div className="tp-title">Tasks</div>
+              <div className="tp-subtitle">Stay on top of what matters</div>
+            </div>
+          </div>
+
+          <div className="tp-search">
+            <Search size={16} />
+            <input
+              placeholder="Search tasks…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button className="tp-clear" onClick={() => setQuery("")}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="tp-header-actions">
+            <button className="tp-btn ghost" onClick={fetchTasks} title="Refresh">
+              <RefreshCw size={15} className={loading ? "spin" : ""} />
+              <span className="hide-sm">Refresh</span>
+            </button>
+            <button className="tp-btn primary" onClick={openNew}>
+              <Plus size={16} /> New task
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="tp-main">
+
+        {/* Stats */}
+        <section className="tp-stats">
+          <StatCard
+            label="Total"
+            value={stats.total}
+            icon={<Inbox size={18} />}
+            color="#6366f1"
+          />
+          <StatCard
+            label="Pending"
+            value={stats.pending}
+            icon={<Circle size={18} />}
+            color="#f59e0b"
+          />
+          <StatCard
+            label="In Progress"
+            value={stats.progress}
+            icon={<PlayCircle size={18} />}
+            color="#3b82f6"
+          />
+          <StatCard
+            label="Completed"
+            value={stats.done}
+            icon={<CheckCircle2 size={18} />}
+            color="#10b981"
+          />
+          <StatCard
+            label="Overdue"
+            value={stats.overdue}
+            icon={<Flame size={18} />}
+            color="#ef4444"
+            highlight={stats.overdue > 0}
+          />
+        </section>
+
+        {/* Toolbar */}
+        <section className="tp-toolbar">
+          <div className="tp-chips">
+            <Chip active={statusFilter === "all"} onClick={() => setSF("all")}>
+              All <span className="count">{stats.total}</span>
+            </Chip>
+            {Object.entries(STATUS).map(([k, v]) => {
+              const Icon = v.icon;
+              const count = tasks.filter((t) => t.status === Number(k)).length;
+              return (
+                <Chip
+                  key={k}
+                  active={statusFilter === k}
+                  onClick={() => setSF(k)}
+                  color={v.color}
+                >
+                  <Icon size={13} /> {v.label} <span className="count">{count}</span>
+                </Chip>
+              );
+            })}
+          </div>
+
+          <div className="tp-controls">
+            <div className="tp-select-wrap">
+              <Flag size={14} />
+              <select value={priorityFilter} onChange={(e) => setPF(e.target.value)}>
+                <option value="all">All priorities</option>
+                {Object.entries(PRIORITY).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="tp-select-wrap">
+              <SortAsc size={14} />
+              <select value={sortBy} onChange={(e) => setSort(e.target.value)}>
+                <option value="due">Due date</option>
+                <option value="priority">Priority</option>
+                <option value="newest">Newest</option>
+              </select>
+            </div>
+
+            <div className="tp-view-toggle">
+              <button
+                className={view === "grid" ? "on" : ""}
+                onClick={() => setView("grid")}
+                title="Grid view"
+              >
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                className={view === "board" ? "on" : ""}
+                onClick={() => setView("board")}
+                title="Board view"
+              >
+                <Columns3 size={15} />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {error && (
+          <div className="tp-alert">
+            <AlertTriangle size={16} />
+            <span>{error}</span>
+            <button onClick={() => setError("")}><X size={14} /></button>
+          </div>
+        )}
+
+        {/* Body */}
+        {loading ? (
+          <SkeletonGrid />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            hasAny={tasks.length > 0}
+            onClear={() => { setSF("all"); setPF("all"); setQuery(""); }}
+            onNew={openNew}
+          />
+        ) : view === "grid" ? (
+          <div className="tp-grid">
+            {filtered.map((t) => (
+              <TaskCard
+                key={t.id}
+                task={t}
+                onToggle={() => toggleStatus(t)}
+                onEdit={() => openEdit(t)}
+                onDelete={() => setConf(t)}
+              />
+            ))}
+          </div>
+        ) : (
+          <Board
+            tasks={filtered}
+            onToggle={toggleStatus}
+            onEdit={openEdit}
+            onDelete={setConf}
+          />
+        )}
+      </main>
+
+      {/* FAB on mobile */}
+      <button className="tp-fab" onClick={openNew} aria-label="New task">
+        <Plus size={24} />
+      </button>
+
+      {/* Modal */}
+      {showModal && (
+        <TaskModal
+          form={form}
+          setForm={setForm}
+          saving={saving}
+          users={users}
+          teams={teams}
+          loadTeamMembers={loadTeamMembers}
+          onClose={() => setShow(false)}
+          onSubmit={handleSave}
+        />
+      )}
+
+      {/* Confirm delete */}
+      {confirmDel && (
+        <ConfirmDialog
+          title="Delete this task?"
+          message={`"${confirmDel.title}" will be permanently removed.`}
+          onCancel={() => setConf(null)}
+          onConfirm={() => handleDelete(confirmDel.id)}
+        />
+      )}
+
+      <Toasts items={toast.items} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                     */
+/* ------------------------------------------------------------------ */
+
+function StatCard({ label, value, icon, color, highlight }) {
+  return (
+    <div className={`tp-stat ${highlight ? "highlight" : ""}`}>
+      <div className="tp-stat-icon" style={{ background: `${color}15`, color }}>{icon}</div>
+      <div>
+        <div className="tp-stat-value">{value}</div>
+        <div className="tp-stat-label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, color, children }) {
+  return (
+    <button
+      className={`tp-chip ${active ? "active" : ""}`}
+      style={active && color ? { background: `${color}15`, color, borderColor: `${color}40` } : undefined}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TaskCard({ task, onToggle, onEdit, onDelete }) {
+  const status = STATUS[task.status];
+  const priority = PRIORITY[task.priority];
+  const overdue = isOverdue(task);
+  const StatusIcon = status.icon;
+  const completed = task.status === 2;
+
+  return (
+    <article className={`tp-card ${completed ? "done" : ""} ${overdue ? "overdue" : ""}`}>
+      <div className="tp-card-bar" style={{ background: priority.color }} />
+      <div className="tp-card-body">
+        <div className="tp-card-head">
+          <button
+            className="tp-check"
+            onClick={onToggle}
+            title={completed ? "Mark as pending" : "Mark as complete"}
+            style={completed ? { background: status.color, borderColor: status.color, color: "#fff" } : undefined}
+          >
+            {completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+          </button>
+          <div className="tp-card-title-wrap">
+            <h3 className="tp-card-title">{task.title}</h3>
+            {task.description ? (
+              <p className="tp-card-desc">{task.description}</p>
+            ) : (
+              <p className="tp-card-desc empty">No description</p>
+            )}
+          </div>
+        </div>
+
+        <div className="tp-card-meta">
+          <span
+            className="tp-pill"
+            style={{ background: status.soft, color: status.color }}
+          >
+            <StatusIcon size={12} /> {status.label}
+          </span>
+          <span
+            className="tp-pill"
+            style={{ background: priority.soft, color: priority.color }}
+          >
+            <Flag size={12} /> {priority.label}
+          </span>
+          <span className={`tp-pill due ${overdue ? "overdue" : ""}`}>
+            <Clock size={12} /> {dueLabel(task)}
+          </span>
+        </div>
+
+        <div className="tp-card-actions">
+          <AvatarStack assignees={task.assignees} max={3} />
+          <div className="tp-card-actions-end">
+            <button className="tp-icon-btn" onClick={onEdit} title="Edit">
+              <Pencil size={14} />
+            </button>
+            <button className="tp-icon-btn danger" onClick={onDelete} title="Delete">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function Board({ tasks, onToggle, onEdit, onDelete }) {
+  const cols = Object.entries(STATUS).map(([k, v]) => ({
+    key: Number(k),
+    label: v.label,
+    color: v.color,
+    soft: v.soft,
+    icon: v.icon,
+    tasks: tasks.filter((t) => t.status === Number(k)),
+  }));
+  return (
+    <div className="tp-board">
+      {cols.map((c) => {
+        const Icon = c.icon;
+        return (
+          <div key={c.key} className="tp-col">
+            <header className="tp-col-head" style={{ borderTopColor: c.color }}>
+              <span className="tp-col-title" style={{ color: c.color }}>
+                <Icon size={14} /> {c.label}
+              </span>
+              <span className="tp-col-count">{c.tasks.length}</span>
+            </header>
+            <div className="tp-col-body">
+              {c.tasks.length === 0 ? (
+                <div className="tp-col-empty">No tasks</div>
+              ) : (
+                c.tasks.map((t) => (
+                  <TaskCard
+                    key={t.id}
+                    task={t}
+                    onToggle={() => onToggle(t)}
+                    onEdit={() => onEdit(t)}
+                    onDelete={() => onDelete(t)}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmptyState({ hasAny, onClear, onNew }) {
+  return (
+    <div className="tp-empty">
+      <div className="tp-empty-art">
+        <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden>
+          <defs>
+            <linearGradient id="eg" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0%" stopColor="#a5b4fc" />
+              <stop offset="100%" stopColor="#6366f1" />
+            </linearGradient>
+          </defs>
+          <circle cx="60" cy="60" r="56" fill="#eef2ff" />
+          <rect x="34" y="36" width="52" height="56" rx="8" fill="#fff" stroke="url(#eg)" strokeWidth="2" />
+          <path d="M44 52h32M44 64h32M44 76h20" stroke="#c7d2fe" strokeWidth="3" strokeLinecap="round" />
+          <circle cx="86" cy="38" r="14" fill="url(#eg)" />
+          <path d="M80 38l4 4 8-8" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      </div>
+      <h3>{hasAny ? "Nothing matches your filters" : "All clear"}</h3>
+      <p>
+        {hasAny
+          ? "Try clearing filters or adjusting your search."
+          : "Create your first task to get started."}
+      </p>
+      <div className="tp-empty-actions">
+        {hasAny ? (
+          <button className="tp-btn ghost" onClick={onClear}>Clear filters</button>
+        ) : null}
+        <button className="tp-btn primary" onClick={onNew}>
+          <Plus size={16} /> New task
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="tp-grid">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div className="tp-card skeleton" key={i}>
+          <div className="tp-card-bar" />
+          <div className="tp-card-body">
+            <div className="sk sk-line w70" />
+            <div className="sk sk-line w90" />
+            <div className="sk sk-line w50" />
+            <div className="tp-card-meta">
+              <div className="sk sk-pill" />
+              <div className="sk sk-pill" />
+              <div className="sk sk-pill" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------ Avatars ------------------ */
+
+function Avatar({ entity, size = 26, ring = true }) {
+  if (!entity) return null;
+  const isTeam = entity.type === "team";
+  const bg = entity.color || colorFor(`${entity.type}-${entity.id}-${entity.name}`);
+  const style = {
+    width: size, height: size,
+    background: entity.avatarUrl ? "transparent" : bg,
+    color: "#fff",
+    fontSize: Math.max(9, Math.round(size * 0.42)),
+    boxShadow: ring ? "0 0 0 2px #fff" : "none",
+  };
+  const title = isTeam
+    ? `${entity.name}${entity.memberCount ? ` (${entity.memberCount})` : ""} · Team`
+    : `${entity.name}${entity.email ? ` · ${entity.email}` : ""}`;
+
+  return (
+    <span className={`tp-avatar ${isTeam ? "is-team" : ""}`} style={style} title={title}>
+      {entity.avatarUrl ? (
+        <img src={entity.avatarUrl} alt={entity.name} />
+      ) : isTeam ? (
+        <Users size={Math.round(size * 0.5)} />
+      ) : (
+        initials(entity.name)
+      )}
+    </span>
+  );
+}
+
+function AvatarStack({ assignees = [], max = 3 }) {
+  if (!assignees || assignees.length === 0) {
+    return (
+      <span className="tp-assignee-empty" title="Unassigned">
+        <User size={13} /> Unassigned
+      </span>
+    );
+  }
+  const shown = assignees.slice(0, max);
+  const extra = assignees.length - shown.length;
+  return (
+    <div className="tp-stack">
+      {shown.map((a) => (
+        <Avatar key={`${a.type}-${a.id}`} entity={a} />
+      ))}
+      {extra > 0 && (
+        <span
+          className="tp-avatar tp-avatar-more"
+          title={assignees.slice(max).map((a) => a.name).join(", ")}
+        >
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ------------------ Assignee picker ------------------ */
+
+function AssigneePicker({ users, teams, selected, onChange, loadTeamMembers }) {
+  const [open, setOpen]               = useState(false);
+  const [query, setQuery]             = useState("");
+  const [expandedTeams, setExpanded]  = useState({});  // { [teamId]: true }
+  const [teamMembers, setTeamMembers] = useState({});  // { [teamId]: [userId, ...] }
+  const [loadingTeam, setLoadingTeam] = useState({});
+
+  // user lookup by string id, for team-member resolution
+  const userIndex = useMemo(() => {
+    const m = new Map();
+    (users || []).forEach((u) => m.set(String(u.id), u));
+    return m;
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users || [];
+    return (users || []).filter(
+      (u) =>
+        (u.name || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q)
+    );
+  }, [users, query]);
+
+  const filteredTeams = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return teams || [];
+    return (teams || []).filter((t) => (t.name || "").toLowerCase().includes(q));
+  }, [teams, query]);
+
+  const isSelected = (e) => selected.some((s) => sameAssignee(s, e));
+
+  const toggleEntity = (e) => {
+    if (isSelected(e)) onChange(selected.filter((s) => !sameAssignee(s, e)));
+    else onChange([...selected, e]);
+  };
+  const remove = (e) => onChange(selected.filter((s) => !sameAssignee(s, e)));
+
+  async function expandTeam(team) {
+    const id = String(team.id);
+    setExpanded((s) => ({ ...s, [id]: !s[id] }));
+    if (!teamMembers[id]) {
+      setLoadingTeam((s) => ({ ...s, [id]: true }));
+      const ids = await loadTeamMembers(team.id);
+      setTeamMembers((s) => ({ ...s, [id]: ids }));
+      setLoadingTeam((s) => ({ ...s, [id]: false }));
+    }
+  }
+
+  function addAllMembers(team) {
+    const id = String(team.id);
+    const ids = teamMembers[id] || [];
+    if (ids.length === 0) return;
+    const toAdd = ids
+      .map((uid) => userIndex.get(String(uid)))
+      .filter(Boolean)
+      .filter((u) => !selected.some((s) => sameAssignee(s, u)));
+    if (toAdd.length) onChange([...selected, ...toAdd]);
   }
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div className={`tp-picker ${open ? "open" : ""}`}>
       <div
+        className="tp-picker-trigger"
+        onClick={() => setOpen((v) => !v)}
         role="button"
         tabIndex={0}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}
-        className="input like-chipbox"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
       >
-        {(value || []).length === 0 ? (
-          <div className="muted">— none — (tap to pick)</div>
-        ) : (
-          (value || []).map((id) => {
-            const u = allUsers.find((x) => String(x.id) === String(id));
-            const label = u ? u.displayName ?? u.name ?? u.email : id;
-            const initials = label
-              .split(" ")
-              .map((s) => s[0] || "")
-              .join("")
-              .slice(0, 2)
-              .toUpperCase();
-            return (
-              <div key={id} className="chip">
-                <div className="chip-avatar">{initials}</div>
-                <div className="chip-label" title={label}>
-                  {label}
-                </div>
-                <button
-                  type="button"
-                  className="chip-x"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeChip(id);
+        <div className="tp-picker-chips">
+          {selected.length === 0 ? (
+            <span className="tp-picker-placeholder">
+              <Users size={14} /> Assign people or teams…
+            </span>
+          ) : (
+            selected.map((a) => (
+              <span key={`${a.type}-${a.id}`} className="tp-chip-selected">
+                <Avatar entity={a} size={18} ring={false} />
+                <span className="tp-chip-name">{a.name}</span>
+                {a.type === "team" && <span className="tp-tag-team">team</span>}
+                <span
+                  className="tp-chip-remove"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(ev) => { ev.stopPropagation(); remove(a); }}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter" || ev.key === " ") {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      remove(a);
+                    }
                   }}
                 >
-                  ×
-                </button>
-              </div>
-            );
-          })
-        )}
-        <div className="ml-auto small muted">
-          {(value || []).length} selected ▾
+                  <X size={12} />
+                </span>
+              </span>
+            ))
+          )}
         </div>
+        <ChevronDown size={16} className={`tp-picker-caret ${open ? "open" : ""}`} />
       </div>
 
       {open && (
-        <div className="select-pop">
-          <div className="select-filter">
+        <div className="tp-picker-panel">
+          <div className="tp-picker-search">
+            <Search size={14} />
             <input
-              placeholder="Filter users…"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="input"
+              autoFocus
+              placeholder="Search people or teams…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <div className="select-list">
-            {filtered.length === 0 ? (
-              <div className="muted pad">No users match</div>
+
+          <div className="tp-picker-list">
+            {filteredTeams.length === 0 && filteredUsers.length === 0 ? (
+              <div className="tp-picker-empty">No matches</div>
             ) : (
-              filtered.map((u) => {
-                const id =
-                  u.id ?? u.Id ?? u.userId ?? u.UserId ?? u.userid ?? u.UID ?? u.Id;
-                const checked = selectedMap.has(String(id));
-                const initials = (u.displayName || u.name || u.email || "")
-                  .split(" ")
-                  .map((s) => s[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase();
-                return (
-                  <label key={id} className="select-row">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleUser(id)}
-                    />
-                    <div className="chip-avatar sm">{initials}</div>
-                    <div className="col">
-                      <div className="strong">
-                        {u.displayName ?? u.name ?? u.email}
-                      </div>
-                      <div className="tiny muted">{u.email ?? ""}</div>
-                    </div>
-                  </label>
-                );
-              })
+              <>
+                {filteredTeams.length > 0 && (
+                  <>
+                    <div className="tp-picker-group">Teams</div>
+                    {filteredTeams.map((team) => {
+                      const id = String(team.id);
+                      const expanded = !!expandedTeams[id];
+                      const memberIds = teamMembers[id] || [];
+                      const loading = !!loadingTeam[id];
+                      return (
+                        <div key={`team-${id}`} className="tp-team-block">
+                          <div className={`tp-picker-row ${isSelected(team) ? "selected" : ""}`}>
+                            <button
+                              type="button"
+                              className="tp-row-tap"
+                              onClick={() => toggleEntity(team)}
+                            >
+                              <Avatar entity={team} size={28} ring={false} />
+                              <div className="tp-picker-row-text">
+                                <div className="tp-picker-row-name">{team.name}</div>
+                                <div className="tp-picker-row-sub">Team</div>
+                              </div>
+                              <span className={`tp-picker-check ${isSelected(team) ? "on" : ""}`}>
+                                {isSelected(team) ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="tp-team-expand"
+                              onClick={(e) => { e.stopPropagation(); expandTeam(team); }}
+                              title={expanded ? "Hide members" : "Show members"}
+                              aria-expanded={expanded}
+                            >
+                              <ChevronDown size={15} className={expanded ? "rot" : ""} />
+                            </button>
+                          </div>
+
+                          {expanded && (
+                            <div className="tp-team-members">
+                              {loading ? (
+                                <div className="tp-picker-empty small">
+                                  <Loader2 size={13} className="spin" /> Loading members…
+                                </div>
+                              ) : memberIds.length === 0 ? (
+                                <div className="tp-picker-empty small">No members in this team</div>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="tp-add-all"
+                                    onClick={() => addAllMembers(team)}
+                                  >
+                                    <Plus size={13} /> Add all {memberIds.length} member{memberIds.length === 1 ? "" : "s"} as individuals
+                                  </button>
+                                  {memberIds.map((uid) => {
+                                    const u = userIndex.get(String(uid));
+                                    if (!u) return (
+                                      <div key={`m-${uid}`} className="tp-picker-empty small">
+                                        Unknown user · {String(uid).slice(0, 8)}…
+                                      </div>
+                                    );
+                                    return (
+                                      <PickerRow
+                                        key={`m-${uid}`}
+                                        entity={u}
+                                        selected={isSelected(u)}
+                                        onToggle={() => toggleEntity(u)}
+                                        compact
+                                      />
+                                    );
+                                  })}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {filteredUsers.length > 0 && (
+                  <>
+                    <div className="tp-picker-group">People</div>
+                    {filteredUsers.map((u) => (
+                      <PickerRow
+                        key={`user-${u.id}`}
+                        entity={u}
+                        selected={isSelected(u)}
+                        onToggle={() => toggleEntity(u)}
+                      />
+                    ))}
+                  </>
+                )}
+              </>
             )}
           </div>
-          <div className="select-actions">
-            <button
-              type="button"
-              className="btn btn-muted"
-              onClick={() => {
-                onChange([]);
-                setFilter("");
-              }}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setOpen(false)}
-            >
+
+          <div className="tp-picker-foot">
+            <span className="tp-picker-count">
+              {selected.length} selected
+            </span>
+            <button type="button" className="tp-picker-done" onClick={() => setOpen(false)}>
               Done
             </button>
           </div>
@@ -232,1185 +1129,1107 @@ function MultiUserSelect({ allUsers = [], value = [], onChange }) {
   );
 }
 
-/* --- Calendar helper component --- */
-function CalendarView({ tasks = [], onTaskClick = () => {}, initialMonth = new Date() }) {
-  const [month, setMonth] = useState(() => {
-    const d = new Date(initialMonth);
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
-  const [selectedDate, setSelectedDate] = useState(null);
-
-  function monthMatrix(d) {
-    const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-    const startDay = firstOfMonth.getDay(); // 0 = Sun
-    const startDate = new Date(firstOfMonth);
-    startDate.setDate(firstOfMonth.getDate() - startDay);
-    const weeks = [];
-    let cur = new Date(startDate);
-    for (let week = 0; week < 6; week++) {
-      const row = [];
-      for (let day = 0; day < 7; day++) {
-        row.push(new Date(cur));
-        cur.setDate(cur.getDate() + 1);
-      }
-      weeks.push(row);
-    }
-    return weeks;
-  }
-  function toKey(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  const tasksByDate = useMemo(() => {
-    const map = new Map();
-    (tasks || []).forEach((t) => {
-      const raw = t.dueDate || t.DueDate;
-      if (!raw) return;
-      const dt = new Date(raw);
-      if (!dt || isNaN(dt.getTime())) return;
-      const k = toKey(dt);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(t);
-    });
-    return map;
-  }, [tasks]);
-
-  const weeks = monthMatrix(month);
-  const todayKey = toKey(new Date());
-  const prev = () =>
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
-  const next = () =>
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
-  const goToday = () => {
-    const d = new Date();
-    d.setDate(1);
-    setMonth(d);
-    setSelectedDate(null);
-  };
-
-  const selectedKey = selectedDate ? toKey(selectedDate) : null;
-  const selectedTasks = selectedKey ? tasksByDate.get(selectedKey) || [] : [];
-
+function PickerRow({ entity, selected, onToggle, compact = false }) {
   return (
-    <div className="calendar-layout">
-      <div className="card pad">
-        <div className="row between center mb-sm">
-          <div className="row gap-sm">
-            <button onClick={prev} className="btn btn-muted icon">
-              <FiChevronLeft />
-            </button>
-            <button onClick={next} className="btn btn-muted icon">
-              <FiChevronRight />
-            </button>
-            <button onClick={goToday} className="btn btn-muted">
-              Today
-            </button>
-          </div>
-          <div className="strong lg">
-            {month.toLocaleString(undefined, { month: "long", year: "numeric" })}
-          </div>
-          <div style={{ width: 120 }} />
-        </div>
-
-        <div className="grid-7 gap-xs muted bold mb-xs">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((h) => (
-            <div key={h} className="center tiny">
-              {h}
-            </div>
-          ))}
-        </div>
-
-        <div className="grid-7 gap-xs">
-          {weeks.flat().map((date) => {
-            const k = toKey(date);
-            const items = tasksByDate.get(k) || [];
-            const inMonth = date.getMonth() === month.getMonth();
-            const isToday = k === todayKey;
-            return (
-              <div
-                key={k}
-                onClick={() => {
-                  setSelectedDate(new Date(date));
-                }}
-                className={`day ${!inMonth ? "muted-out" : ""} ${
-                  selectedKey === k ? "sel" : ""
-                }`}
-                title={`${date.toDateString()} — ${items.length} task(s)`}
-              >
-                <div className="row between center mb-xxs">
-                  <div className={`tiny bold daynum ${isToday ? "today" : ""}`}>
-                    {date.getDate()}
-                  </div>
-                  <div className="tiny muted">
-                    {items.length > 0 ? `${items.length}` : ""}
-                  </div>
-                </div>
-                <div className="col gap-xxs">
-                  {items.slice(0, 3).map((t) => (
-                    <div
-                      key={(t.id ?? t.Id) + "-" + k}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTaskClick(t);
-                      }}
-                      className="pill task-pill"
-                      title={t.title}
-                    >
-                      {t.title}
-                    </div>
-                  ))}
-                  {items.length > 3 && (
-                    <div className="tiny muted">+{items.length - 3} more</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+    <button
+      type="button"
+      className={`tp-picker-row ${selected ? "selected" : ""} ${compact ? "compact" : ""}`}
+      onClick={onToggle}
+    >
+      <Avatar entity={entity} size={compact ? 24 : 28} ring={false} />
+      <div className="tp-picker-row-text">
+        <div className="tp-picker-row-name">{entity.name}</div>
+        <div className="tp-picker-row-sub">
+          {entity.type === "team"
+            ? `Team${entity.memberCount ? ` · ${entity.memberCount} members` : ""}`
+            : entity.email || "User"}
         </div>
       </div>
-
-      {/* side panel: tasks for selected day */}
-      <div className="card pad">
-        <div className="row between center mb-xxs">
-          <div className="strong">
-            {selectedDate ? selectedDate.toDateString() : "Select a date"}
-          </div>
-          <div className="tiny muted">
-            {selectedKey
-              ? (tasksByDate.get(selectedKey)?.length || 0) + " tasks"
-              : ""}
-          </div>
-        </div>
-
-        <div className="scroll-y" style={{ maxHeight: 420 }}>
-          {selectedTasks.length === 0 ? (
-            <div className="muted pad">No tasks for this day.</div>
-          ) : (
-            selectedTasks.map((t) => (
-              <div key={t.id ?? t.Id} className="panel">
-                <div className="row between gap-sm">
-                  <div className="strong">{t.title}</div>
-                  <div className="tiny muted">
-                    Priority {t.priority ?? 2}
-                  </div>
-                </div>
-                <div className="muted mt-xxs">
-                  {(t.description || "").slice(0, 160)}
-                </div>
-                <div className="row gap-xs mt-xs">
-                  <button
-                    onClick={() => onTaskClick(t)}
-                    className="btn btn-muted icon"
-                  >
-                    <FiEdit2 />
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard
-                        ?.writeText(
-                          window.location.href +
-                            "/tasks/" +
-                            ((t.id ?? t.Id) || "")
-                        )
-                        .catch(() => {});
-                      alert("Link copied");
-                    }}
-                    className="btn btn-muted icon"
-                  >
-                    <FiLink />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
+      <span className={`tp-picker-check ${selected ? "on" : ""}`}>
+        {selected ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+      </span>
+    </button>
   );
 }
 
-/* --- Admin tabular view (admin-only, list mode) --- */
-function AdminTaskTable({ tasks, allUsers, busyId, onChangeOwner }) {
-  const getUserName = (id) => {
-    if (!id) return "—";
-    const u = allUsers.find((x) => String(x.id) === String(id));
-    return u ? u.displayName || u.name || u.email || "—" : "—";
-  };
+/* ------------------ Modal ------------------ */
 
-  const sorted = [...(tasks || [])].sort((a, b) => {
-    const da = a.dueDate || a.DueDate || "";
-    const db = b.dueDate || b.DueDate || "";
-    return String(da).localeCompare(String(db));
-  });
-
-  return (
-    <div className="admin-table-wrap card pad">
-      <div className="row between center mb-xs">
-        <div className="strong lg">Admin Task List (All)</div>
-        <div className="tiny muted">
-          {sorted.length} task{sorted.length === 1 ? "" : "s"}
-        </div>
-      </div>
-
-      <div className="admin-table-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Assigned To</th>
-              <th>Status</th>
-              <th>Priority</th>
-              <th>Due Date</th>
-              <th>Change Owner</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="admin-td-empty">
-                  No tasks to display.
-                </td>
-              </tr>
-            ) : (
-              sorted.map((t) => {
-                const id = t.id ?? t.Id;
-                const assignedIds = Array.isArray(t.assignedToIds)
-                  ? t.assignedToIds
-                  : Array.isArray(t.AssigneeIds)
-                  ? t.AssigneeIds
-                  : t.AssigneeId
-                  ? [String(t.AssigneeId)]
-                  : [];
-                const displayAssigned =
-                  t.assignedTo && String(t.assignedTo).trim()
-                    ? t.assignedTo
-                    : assignedIds.map((x) => getUserName(x)).join(", ");
-                const currentOwner = assignedIds[0] || "";
-                const dueRaw = t.dueDate || t.DueDate;
-                const dueText = dueRaw
-                  ? String(dueRaw).slice(0, 10)
-                  : "—";
-                return (
-                  <tr key={id}>
-                    <td>
-                      <div className="admin-title" title={t.title}>
-                        {t.title}
-                      </div>
-                      {t.description && (
-                        <div className="admin-desc">
-                          {t.description.length > 80
-                            ? t.description.slice(0, 80) + "…"
-                            : t.description}
-                        </div>
-                      )}
-                    </td>
-                    <td>{displayAssigned || "—"}</td>
-                    <td>{t.status || (t.completed ? "Completed" : "Pending")}</td>
-                    <td>{t.priority ?? 2}</td>
-                    <td>{dueText}</td>
-                    <td>
-                      <select
-                        className="admin-owner-select"
-                        value={currentOwner || ""}
-                        disabled={busyId === id}
-                        onChange={(e) =>
-                          onChangeOwner(id, e.target.value || null)
-                        }
-                      >
-                        <option value="">Unassigned</option>
-                        {allUsers.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.displayName || u.name || u.email}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/* --- main TasksPage component --- */
-export default function TasksPage() {
-  const [tasks, setTasks] = useState([]);
-  const [meta, setMeta] = useState({ total: 0, page: 1, limit: 100 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const [allUsers, setAllUsers] = useState([]);
-  const [query, setQuery] = useState("");
-
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(defaultForm());
-  const [saving, setSaving] = useState(false);
-  const [view, setView] = useState("calendar"); // calendar | list
-  const [statusTab, setStatusTab] = useState("all");
-
-  // admin detection
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [changingOwnerId, setChangingOwnerId] = useState(null);
-
-  /* --- API: users/tasks --- */
-  const fetchUsers = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/users?limit=1000`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
-      const { items } = normalizeResponse(json);
-
-      const normalized = (items || []).map((u) => {
-        const id =
-          u?.id ??
-          u?.Id ??
-          u?.userId ??
-          u?.UserId ??
-          u?.userid ??
-          u?.UID ??
-          u?.Id;
-        const displayName = (
-          u?.displayName ??
-          u?.name ??
-          u?.fullName ??
-          u?.username ??
-          u?.userName ??
-          u?.email ??
-          ""
-        ).toString();
-        return { ...u, id: id?.toString?.() ?? null, displayName };
-      });
-
-      setAllUsers(normalized || []);
-    } catch (err) {
-      console.error("fetchUsers:", err);
-      setAllUsers([]);
-    }
-  };
-
-  const fetchTasks = async (page = 1, limit = 100) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const q = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-      });
-      const r = await fetch(`${API_BASE}/tasks?${q.toString()}`);
-      if (!r.ok) {
-        const txt = await r.text();
-        throw new Error(`API error (${r.status}): ${txt || r.statusText}`);
-      }
-      const json = await r.json();
-      const { items, meta: m } = normalizeResponse(json);
-
-      const enriched = (items || []).map((t) => {
-        const out = { ...t };
-        out.assignedToIds =
-          out.AssigneeIds ??
-          out.assigneeIds ??
-          (out.AssigneeId ? [String(out.AssigneeId)] : []);
-        if (Array.isArray(out.AssignedToNames))
-          out.assignedTo = out.AssignedToNames.join(", ");
-        else if (typeof out.AssignedToNames === "string")
-          out.assignedTo = out.AssignedToNames;
-        else if (out.AssignedToName) out.assignedTo = out.AssignedToName;
-        else out.assignedTo = "";
-        out.id = out.Id ?? out.id ?? null;
-        out.title = out.Title ?? out.title ?? "";
-        if (out.DueDate && !out.dueDate) out.dueDate = out.DueDate;
-        out.priority = out.Priority ?? out.priority ?? 2;
-        out.broadcast = out.Broadcast ?? out.broadcast ?? false;
-        const rawStatus =
-          out.Status ?? out.status ?? (out.Completed ? "Completed" : "Pending");
-        out.statusCode = normalizeStatusValue(rawStatus);
-        out.status = statusCodeToLabel(out.statusCode);
-        return out;
-      });
-
-      setTasks(enriched);
-      setMeta((prev) => ({ ...prev, ...m }));
-    } catch (err) {
-      console.error("fetchTasks:", err);
-      setError(String(err));
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchMe = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/auth/me`, {
-        credentials: "include",
-      });
-      if (!r.ok) return;
-      const me = await r.json();
-      setCurrentUser(me || null);
-
-      const rolesRaw = [];
-      if (me?.role) rolesRaw.push(me.role);
-      if (Array.isArray(me?.roles)) rolesRaw.push(...me.roles);
-      const roles = rolesRaw
-        .filter(Boolean)
-        .map((r) => String(r).toLowerCase());
-      const admin = roles.some((r) =>
-        ["admin", "administrator", "superadmin"].includes(r)
-      );
-      setIsAdmin(admin);
-    } catch (e) {
-      console.error("fetchMe:", e);
-      setCurrentUser(null);
-      setIsAdmin(false);
-    }
-  };
-
+function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, onClose, onSubmit }) {
   useEffect(() => {
-    (async () => {
-      await Promise.all([fetchUsers(), fetchTasks(meta.page, meta.limit), fetchMe()]);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const onEsc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [onClose]);
 
-  /* --- UI helpers --- */
-  const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  return (
+    <div className="tp-modal-bg" onClick={(e) => e.target.classList.contains("tp-modal-bg") && onClose()}>
+      <form className="tp-modal" onSubmit={onSubmit}>
+        <header className="tp-modal-head">
+          <div>
+            <h2>{form.id ? "Edit task" : "New task"}</h2>
+            <p>{form.id ? "Update the details below." : "What needs to get done?"}</p>
+          </div>
+          <button type="button" className="tp-icon-btn" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </header>
 
-  const findUserDisplay = (id) => {
-    if (id == null) return id;
-    const u = allUsers.find(
-      (x) =>
-        String(x.id) === String(id) ||
-        String(x.Id ?? "") === String(id) ||
-        String(x.userId ?? "") === String(id) ||
-        String(x.UserId ?? "") === String(id)
-    );
-    if (!u) return id;
-    return u.displayName ?? u.name ?? u.username ?? String(u.id);
-  };
+        <div className="tp-modal-body">
+          <Field label="Title" required>
+            <input
+              autoFocus
+              placeholder="e.g. Ship onboarding flow"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              maxLength={200}
+            />
+          </Field>
 
-  const statusColor = (s) => {
-    const map = {
-      Completed: { bg: "#e6f4ea", fg: "#11633a" },
-      "In-Progress": { bg: "#fff8e6", fg: "#6a4e00" },
-      "On-Hold": { bg: "#fdecea", fg: "#7b1616" },
-      Pending: { bg: "#eef0f2", fg: "#2f3942" },
-    };
-    return map[s] || map.Pending;
-  };
+          <Field label="Description">
+            <textarea
+              rows={4}
+              placeholder="Add notes, links, acceptance criteria…"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </Field>
 
-  /* --- CRUD --- */
-  const openAdd = () => {
-    setForm(defaultForm());
-    setShowModal(true);
-  };
+          <div className="tp-row-2">
+            <Field label="Priority">
+              <select
+                value={form.priority}
+                onChange={(e) => setForm({ ...form, priority: e.target.value })}
+              >
+                {Object.entries(PRIORITY).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Status">
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+              >
+                {Object.entries(STATUS).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
 
-  const openEdit = (task) => {
-    const assignedIds = Array.isArray(task.AssigneeIds)
-      ? task.AssigneeIds.map(String)
-      : task.AssignedToIds ??
-        task.assignedToIds ??
-        (task.AssigneeId ? [String(task.AssigneeId)] : []);
-    const display = (assignedIds || [])
-      .map((id) => findUserDisplay(id))
-      .filter(Boolean)
-      .join(", ");
+          <Field label="Assignees">
+            <AssigneePicker
+              users={users}
+              teams={teams}
+              selected={form.assignees || []}
+              onChange={(next) => setForm({ ...form, assignees: next })}
+              loadTeamMembers={loadTeamMembers}
+            />
+            {(users.length === 0 && teams.length === 0) && (
+              <div className="tp-field-hint">
+                No people or teams loaded. Make sure <code>/api/users</code> and <code>/api/teams</code> are reachable.
+              </div>
+            )}
+          </Field>
 
-    setForm({
-      id: task.id ?? task.Id ?? null,
-      title: task.title ?? task.Title ?? "",
-      description: task.description ?? task.Description ?? "",
-      assignedToIds: assignedIds || [],
-      assignedToDisplay: display,
-      dueDate:
-        (task.dueDate || task.DueDate)
-          ? (task.dueDate || task.DueDate).slice(0, 10)
-          : "",
-      status:
-        task.status ??
-        task.Status ??
-        (task.completed ? "Completed" : "Pending"),
-      priority: task.priority ?? task.Priority ?? 2,
-      broadcast: task.broadcast ?? task.Broadcast ?? false,
-    });
-    if (!allUsers.length) fetchUsers();
-    setShowModal(true);
-  };
+          <Field label="Due date">
+            <div className="tp-date-input">
+              <CalendarDays size={15} />
+              <input
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+              />
+            </div>
+          </Field>
+        </div>
 
-  const saveTask = async (e) => {
-    e?.preventDefault?.();
-    setSaving(true);
-    try {
-      if (!form.title || !form.title.trim()) {
-        alert("Title required");
-        setSaving(false);
-        return;
-      }
-      const payload = {
-        Id: form.id ?? undefined,
-        Title: form.title,
-        Description: form.description || null,
-        AssigneeIds: Array.isArray(form.assignedToIds)
-          ? form.assignedToIds.filter(Boolean)
-          : [],
-        TeamId: null,
-        Status: normalizeStatusValue(form.status),
-        Priority: Number(form.priority) || 2,
-        DueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
-        Broadcast: !!form.broadcast,
-      };
-      const url = form.id
-        ? `${API_BASE}/tasks/${form.id}`
-        : `${API_BASE}/tasks`;
-      const method = form.id ? "PUT" : "POST";
-      const resp = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`API error (${resp.status}): ${txt || resp.statusText}`);
-      }
-      setShowModal(false);
-      await fetchTasks(meta.page, meta.limit);
-    } catch (err) {
-      console.error("saveTask:", err);
-      alert("Save error: " + String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+        <footer className="tp-modal-foot">
+          <button type="button" className="tp-btn ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="tp-btn primary" disabled={saving}>
+            {saving ? <><Loader2 size={15} className="spin" /> Saving…</> : (form.id ? "Save changes" : "Create task")}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
 
-  const deleteTask = async (id) => {
-    if (!window.confirm("Delete this task?")) return;
-    try {
-      const resp = await fetch(`${API_BASE}/tasks/${id}`, { method: "DELETE" });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      await fetchTasks(meta.page, meta.limit);
-    } catch (err) {
-      console.error("deleteTask:", err);
-      alert("Delete failed: " + String(err));
-    }
-  };
+function Field({ label, required, children }) {
+  return (
+    <label className="tp-field">
+      <span className="tp-field-label">
+        {label}{required && <span className="req">*</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
 
-  const sendTaskNotification = async (taskId) => {
-    try {
-      const resp = await fetch(`${API_BASE}/tasks/${taskId}/send`, {
-        method: "POST",
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
-      alert("Message(s) queued/sent successfully!");
-      await fetchTasks(meta.page, meta.limit);
-    } catch (err) {
-      console.error("sendTaskNotification:", err);
-      alert("Error sending message: " + (err.message || err));
-    }
-  };
+function ConfirmDialog({ title, message, onCancel, onConfirm }) {
+  return (
+    <div className="tp-modal-bg" onClick={(e) => e.target.classList.contains("tp-modal-bg") && onCancel()}>
+      <div className="tp-confirm">
+        <div className="tp-confirm-icon"><AlertTriangle size={22} /></div>
+        <h3>{title}</h3>
+        <p>{message}</p>
+        <div className="tp-confirm-actions">
+          <button className="tp-btn ghost" onClick={onCancel}>Cancel</button>
+          <button className="tp-btn danger" onClick={onConfirm}>
+            <Trash2 size={15} /> Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  // admin: change owner (single owner from allUsers)
-  const handleChangeOwner = async (taskId, newOwnerId) => {
-    const task = tasks.find(
-      (t) => String(t.id ?? t.Id) === String(taskId)
-    );
-    if (!task) return;
-    setChangingOwnerId(taskId);
-    try {
-      const payload = {
-        Id: task.id ?? task.Id,
-        Title: task.title ?? task.Title ?? "",
-        Description: task.description ?? task.Description ?? null,
-        AssigneeIds: newOwnerId ? [String(newOwnerId)] : [],
-        TeamId: null,
-        Status: normalizeStatusValue(
-          task.status ??
-            task.Status ??
-            (task.completed ? "Completed" : "Pending")
-        ),
-        Priority: Number(task.priority ?? task.Priority) || 2,
-        DueDate: task.dueDate
-          ? new Date(task.dueDate).toISOString()
-          : task.DueDate
-          ? new Date(task.DueDate).toISOString()
-          : null,
-        Broadcast: !!(task.broadcast ?? task.Broadcast),
-      };
-      const resp = await fetch(`${API_BASE}/tasks/${taskId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
-      await fetchTasks(meta.page, meta.limit);
-    } catch (e) {
-      console.error("handleChangeOwner:", e);
-      alert("Failed to change owner: " + String(e));
-    } finally {
-      setChangingOwnerId(null);
-    }
-  };
+/* ------------------------------------------------------------------ */
+/*  Styles                                                             */
+/* ------------------------------------------------------------------ */
 
-  /* --- filters / derived --- */
-  const filtered = useMemo(() => {
-    let base = tasks;
-    if (statusTab !== "all")
-      base = base.filter(
-        (t) =>
-          (t.status || "")
-            .toLowerCase()
-            .replace(/\s+/g, "-") === statusTab
-      );
-    if (!query) return base;
-    const q = query.trim().toLowerCase();
-    return base.filter(
-      (t) =>
-        String(t.title ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.description ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.assignedTo ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.AssignedToName ?? "")
-          .toLowerCase()
-          .includes(q)
-    );
-  }, [tasks, query, statusTab]);
-
-  /* --- styles (mobile-first) --- */
-  const Styles = (
+function Styles() {
+  return (
     <style>{`
-      :root{ --bg: linear-gradient(180deg,#fffdfa,#fbf3e8); --deep:#12223a; --muted:#6f5f4f; --gold:#d1a62a; --card: rgba(255,255,255,0.96); --shadow:0 12px 34px rgba(12,16,24,0.08); --radius:16px; --safe-bottom: env(safe-area-inset-bottom); }
-      .tasks-wrap{ min-height:100vh; padding:12px; background: var(--bg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--deep); }
-      .top-hero{ position:sticky; top:8px; z-index:20; display:flex; gap:12px; align-items:flex-start; padding:14px; border-radius: var(--radius); background: linear-gradient(90deg,#123a63,#0b2a47); color:white; box-shadow: var(--shadow); }
-      .hero-actions{ margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
-      .btn{ border:none; border-radius:12px; padding:12px 14px; font-weight:800; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px; }
-      .btn-primary{ background: linear-gradient(90deg,var(--gold), #f4de93); color:#2b1f0f; box-shadow: 0 8px 20px rgba(178,136,7,0.18); }
-      .btn-muted{ background:#fff; border:1px solid rgba(0,0,0,0.06); color:#2d3b48; }
-      .btn-ghost{ background:transparent; border:1px dashed rgba(255,255,255,0.6); color:#fff; }
-      .btn.icon{ padding:10px; border-radius:12px; }
+      :root {
+        --bg: #f7f7fb;
+        --surface: #ffffff;
+        --surface-2: #fafafe;
+        --border: #e7e7ee;
+        --border-strong: #d6d6e0;
+        --text: #18181b;
+        --text-2: #52525b;
+        --text-3: #8a8a93;
+        --primary: #6366f1;
+        --primary-600: #4f46e5;
+        --primary-50: #eef2ff;
+        --danger: #ef4444;
+        --danger-50: #fef2f2;
+        --success: #10b981;
+        --shadow-sm: 0 1px 2px rgba(16,18,40,.04), 0 1px 1px rgba(16,18,40,.03);
+        --shadow-md: 0 4px 16px rgba(16,18,40,.06), 0 2px 4px rgba(16,18,40,.03);
+        --shadow-lg: 0 12px 40px rgba(16,18,40,.12), 0 4px 12px rgba(16,18,40,.06);
+        --radius: 14px;
+      }
 
-      .search-row{ display:flex; gap:8px; margin-top:12px; }
-      .search{ width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(0,0,0,0.08); background:#fff; }
+      .tp-root {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(1200px 600px at 0% -10%, #eef2ff 0%, transparent 60%),
+          radial-gradient(900px 500px at 100% 0%, #fdf4ff 0%, transparent 55%),
+          var(--bg);
+        min-height: 100vh;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
 
-      .tabs{ display:flex; gap:8px; margin-top:12px; overflow:auto; }
-      .tab{ padding:8px 12px; border-radius:999px; border:1px solid rgba(0,0,0,0.06); background:#fff; font-weight:700; font-size:13px; white-space:nowrap; }
-      .tab.active{ background: #fff7d1; border-color: rgba(200,170,90,0.3); }
+      /* Header */
+      .tp-header {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        backdrop-filter: saturate(140%) blur(12px);
+        background: rgba(255,255,255,.78);
+        border-bottom: 1px solid var(--border);
+      }
+      .tp-header-inner {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 14px 24px;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 18px;
+        align-items: center;
+      }
+      .tp-brand { display: flex; align-items: center; gap: 12px; }
+      .tp-logo {
+        width: 38px; height: 38px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+        color: #fff;
+        display: grid; place-items: center;
+        box-shadow: 0 6px 18px rgba(99,102,241,.35);
+      }
+      .tp-title {
+        font-size: 18px; font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .tp-subtitle {
+        font-size: 12px; color: var(--text-3);
+        margin-top: 1px;
+      }
 
-      .calendar-layout{ display:grid; grid-template-columns: 1fr; gap:12px; margin-top:14px; }
-      @media(min-width: 980px){ .calendar-layout{ grid-template-columns: 1fr 360px; } }
+      .tp-search {
+        display: flex; align-items: center; gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 12px;
+        max-width: 460px;
+        width: 100%;
+        justify-self: center;
+        transition: border-color .15s, box-shadow .15s;
+        color: var(--text-3);
+      }
+      .tp-search:focus-within {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99,102,241,.12);
+        color: var(--text-2);
+      }
+      .tp-search input {
+        flex: 1;
+        border: none; outline: none;
+        background: transparent;
+        font-size: 14px;
+        color: var(--text);
+      }
+      .tp-clear {
+        border: none; background: transparent;
+        color: var(--text-3); cursor: pointer;
+        padding: 2px; border-radius: 4px;
+      }
+      .tp-clear:hover { color: var(--text); background: var(--surface-2); }
 
-      .card{ background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); border:1px solid rgba(0,0,0,0.04); }
-      .pad{ padding:12px; }
-      .panel{ padding:10px; border:1px solid rgba(0,0,0,0.04); border-radius:12px; background:#fff; margin-bottom:8px; }
+      .tp-header-actions { display: flex; gap: 8px; }
 
-      .grid-7{ display:grid; grid-template-columns: repeat(7,1fr); }
-      .gap-xs{ gap:6px; }
-      .mb-xs{ margin-bottom:8px; } .mb-sm{ margin-bottom:12px; } .mb-xxs{ margin-bottom:6px; } .mt-xs{ margin-top:8px; } .mt-xxs{ margin-top:6px; }
-      .row{ display:flex; } .col{ display:flex; flex-direction:column; }
-      .between{ justify-content:space-between; } .center{ align-items:center; }
-      .gap-xs{ gap:6px; } .gap-sm{ gap:10px; }
-      .bold{ font-weight:800; } .strong{ font-weight:800; } .lg{ font-size:16px; }
-      .tiny{ font-size:12px; } .muted{ color: var(--muted); } .muted-out{ background:#fafafa; }
-      .pad-s{ padding:6px 8px; }
+      /* Main */
+      .tp-main {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 28px 24px 100px;
+      }
 
-      .day{ min-height:96px; border-radius:12px; padding:6px; background:#fff; border:1px solid rgba(0,0,0,0.04); cursor:pointer; }
-      .day.sel{ border:2px solid #f1c232; box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
-      .daynum{ padding:2px 6px; border-radius:8px; }
-      .daynum.today{ background:#2e7d32; color:#fff; }
+      /* Stats */
+      .tp-stats {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 14px;
+        margin-bottom: 22px;
+      }
+      .tp-stat {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        display: flex; align-items: center; gap: 14px;
+        box-shadow: var(--shadow-sm);
+        transition: transform .15s, box-shadow .15s;
+      }
+      .tp-stat:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+      .tp-stat.highlight {
+        border-color: #fecaca;
+        background: linear-gradient(180deg, #fff 0%, #fff5f5 100%);
+      }
+      .tp-stat-icon {
+        width: 40px; height: 40px;
+        border-radius: 10px;
+        display: grid; place-items: center;
+      }
+      .tp-stat-value {
+        font-size: 22px; font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .tp-stat-label {
+        font-size: 12px; color: var(--text-3);
+        font-weight: 500;
+      }
 
-      .pill{ padding:6px 8px; border-radius:8px; font-size:12px; font-weight:700; }
-      .task-pill{ background:#fff8e6; border:1px solid rgba(200,170,90,0.12); color:#6a4e00; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+      /* Toolbar */
+      .tp-toolbar {
+        display: flex; flex-wrap: wrap; gap: 12px;
+        align-items: center; justify-content: space-between;
+        margin-bottom: 18px;
+      }
+      .tp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+      .tp-chip {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text-2);
+        font-size: 13px; font-weight: 500;
+        padding: 7px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+        transition: all .15s;
+      }
+      .tp-chip:hover { background: var(--surface-2); color: var(--text); }
+      .tp-chip.active {
+        background: var(--primary-50);
+        color: var(--primary-600);
+        border-color: #c7d2fe;
+        font-weight: 600;
+      }
+      .tp-chip .count {
+        font-size: 11px;
+        background: rgba(0,0,0,.06);
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-weight: 600;
+      }
+      .tp-chip.active .count { background: rgba(99,102,241,.18); }
 
-      .scroll-y{ overflow:auto; }
+      .tp-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .tp-select-wrap {
+        display: flex; align-items: center; gap: 6px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0 10px 0 12px;
+        color: var(--text-3);
+      }
+      .tp-select-wrap select {
+        background: transparent;
+        border: none; outline: none;
+        padding: 8px 4px;
+        font-size: 13px;
+        color: var(--text);
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .tp-view-toggle {
+        display: flex;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .tp-view-toggle button {
+        background: transparent;
+        border: none;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: var(--text-3);
+        display: grid; place-items: center;
+        transition: background .15s, color .15s;
+      }
+      .tp-view-toggle button:hover { color: var(--text); background: var(--surface-2); }
+      .tp-view-toggle button.on { background: var(--primary-50); color: var(--primary-600); }
 
-      .grid-cards{ display:grid; grid-template-columns: 1fr; gap:12px; margin-top:14px; }
-      @media(min-width: 760px){ .grid-cards{ grid-template-columns: repeat(2,1fr); } }
-      @media(min-width: 1200px){ .grid-cards{ grid-template-columns: repeat(3,1fr); } }
+      /* Buttons */
+      .tp-btn {
+        border: 1px solid transparent;
+        font-family: inherit;
+        font-weight: 600;
+        font-size: 13.5px;
+        border-radius: 10px;
+        padding: 9px 14px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all .15s;
+        white-space: nowrap;
+      }
+      .tp-btn:disabled { opacity: .6; cursor: not-allowed; }
+      .tp-btn.primary {
+        background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+        color: #fff;
+        box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 4px 12px rgba(99,102,241,.32);
+      }
+      .tp-btn.primary:hover { filter: brightness(1.05); transform: translateY(-1px); }
+      .tp-btn.ghost {
+        background: var(--surface);
+        color: var(--text-2);
+        border-color: var(--border);
+      }
+      .tp-btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+      .tp-btn.danger {
+        background: var(--danger);
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(239,68,68,.32);
+      }
+      .tp-btn.danger:hover { filter: brightness(1.05); }
 
-      .task-card{ background:#fff; padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(11,42,71,0.06); display:flex; flex-direction:column; min-height:150px; border:1px solid rgba(0,0,0,0.04); }
+      .hide-sm { display: inline; }
 
-      .status{ padding:6px 12px; border-radius:999px; font-weight:800; font-size:13px; }
+      /* Alert */
+      .tp-alert {
+        background: #fff5f5;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+        padding: 10px 14px;
+        border-radius: 10px;
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 14px;
+        font-size: 13.5px;
+      }
+      .tp-alert button {
+        margin-left: auto;
+        border: none; background: transparent;
+        color: inherit; cursor: pointer;
+        padding: 4px; border-radius: 4px;
+      }
+      .tp-alert button:hover { background: rgba(185,28,28,.08); }
 
-      .input{ width:100%; padding:12px; border-radius:12px; border:1px solid #e5e7eb; background:#fff; font-size:14px; }
-      .input.like-chipbox{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; cursor:text; min-height:48px; }
-      .chip{ display:inline-flex; align-items:center; gap:8px; padding:6px 8px; background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.04); }
-      .chip-avatar{ width:28px; height:28px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; background:linear-gradient(180deg,#fff6e3,#fff1d6); color:#112b44; }
-      .chip-avatar.sm{ width:24px; height:24px; font-size:11px; }
-      .chip-label{ font-size:13px; color:#123a63; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .chip-x{ background:transparent; border:none; cursor:pointer; color:#c33; font-size:16px; }
+      /* Grid + Card */
+      .tp-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 14px;
+      }
+      .tp-card {
+        position: relative;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+        transition: transform .18s, box-shadow .18s, border-color .18s;
+        display: flex;
+      }
+      .tp-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        border-color: var(--border-strong);
+      }
+      .tp-card.done .tp-card-title { color: var(--text-3); text-decoration: line-through; }
+      .tp-card.done { opacity: .85; }
+      .tp-card.overdue { border-color: #fecaca; }
+      .tp-card-bar {
+        width: 4px;
+        flex-shrink: 0;
+      }
+      .tp-card-body {
+        flex: 1;
+        padding: 14px 16px 12px;
+        display: flex; flex-direction: column; gap: 10px;
+        min-width: 0;
+      }
+      .tp-card-head {
+        display: flex; gap: 10px;
+        align-items: flex-start;
+      }
+      .tp-card-title-wrap { flex: 1; min-width: 0; }
+      .tp-card-title {
+        font-size: 15px; font-weight: 600;
+        line-height: 1.3;
+        margin: 0 0 4px;
+        word-break: break-word;
+      }
+      .tp-card-desc {
+        font-size: 13px; color: var(--text-2);
+        margin: 0;
+        line-height: 1.45;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .tp-card-desc.empty { color: var(--text-3); font-style: italic; }
+      .tp-check {
+        flex-shrink: 0;
+        width: 24px; height: 24px;
+        border-radius: 999px;
+        border: 1.5px solid var(--border-strong);
+        background: var(--surface);
+        cursor: pointer;
+        display: grid; place-items: center;
+        color: var(--text-3);
+        transition: all .15s;
+        margin-top: 1px;
+      }
+      .tp-check:hover { border-color: var(--success); color: var(--success); }
+      .tp-card-meta {
+        display: flex; flex-wrap: wrap; gap: 6px;
+      }
+      .tp-pill {
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+        display: inline-flex; align-items: center; gap: 4px;
+        background: var(--surface-2);
+        color: var(--text-2);
+      }
+      .tp-pill.due { background: var(--surface-2); color: var(--text-2); }
+      .tp-pill.due.overdue { background: var(--danger-50); color: var(--danger); }
 
-      .select-pop{ position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:40; background:#fff; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.15); border:1px solid rgba(0,0,0,0.06); display:flex; flex-direction:column; max-height:340px; }
-      .select-filter{ padding:8px; border-bottom:1px solid rgba(0,0,0,0.04); }
-      .select-list{ overflow:auto; padding:8px; }
-      .select-row{ display:flex; align-items:center; gap:10px; padding:8px 6px; border-radius:8px; cursor:pointer; }
-      .select-actions{ padding:8px; border-top:1px solid rgba(0,0,0,0.04); display:flex; justify-content:space-between; }
+      .tp-card-actions {
+        display: flex; gap: 6px; align-items: center;
+        margin-top: auto;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border);
+      }
+      .tp-card-actions-end {
+        display: flex; gap: 6px; margin-left: auto;
+      }
+      .tp-assignee-empty {
+        font-size: 11.5px;
+        color: var(--text-3);
+        display: inline-flex; align-items: center; gap: 4px;
+        font-weight: 500;
+      }
 
-      /* Modal Sheet (mobile-friendly) */
-      .sheet{ position:fixed; inset:0; background: rgba(7,12,20,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:9999; }
-      .sheet-panel{ width:100%; max-width:880px; background: linear-gradient(180deg,#fff,#fffdf8); border-radius:18px 18px 0 0; box-shadow: 0 20px 60px rgba(17,24,39,0.2); padding:16px; max-height:88vh; overflow:auto; }
-      @media(min-width: 900px){ .sheet{ align-items:center; } .sheet-panel{ border-radius:18px; } }
+      /* Avatars */
+      .tp-avatar {
+        width: 26px; height: 26px;
+        border-radius: 999px;
+        display: inline-grid; place-items: center;
+        font-size: 10.5px;
+        font-weight: 700;
+        color: #fff;
+        overflow: hidden;
+        flex-shrink: 0;
+        letter-spacing: .02em;
+      }
+      .tp-avatar img {
+        width: 100%; height: 100%; object-fit: cover;
+      }
+      .tp-avatar.is-team { border-radius: 7px; }
+      .tp-stack {
+        display: inline-flex;
+        align-items: center;
+      }
+      .tp-stack > .tp-avatar {
+        margin-right: -8px;
+      }
+      .tp-stack > .tp-avatar:last-child { margin-right: 0; }
+      .tp-avatar-more {
+        background: #e5e7eb !important;
+        color: var(--text-2) !important;
+        font-size: 10px !important;
+        box-shadow: 0 0 0 2px #fff !important;
+      }
+      .tp-icon-btn {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 8px;
+        width: 30px; height: 30px;
+        cursor: pointer;
+        color: var(--text-2);
+        display: grid; place-items: center;
+        transition: all .15s;
+      }
+      .tp-icon-btn:hover { background: var(--surface-2); color: var(--text); }
+      .tp-icon-btn.danger:hover { background: var(--danger-50); color: var(--danger); border-color: #fecaca; }
+
+      /* Board */
+      .tp-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(260px, 1fr));
+        gap: 14px;
+        overflow-x: auto;
+      }
+      .tp-col {
+        background: rgba(255,255,255,.55);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        display: flex; flex-direction: column;
+        max-height: 80vh;
+      }
+      .tp-col-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 4px 6px 10px;
+        border-top: 3px solid;
+        border-radius: 2px;
+        margin: -12px -12px 10px;
+        padding: 14px 14px 10px;
+      }
+      .tp-col-title {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 13px; font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+      }
+      .tp-col-count {
+        font-size: 12px; font-weight: 600;
+        background: rgba(0,0,0,.05);
+        color: var(--text-2);
+        padding: 2px 8px;
+        border-radius: 999px;
+      }
+      .tp-col-body {
+        display: flex; flex-direction: column; gap: 10px;
+        overflow-y: auto;
+      }
+      .tp-col-empty {
+        text-align: center;
+        color: var(--text-3);
+        font-size: 13px;
+        padding: 22px 8px;
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+      }
+
+      /* Empty state */
+      .tp-empty {
+        text-align: center;
+        padding: 48px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+      }
+      .tp-empty-art { display: grid; place-items: center; margin-bottom: 16px; }
+      .tp-empty h3 {
+        font-size: 18px; font-weight: 700;
+        margin: 0 0 6px;
+      }
+      .tp-empty p {
+        color: var(--text-3); font-size: 14px;
+        margin: 0 0 18px;
+      }
+      .tp-empty-actions { display: inline-flex; gap: 10px; }
+
+      /* Skeleton */
+      .tp-card.skeleton { pointer-events: none; }
+      .tp-card.skeleton .tp-card-bar { background: var(--border); }
+      .sk {
+        background: linear-gradient(90deg, #eef0f4 0%, #f6f7fa 50%, #eef0f4 100%);
+        background-size: 200% 100%;
+        animation: shine 1.4s linear infinite;
+        border-radius: 6px;
+      }
+      .sk-line { height: 12px; margin-bottom: 8px; }
+      .w50 { width: 50%; } .w70 { width: 70%; } .w90 { width: 90%; }
+      .sk-pill { width: 70px; height: 22px; border-radius: 6px; }
+      @keyframes shine {
+        from { background-position: 200% 0; }
+        to   { background-position: -200% 0; }
+      }
 
       /* FAB */
-      .fab{ position: fixed; right: 16px; bottom: calc(18px + var(--safe-bottom)); z-index: 70; }
+      .tp-fab {
+        display: none;
+        position: fixed;
+        right: 20px; bottom: 20px;
+        width: 56px; height: 56px;
+        border-radius: 999px;
+        border: none;
+        background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+        color: #fff;
+        cursor: pointer;
+        box-shadow: 0 10px 30px rgba(99,102,241,.45);
+        z-index: 20;
+        align-items: center; justify-content: center;
+      }
+      .tp-fab:active { transform: scale(.96); }
 
-      /* Utility */
-      .ml-auto{ margin-left:auto; }
+      /* Modal */
+      .tp-modal-bg {
+        position: fixed; inset: 0;
+        background: rgba(15,16,30,.55);
+        backdrop-filter: blur(4px);
+        z-index: 80;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        animation: fadeIn .18s ease;
+      }
+      @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+      .tp-modal {
+        background: var(--surface);
+        width: 100%;
+        max-width: 520px;
+        max-height: min(90vh, 760px);
+        border-radius: 18px;
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+        animation: pop .22s cubic-bezier(.2,.7,.3,1.3);
+        display: flex;
+        flex-direction: column;
+      }
+      @keyframes pop { from { transform: translateY(12px) scale(.98); opacity: 0 } to { transform: none; opacity: 1 } }
+      .tp-modal-head {
+        flex-shrink: 0;
+        padding: 20px 22px 12px;
+        display: flex; justify-content: space-between; align-items: flex-start;
+      }
+      .tp-modal-head h2 {
+        font-size: 18px; font-weight: 700;
+        margin: 0 0 3px;
+        letter-spacing: -0.01em;
+      }
+      .tp-modal-head p {
+        margin: 0; font-size: 13px;
+        color: var(--text-3);
+      }
+      .tp-modal-body {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 8px 22px 20px;
+        display: flex; flex-direction: column; gap: 14px;
+      }
+      .tp-modal-foot {
+        flex-shrink: 0;
+        display: flex; justify-content: flex-end; gap: 8px;
+        padding: 14px 22px;
+        border-top: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+      .tp-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-      /* Admin table styles (list view, admin only) */
-      .admin-table-wrap{ margin-top:14px; }
-      .admin-table-scroll{ overflow:auto; border-radius:12px; border:1px solid rgba(0,0,0,0.04); }
-      .admin-table{ width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
-      .admin-table thead{ background:rgba(1,48,98,0.04); text-align:left; }
-      .admin-table th{ padding:8px 10px; font-weight:700; }
-      .admin-table td{ padding:8px 10px; border-top:1px solid rgba(0,0,0,0.04); vertical-align:top; }
-      .admin-td-empty{ text-align:center; color:var(--muted); font-size:13px; }
-      .admin-title{ font-weight:600; max-width:260px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
-      .admin-desc{ font-size:12px; color:var(--muted); max-width:260px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; margin-top:2px; }
-      .admin-owner-select{ padding:4px 8px; border-radius:999px; border:1px solid rgba(0,0,0,0.16); background:#fff; font-size:12px; min-width:150px; }
+      .tp-field { display: flex; flex-direction: column; gap: 6px; }
+      .tp-field-label {
+        font-size: 12.5px; font-weight: 600;
+        color: var(--text-2);
+        letter-spacing: .01em;
+      }
+      .tp-field-label .req { color: var(--danger); margin-left: 3px; }
+      .tp-field input,
+      .tp-field textarea,
+      .tp-field select {
+        font-family: inherit;
+        font-size: 14px;
+        color: var(--text);
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        padding: 10px 12px;
+        width: 100%;
+        transition: border-color .15s, box-shadow .15s;
+        outline: none;
+      }
+      .tp-field textarea { resize: vertical; min-height: 80px; }
+      .tp-field input:focus,
+      .tp-field textarea:focus,
+      .tp-field select:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99,102,241,.14);
+      }
+      .tp-date-input {
+        display: flex; align-items: center; gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        padding: 0 12px;
+        color: var(--text-3);
+      }
+      .tp-date-input input {
+        border: none; padding: 10px 0;
+      }
+      .tp-date-input input:focus { box-shadow: none; }
+      .tp-date-input:focus-within {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99,102,241,.14);
+      }
+
+      /* Confirm */
+      .tp-confirm {
+        background: var(--surface);
+        width: 100%;
+        max-width: 380px;
+        border-radius: 16px;
+        padding: 22px;
+        text-align: center;
+        box-shadow: var(--shadow-lg);
+        animation: pop .22s cubic-bezier(.2,.7,.3,1.3);
+      }
+      .tp-confirm-icon {
+        width: 48px; height: 48px;
+        background: var(--danger-50);
+        color: var(--danger);
+        border-radius: 999px;
+        margin: 0 auto 12px;
+        display: grid; place-items: center;
+      }
+      .tp-confirm h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+      .tp-confirm p { margin: 0 0 18px; color: var(--text-2); font-size: 14px; }
+      .tp-confirm-actions { display: flex; gap: 8px; justify-content: center; }
+
+      /* Toasts */
+      .toast-stack {
+        position: fixed; bottom: 22px; left: 50%;
+        transform: translateX(-50%);
+        z-index: 100;
+        display: flex; flex-direction: column;
+        align-items: center; gap: 8px;
+      }
+      .toast {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 16px;
+        border-radius: 10px;
+        background: #1f2937;
+        color: #fff;
+        font-size: 13.5px; font-weight: 500;
+        box-shadow: var(--shadow-lg);
+        animation: toastIn .25s ease;
+      }
+      .toast-success { background: #064e3b; }
+      .toast-error   { background: #7f1d1d; }
+      @keyframes toastIn {
+        from { transform: translateY(8px); opacity: 0 }
+        to   { transform: none; opacity: 1 }
+      }
+
+      .spin { animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* Field hint */
+      .tp-field-hint {
+        font-size: 12px; color: var(--text-3); margin-top: 4px;
+      }
+      .tp-field-hint code {
+        background: var(--surface-2);
+        padding: 1px 5px; border-radius: 4px;
+        font-size: 11.5px;
+      }
+
+      /* Assignee picker */
+      .tp-picker {
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .tp-picker.open {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99,102,241,.14);
+      }
+      .tp-picker-trigger {
+        width: 100%;
+        background: transparent;
+        border: none;
+        padding: 8px 10px;
+        min-height: 42px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: inherit;
+        text-align: left;
+      }
+      .tp-picker-chips {
+        display: flex; flex-wrap: wrap; gap: 6px;
+        flex: 1;
+        align-items: center;
+      }
+      .tp-picker-placeholder {
+        color: var(--text-3);
+        font-size: 13.5px;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .tp-chip-selected {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--primary-50);
+        border: 1px solid #c7d2fe;
+        color: var(--primary-600);
+        border-radius: 999px;
+        padding: 3px 4px 3px 4px;
+        font-size: 12.5px;
+        font-weight: 600;
+        max-width: 220px;
+      }
+      .tp-chip-name {
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tp-tag-team {
+        background: rgba(99,102,241,.18);
+        color: var(--primary-600);
+        font-size: 9.5px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+      }
+      .tp-chip-remove {
+        display: inline-grid;
+        place-items: center;
+        width: 16px; height: 16px;
+        border-radius: 999px;
+        cursor: pointer;
+        color: var(--primary-600);
+        opacity: .7;
+        transition: opacity .12s, background .12s;
+      }
+      .tp-chip-remove:hover {
+        opacity: 1;
+        background: rgba(99,102,241,.18);
+      }
+      .tp-picker-caret {
+        color: var(--text-3);
+        flex-shrink: 0;
+        transition: transform .15s;
+      }
+      .tp-picker-caret.open { transform: rotate(180deg); }
+
+      /* Inline expanding panel — no overflow surprises inside scrollable parents */
+      .tp-picker-panel {
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        animation: panelIn .16s ease;
+      }
+      @keyframes panelIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: none; }
+      }
+      .tp-picker-search {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-3);
+        background: var(--surface-2);
+      }
+      .tp-picker-search input {
+        flex: 1; border: none; outline: none;
+        background: transparent; font-size: 13.5px;
+        color: var(--text); font-family: inherit;
+      }
+      .tp-picker-list {
+        max-height: 280px;
+        overflow-y: auto;
+        padding: 6px;
+      }
+      .tp-picker-group {
+        font-size: 10.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--text-3);
+        padding: 8px 8px 4px;
+      }
+
+      /* Rows */
+      .tp-picker-row {
+        width: 100%;
+        background: transparent;
+        border: none;
+        font-family: inherit;
+        text-align: left;
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background .12s;
+      }
+      .tp-picker-row.compact { padding: 6px 8px; }
+      .tp-picker-row:hover { background: var(--surface-2); }
+      .tp-picker-row.selected { background: var(--primary-50); }
+      .tp-picker-row-text { flex: 1; min-width: 0; }
+      .tp-picker-row-name {
+        font-size: 13.5px; font-weight: 600;
+        color: var(--text);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .tp-picker-row-sub {
+        font-size: 11.5px; color: var(--text-3);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        margin-top: 1px;
+      }
+      .tp-picker-check { color: var(--text-3); flex-shrink: 0; }
+      .tp-picker-check.on { color: var(--primary); }
+      .tp-picker-empty {
+        text-align: center;
+        color: var(--text-3);
+        padding: 20px;
+        font-size: 13px;
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+      }
+      .tp-picker-empty.small { padding: 10px; font-size: 12.5px; }
+
+      /* Team block: row + expand button + nested members */
+      .tp-team-block {
+        border-radius: 8px;
+      }
+      .tp-team-block .tp-picker-row {
+        flex: 1;
+        padding-right: 0;
+      }
+      .tp-team-block > .tp-picker-row {
+        display: flex;
+      }
+      .tp-row-tap {
+        flex: 1;
+        background: transparent;
+        border: none;
+        font-family: inherit;
+        text-align: left;
+        display: flex; align-items: center; gap: 10px;
+        padding: 0;
+        cursor: pointer;
+        min-width: 0;
+      }
+      .tp-team-expand {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 6px 8px;
+        margin-left: 4px;
+        border-radius: 6px;
+        color: var(--text-3);
+        display: grid; place-items: center;
+        transition: background .12s, color .12s;
+      }
+      .tp-team-expand:hover { background: var(--surface-2); color: var(--text); }
+      .tp-team-expand .rot { transform: rotate(180deg); }
+      .tp-team-members {
+        margin: 4px 0 6px 36px;
+        padding: 6px 6px 6px 10px;
+        border-left: 2px dashed var(--border);
+      }
+      .tp-add-all {
+        width: 100%;
+        background: var(--primary-50);
+        border: 1px dashed #c7d2fe;
+        color: var(--primary-600);
+        border-radius: 8px;
+        padding: 6px 10px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 600;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      }
+      .tp-add-all:hover { background: rgba(99,102,241,.15); }
+
+      /* Footer of picker */
+      .tp-picker-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+      .tp-picker-count {
+        font-size: 12px;
+        color: var(--text-3);
+        font-weight: 500;
+      }
+      .tp-picker-done {
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        border-radius: 7px;
+        padding: 6px 14px;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .tp-picker-done:hover { background: var(--primary-600); }
+
+      /* Responsive */
+      @media (max-width: 1100px) {
+        .tp-stats { grid-template-columns: repeat(3, 1fr); }
+      }
+      @media (max-width: 900px) {
+        .tp-board { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+      }
+      @media (max-width: 740px) {
+        .tp-header-inner {
+          grid-template-columns: 1fr auto;
+          row-gap: 10px;
+        }
+        .tp-search { grid-column: 1 / -1; max-width: none; }
+        .tp-subtitle { display: none; }
+        .tp-stats { grid-template-columns: repeat(2, 1fr); }
+        .tp-toolbar { flex-direction: column; align-items: stretch; }
+        .tp-controls { justify-content: space-between; }
+        .tp-fab { display: flex; }
+        .hide-sm { display: none; }
+        .tp-board { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 480px) {
+        .tp-main { padding: 18px 14px 100px; }
+        .tp-header-inner { padding: 12px 14px; }
+        .tp-row-2 { grid-template-columns: 1fr; }
+      }
     `}</style>
-  );
-
-  /* --- render --- */
-  return (
-    <div className="tasks-wrap">
-      {Styles}
-
-      {/* Header / Banner */}
-      <div className="top-hero" role="region" aria-label="Tasks header">
-        <div>
-          <h2 style={{ margin: 0, fontSize: 22 }}>Tasks</h2>
-          <p style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
-            Manage and track ministry tasks — who is responsible, priorities, and
-            due dates.
-          </p>
-        </div>
-        <div className="hero-actions">
-          <button
-            onClick={() => {
-              fetchTasks(meta.page, meta.limit);
-            }}
-            className="btn btn-ghost"
-          >
-            <FiRefreshCw /> Refresh
-          </button>
-          <button
-            onClick={() => {
-              alert("Export not implemented");
-            }}
-            className="btn btn-ghost"
-          >
-            <FiDownload /> Export
-          </button>
-          <button onClick={openAdd} className="btn btn-primary">
-            <FiPlus /> New Task
-          </button>
-        </div>
-      </div>
-
-      {/* Search + View toggles */}
-      <div className="search-row">
-        <input
-          className="search"
-          placeholder="Search tasks by title, assigned, or description…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div
-          className="ml-auto tiny muted"
-          style={{ alignSelf: "center" }}
-        >
-          Showing {filtered.length} of {meta.total ?? tasks.length}
-        </div>
-      </div>
-
-      <div className="tabs" role="tablist" aria-label="Status filters">
-        {[
-          { key: "all", label: "All" },
-          { key: "pending", label: "Pending" },
-          { key: "in-progress", label: "In-Progress" },
-          { key: "completed", label: "Completed" },
-          { key: "on-hold", label: "On-Hold" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={statusTab === t.key}
-            className={`tab ${statusTab === t.key ? "active" : ""}`}
-            onClick={() => setStatusTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <div className="ml-auto" />
-        <button
-          className="tab"
-          onClick={() => setView((v) => (v === "calendar" ? "list" : "calendar"))}
-        >
-          {view === "calendar" ? "Switch to List" : "Switch to Calendar"}
-        </button>
-      </div>
-
-      {/* Main content */}
-      {error && (
-        <div className="card pad" style={{ color: "#b91c1c", fontWeight: 700 }}>
-          {error}
-        </div>
-      )}
-
-      {view === "calendar" ? (
-        <CalendarView tasks={filtered} onTaskClick={(t) => openEdit(t)} />
-      ) : (
-        <>
-          {/* Admin-only tabular view (on top, list mode) */}
-          {isAdmin && (
-            <AdminTaskTable
-              tasks={filtered}
-              allUsers={allUsers}
-              busyId={changingOwnerId}
-              onChangeOwner={handleChangeOwner}
-            />
-          )}
-
-          <div className="grid-cards">
-            {loading ? (
-              [...Array(6)].map((_, i) => (
-                <div key={i} className="task-card" aria-hidden />
-              ))
-            ) : filtered.length === 0 ? (
-              <div className="card pad muted">No tasks found.</div>
-            ) : (
-              filtered.map((t) => {
-                const sc = statusColor(
-                  t.status || (t.completed ? "Completed" : "Pending")
-                );
-                const assignedDisplay =
-                  t.assignedTo && String(t.assignedTo).trim()
-                    ? t.assignedTo
-                    : Array.isArray(t.assignedToIds)
-                    ? t.assignedToIds.map(findUserDisplay).join(", ")
-                    : "";
-                return (
-                  <div
-                    key={t.id ?? t.Id}
-                    className="task-card"
-                    role="article"
-                    aria-label={t.title}
-                  >
-                    <div
-                      className="row between"
-                      style={{ gap: 12, alignItems: "flex-start" }}
-                    >
-                      <div>
-                        <div className="row gap-xs center">
-                          <div
-                            className="strong"
-                            style={{ fontSize: 16 }}
-                          >
-                            {t.title}
-                          </div>
-                          <div className="tiny muted">
-                            #{t.id ?? t.Id}
-                          </div>
-                          {t.broadcast ? (
-                            <span
-                              className="pill"
-                              style={{
-                                background: "#fff2cc",
-                                border: "1px solid rgba(200,170,90,0.3)",
-                                color: "#6a4e00",
-                              }}
-                            >
-                              📣 Broadcast
-                            </span>
-                          ) : null}
-                        </div>
-                        <div
-                          className="muted mt-xxs"
-                          style={{ minHeight: 36 }}
-                        >
-                          {t.description ? (
-                            t.description.length > 160 ? (
-                              t.description.slice(0, 160) + "…"
-                            ) : (
-                              t.description
-                            )
-                          ) : (
-                            <span style={{ opacity: 0.6 }}>
-                              No description
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div
-                        className="col"
-                        style={{ gap: 8, alignItems: "flex-end" }}
-                      >
-                        <div
-                          className="status"
-                          style={{ background: sc.bg, color: sc.fg }}
-                        >
-                          {t.status ||
-                            (t.completed ? "Completed" : "Pending")}
-                        </div>
-                        <div className="tiny muted">
-                          <div>
-                            Due:{" "}
-                            <strong>
-                              {t.dueDate
-                                ? String(t.dueDate).slice(0, 10)
-                                : "-"}
-                            </strong>
-                          </div>
-                          <div className="mt-xxs">
-                            Assigned:{" "}
-                            <strong>{assignedDisplay || "—"}</strong>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="row between center mt-xs">
-                      <div className="tiny muted">
-                        Priority: <strong>{t.priority ?? 2}</strong>
-                      </div>
-                      <div className="row gap-xs">
-                        <button
-                          onClick={() => openEdit(t)}
-                          className="btn btn-muted icon"
-                          title="Edit"
-                        >
-                          <FiEdit2 />
-                        </button>
-                        <button
-                          onClick={() => deleteTask(t.id ?? t.Id)}
-                          className="btn btn-muted icon"
-                          title="Delete"
-                          style={{
-                            background: "#d32f2f",
-                            color: "#fff",
-                            border: "none",
-                          }}
-                        >
-                          <FiTrash2 />
-                        </button>
-                        <button
-                          onClick={() => sendTaskNotification(t.id ?? t.Id)}
-                          className="btn btn-muted icon"
-                          title="Send"
-                          style={{
-                            background: "#2e7d32",
-                            color: "#fff",
-                            border: "none",
-                          }}
-                        >
-                          <FiSend />
-                        </button>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard
-                              ?.writeText(
-                                window.location.href +
-                                  "/tasks/" +
-                                  ((t.id ?? t.Id) || "")
-                              )
-                              .catch(() => {});
-                            alert("Link copied.");
-                          }}
-                          className="btn btn-muted icon"
-                          title="Copy link"
-                        >
-                          <FiLink />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Floating Add button */}
-      <div className="fab">
-        <button
-          className="btn btn-primary"
-          onClick={openAdd}
-          aria-label="Add task"
-        >
-          <FiPlus /> New Task
-        </button>
-      </div>
-
-      {/* Modal Sheet */}
-      {showModal && (
-        <div
-          className="sheet"
-          role="dialog"
-          aria-modal="true"
-          aria-label={form.id ? "Edit Task" : "New Task"}
-          onClick={(e) => {
-            if (e.target.classList.contains("sheet")) setShowModal(false);
-          }}
-        >
-          <div className="sheet-panel">
-            <h3 style={{ marginTop: 0 }}>
-              {form.id ? "Edit Task" : "New Task"}
-            </h3>
-            <form
-              onSubmit={saveTask}
-              style={{ display: "grid", gap: 12 }}
-            >
-              <label className="col">
-                <span className="tiny muted bold">Title</span>
-                <input
-                  value={form.title}
-                  onChange={(e) => setField("title", e.target.value)}
-                  className="input"
-                />
-              </label>
-
-              <label className="col">
-                <span className="tiny muted bold">Description</span>
-                <textarea
-                  value={form.description || ""}
-                  onChange={(e) =>
-                    setField("description", e.target.value)
-                  }
-                  className="input"
-                  style={{ minHeight: 90 }}
-                />
-              </label>
-
-              <div
-                className="row gap-sm"
-                style={{ flexWrap: "wrap" }}
-              >
-                <div style={{ flex: "1 1 320px", minWidth: 260 }}>
-                  <div
-                    className="tiny muted bold"
-                    style={{ marginBottom: 6 }}
-                  >
-                    Assigned To (multiple)
-                  </div>
-                  <MultiUserSelect
-                    allUsers={allUsers}
-                    value={form.assignedToIds || []}
-                    onChange={(ids) => {
-                      setField("assignedToIds", ids);
-                      setField(
-                        "assignedToDisplay",
-                        (ids || []).map(findUserDisplay).join(", ")
-                      );
-                    }}
-                  />
-                </div>
-                <div
-                  className="col"
-                  style={{
-                    flex: "1 1 220px",
-                    minWidth: 220,
-                    gap: 10,
-                  }}
-                >
-                  <label className="col">
-                    <span className="tiny muted bold">Due Date</span>
-                    <input
-                      type="date"
-                      value={form.dueDate || ""}
-                      onChange={(e) =>
-                        setField("dueDate", e.target.value)
-                      }
-                      className="input"
-                    />
-                  </label>
-                  <label
-                    className="row center"
-                    style={{ gap: 8 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!form.broadcast}
-                      onChange={(e) =>
-                        setField("broadcast", e.target.checked)
-                      }
-                    />
-                    <span className="tiny">
-                      Broadcast to Upcoming Events
-                    </span>
-                  </label>
-                  <label className="col">
-                    <span className="tiny muted bold">Status</span>
-                    <select
-                      value={form.status}
-                      onChange={(e) =>
-                        setField("status", e.target.value)
-                      }
-                      className="input"
-                    >
-                      <option>Pending</option>
-                      <option>In-Progress</option>
-                      <option>On-Hold</option>
-                      <option>Completed</option>
-                    </select>
-                  </label>
-                  <label className="col">
-                    <span className="tiny muted bold">Priority</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={form.priority ?? 2}
-                      onChange={(e) =>
-                        setField("priority", e.target.value)
-                      }
-                      className="input"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div
-                className="row between"
-                style={{ gap: 8, flexWrap: "wrap" }}
-              >
-                <button
-                  type="button"
-                  className="btn btn-muted"
-                  onClick={() => setShowModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={saving}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

@@ -1,574 +1,545 @@
-// src/pages/ChatPage.jsx
-import React, { useEffect, useRef, useState } from "react";
+﻿// src/pages/ChatPage.jsx
+//
+// Jai Masih - chat hub for the Mahima community.
+// - Two-pane WhatsApp-Web layout on desktop
+// - Single-pane (list <-> conversation toggle) on mobile
+// - SignalR live updates with auto-reconnect
+// - Sound + haptic notifications (chatNotifications.js)
+// - "Jai Masih" branding with cross icon
+//
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Cross, MessageSquarePlus, RefreshCw } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+
 import ChatList from "../components/ChatList";
 import ChatWindow from "../components/ChatWindow";
 import NewChatModal from "../components/NewChatModal";
-import "./ChatPage.css";
+import CallOverlay from "../components/CallOverlay";
+
+import {
+  notifyIncomingMessage,
+  requestNotificationPermission,
+  unlockAudio,
+  preloadVoices,
+} from "../utils/chatNotifications";
+import useChatCall from "../hooks/useChatCall";
 import { useChatConnection } from "../hooks/useChatConnection";
+import { getToken } from "../utils/auth";
+import { API_BASE } from "../api";
 
-/**
- * API / Hub resolution
- */
-const API_BASE = (typeof window !== "undefined" && window.__API_BASE__)
-  ? String(window.__API_BASE__).replace(/\/$/, "")
-  : (import.meta.env?.VITE_API_BASE ?? "" ).replace(/\/$/, "");
+function getMeId() {
+  try {
+    const raw = localStorage.getItem("mahima_user")
+      || localStorage.getItem("current_user")
+      || localStorage.getItem("user")
+      || localStorage.getItem("me");
+    if (!raw) return null;
+    const u = JSON.parse(raw);
+    return u?.id || u?.Id || u?.userId || null;
+  } catch { return null; }
+}
 
-const HUB_PATH = import.meta.env?.VITE_CHAT_HUB_PATH || "/chat";
-const HUB_URL = (function () {
-  if (typeof window !== "undefined" && window.location && !import.meta.env?.VITE_HUB_BASE) {
-    const origin = window.location.origin; // http(s)://...
-    return origin.replace(/^http/, "ws") + HUB_PATH; // ws:// or wss:// matching scheme
-  }
-  const base = (import.meta.env?.VITE_HUB_BASE || "").replace(/\/+$/, "");
-  return base + HUB_PATH;
-})();
-
-console.info("[ChatPage] API_BASE ->", API_BASE);
-console.info("[ChatPage] HUB URL ->", HUB_URL);
-
-/* ------------------------- small helpers ------------------------- */
-const extractId = (o) => {
-  if (!o) return null;
-  if (typeof o === "string") return o;
-  return String(o.id ?? o.userId ?? o._id ?? o.uuid ?? "");
+const arrayFrom = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.records)) return data.records;
+  return [];
 };
 
-function normalizeMessage(m) {
-  if (!m) return m;
-  const id = m.id ?? m.messageId ?? m._id ?? Math.random().toString(36).slice(2);
-  const text = m.text ?? m.content ?? m.body ?? null;
-  const createdAt = m.createdAt ?? m.created_at ?? m.timestamp ?? new Date().toISOString();
-  const fromObj = m.sender ?? m.user ?? m.from;
-  const senderId =
-    extractId(fromObj) ||
-    m.senderId ||
-    m.fromUserId ||
-    m.userId ||
-    null;
-  const senderName =
-    m.senderName ??
-    m.fromName ??
-    (m.sender && (m.sender.displayName || m.sender.name)) ??
-    null;
-  return { ...m, id, text, createdAt, senderId, senderName };
+async function readApiError(res, fallback) {
+  const text = await res.text().catch(() => "");
+  if (!text) return fallback;
+  try {
+    const data = JSON.parse(text);
+    if (typeof data === "string") return data;
+    return data?.message || data?.error || data?.title || fallback;
+  } catch {
+    return text;
+  }
 }
 
-function resolveChatTitle(chat, myId, map) {
-  if (!chat) return "Conversation";
-  if (chat.name && String(chat.name).trim()) return chat.name;
-
-  const members = chat.members || chat.participants || chat.users || [];
-  if (!Array.isArray(members) || members.length === 0) {
-    const lm = chat.lastMessage || chat.last_message || chat.last || null;
-    return lm?.senderName || chat.title || "Conversation";
-  }
-
-  let other = null;
-  for (const m of members) {
-    const id = typeof m === "string" ? m : (m.id ?? m.userId ?? m._id ?? m.uuid);
-    if (!id) continue;
-    if (String(id) !== String(myId)) {
-      other = m;
-      break;
-    }
-  }
-  if (!other) other = members[0];
-  if (!other) return chat.title || "Conversation";
-
-  const otherId = typeof other === "string" ? other : (other.id ?? other.userId ?? other._id ?? other.uuid);
-  const u = otherId ? map?.[String(otherId)] : null;
-
-  if (u && (u.displayName || u.name || u.fullName || u.username)) {
-    return u.displayName || u.name || u.fullName || u.username;
-  }
-  if (typeof other === "string") return other;
-  return other.name ?? other.username ?? chat.title ?? "Conversation";
+function messagePreview(msg) {
+  const text = msg?.text ?? msg?.content ?? msg?.body ?? "";
+  if (String(text).trim()) return String(text).trim();
+  const attachments = msg?.attachments || msg?.Attachments;
+  if (Array.isArray(attachments) && attachments.length) return "Attachment";
+  if (msg?.attachmentUrl || msg?.AttachmentUrl) return "Attachment";
+  return "New message";
 }
 
-function normalizeChats(list = [], map = {}, online = new Set(), myId = null) {
-  return (list || []).map((c) => {
-    const id = c.id ?? c.chatId ?? c._id ?? c.uuid;
-    const members = c.members ?? c.participants ?? c.users ?? [];
-    const lastRaw = c.lastMessage ?? c.last_message ?? c.last ?? null;
-    const lastMessage = normalizeMessage(lastRaw);
-    const isGroup = !!c.isGroup || !!c.group || (Array.isArray(members) && members.length > 2);
-    const name = c.name ?? c.title ?? resolveChatTitle(c, myId, map);
-
-    let otherId = null;
-    if (!isGroup && Array.isArray(members)) {
-      for (const m of members) {
-        const idm = typeof m === "string" ? m : (m.id ?? m.userId ?? m._id ?? m.uuid);
-        if (!idm) continue;
-        if (String(idm) !== String(myId)) {
-          otherId = String(idm);
-          break;
-        }
-      }
-      if (!otherId) {
-        for (const m of members) {
-          const candidate = m && m.user ? (m.user.id ?? m.user.userId ?? m.user._id ?? m.user.uuid) : null;
-          if (candidate && String(candidate) !== String(myId)) {
-            otherId = String(candidate);
-            break;
-          }
-        }
-      }
-    }
-
-    const otherUser = otherId ? map[String(otherId)] : null;
-    const otherOnline = Boolean(online.has(String(otherId))) || Boolean(otherUser?.isOnline);
-
-    const unreadCount = Number(((c.unreadCount ?? c.unread_count) ?? c.unread) ?? 0);
-
-    return {
-      ...c,
-      id,
-      members,
-      isGroup,
-      name,
-      lastMessage,
-      unreadCount,
-      otherId,
-      otherOnline,
-    };
-  });
+function senderNameFromMessage(msg) {
+  return msg?.senderName || msg?.SenderName || msg?.fromName || msg?.FromName || msg?.sender?.displayName || "Jai Masih";
 }
 
-/* ---------------------------- component --------------------------- */
 export default function ChatPage() {
-  const [loadingChats, setLoadingChats] = useState(false);
   const [chats, setChats] = useState([]);
-  const [usersMap, setUsersMap] = useState({});
-  const [currentUser, setCurrentUser] = useState(null);
+  const [loadingChats, setLoadingChats] = useState(false);
   const [selectedChat, setSelectedChat] = useState(null);
+  const [usersMap, setUsersMap] = useState({});
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showListOnMobile, setShowListOnMobile] = useState(true);
+  const [chatError, setChatError] = useState("");
 
-  const [onlineSet, setOnlineSet] = useState(new Set());
-  const [isMobile, setIsMobile] = useState(false);
+  const meId = useMemo(() => getMeId(), []);
+  const token = useMemo(() => getToken(), []);
+  const outletContext = useOutletContext() || {};
+  const layoutChatConnection = outletContext.chatConnection;
+  const fallbackChatConnection = useChatConnection(layoutChatConnection ? null : token);
+  const { connection, isConnected, onlineUserIds, joinGroup, leaveGroup } = layoutChatConnection || fallbackChatConnection;
 
-  // detect mobile vs desktop
+  /* unlock audio + preload speech voices on first user interaction */
   useEffect(() => {
-    function handleResize() {
-      if (typeof window !== "undefined") {
-        setIsMobile(window.innerWidth <= 900);
-      }
-    }
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    preloadVoices();
+    const handler = () => {
+      unlockAudio();
+      preloadVoices();
+      requestNotificationPermission();
+      window.removeEventListener("click", handler);
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("touchstart", handler);
+    };
+    window.addEventListener("click", handler);
+    window.addEventListener("keydown", handler);
+    window.addEventListener("touchstart", handler);
+    return () => {
+      window.removeEventListener("click", handler);
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("touchstart", handler);
+    };
   }, []);
 
-  // bootstrap current user
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("current_user") || localStorage.getItem("user");
-      if (raw) setCurrentUser(JSON.parse(raw));
-    } catch (e) { /* ignore */ }
-  }, []);
+  /* ----- load chats + users ----- */
 
-  const currentUserId =
-    currentUser && (currentUser.id ?? currentUser.userId ?? currentUser._id ?? currentUser.uuid)
-      ? String(currentUser.id ?? currentUser.userId ?? currentUser._id ?? currentUser.uuid)
-      : null;
-
-  async function loadUsersMap() {
-    try {
-      const token = localStorage.getItem("token") || localStorage.getItem("auth_token") || null;
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`${API_BASE}/users?limit=500`, { headers });
-      if (!res.ok) {
-        console.warn("loadUsersMap failed", res.status);
-        return {};
-      }
-      const json = await res.json();
-      const items = json.items ?? json.data ?? json ?? [];
-      const map = {};
-      items.forEach((u) => {
-        const id = u.id ?? u.userId ?? u._id ?? u.uuid;
-        if (id) map[String(id)] = u;
-      });
-      setUsersMap(map);
-      return map;
-    } catch (err) {
-      console.warn("loadUsersMap error", err);
-      return {};
-    }
-  }
-
-  async function loadChats() {
+  const loadChats = useCallback(async () => {
     setLoadingChats(true);
     try {
-      const map =
-        Object.keys(usersMap).length > 0 ? usersMap : await loadUsersMap();
-      const token = localStorage.getItem("token") || localStorage.getItem("auth_token") || null;
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`${API_BASE}/chats`, { headers });
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/chats`, {
+        headers: {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+      });
       if (!res.ok) {
-        console.warn("loadChats failed", res.status, await res.text().catch(() => ""));
-        setChats([]);
-        return;
+        throw new Error(await readApiError(res, `Chats request failed (${res.status})`));
       }
-      const json = await res.json();
-      const list = json.data ?? json.items ?? json ?? [];
-      const normalized = normalizeChats(list, map, onlineSet, currentUserId);
-      setChats(normalized);
-      if (!selectedChat && normalized.length) setSelectedChat(normalized[0]);
-    } catch (err) {
-      console.error("loadChats error", err);
+      const data = await res.json().catch(() => []);
+      setChats(arrayFrom(data));
+      setChatError("");
+    } catch (e) {
+      console.warn("[ChatPage] loadChats failed", e);
       setChats([]);
+      setChatError(e?.message || "Failed to load chats");
     } finally {
       setLoadingChats(false);
     }
-  }
+  }, []);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const token = getToken();
+      let res = await fetch(`${API_BASE}/chats/contacts?page=1&limit=1000`, {
+        headers: {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        res = await fetch(`${API_BASE}/users?page=1&limit=1000`, {
+          headers: {
+            Accept: "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: "include",
+        });
+      }
+      if (!res.ok) throw new Error(`Users request failed (${res.status})`);
+      const data = await res.json().catch(() => []);
+      const list = arrayFrom(data);
+      const map = {};
+      for (const u of list) {
+        const id = u.id ?? u.userId ?? u._id;
+        if (id) map[String(id)] = u;
+      }
+      setUsersMap(map);
+    } catch (e) {
+      console.warn("[ChatPage] loadUsers failed", e);
+    }
+  }, []);
 
   useEffect(() => {
     loadChats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser]);
+    loadUsers();
+  }, [loadChats, loadUsers]);
 
-  // SignalR connection
-  const token = localStorage.getItem("token") || localStorage.getItem("auth_token") || null;
-  const { connection, isConnected: hubConnected, joinGroup, leaveGroup } =
-    useChatConnection(token, {
-      hubUrl: HUB_URL,
-      tokenStorageKey: "token",
-    });
+  /* ----- auto-refresh fallback (polling + tab focus) -----
+     SignalR pushes are real-time when connected; this layer covers the
+     cases where the hub drops out or the tab was backgrounded. */
+  useEffect(() => {
+    const onFocus = () => loadChats();
+    const onVisibility = () => { if (!document.hidden) loadChats(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadChats]);
+
+  useEffect(() => {
+    // Poll every 15 s while disconnected, every 60 s while connected.
+    const period = isConnected ? 60000 : 15000;
+    const id = setInterval(() => {
+      if (!document.hidden) loadChats();
+    }, period);
+    return () => clearInterval(id);
+  }, [isConnected, loadChats]);
+
+  /* ----- signalr ----- */
 
   useEffect(() => {
     if (!connection) return;
 
-    (async () => {
-      try {
-        if (connection.invoke) {
-          try {
-            const list = await connection.invoke("GetOnlineUsers");
-            if (Array.isArray(list)) {
-              setOnlineSet(new Set(list.map((x) => String(x))));
+    const onReceiveMessage = (msg) => {
+      const cid = msg.chatId ?? msg.ChatId;
+      const fromMe = String(
+        msg.senderId ?? msg.fromUserId ?? msg.userId ?? ""
+      ) === String(meId);
+      const openChatId = selectedChatRef.current?.id;
+      const inOpenChat = openChatId && String(cid) === String(openChatId);
+      const chatKnown = chatsRef.current.some((chat) => String(chat.id) === String(cid));
+
+      setChats((prev) => bumpChatWithMessage(prev, msg, !fromMe && !inOpenChat));
+      if (!chatKnown) loadChats();
+      if (!fromMe && !inOpenChat) {
+        notifyIncomingMessage({
+          chatId: cid,
+          senderName: senderNameFromMessage(msg),
+          preview: messagePreview(msg),
+          onClick: () => {
+            const found = chatsRef.current.find((chat) => String(chat.id) === String(cid));
+            if (found) {
+              setSelectedChat(found);
+              setShowListOnMobile(false);
+            } else {
+              loadChats();
             }
-          } catch {}
-          try {
-            const list2 = await connection.invoke("GetConnectedUsers");
-            if (Array.isArray(list2)) {
-              setOnlineSet(new Set(list2.map((x) => String(x))));
-            }
-          } catch {}
-        }
-      } catch (err) {
-        // ignore
-      }
-    })();
-
-    const onUserOnline = (payload) => {
-      const id = payload?.userId ?? payload ?? null;
-      if (!id) return;
-      setOnlineSet((prev) => {
-        const next = new Set(prev);
-        next.add(String(id));
-        return next;
-      });
-    };
-    const onUserOffline = (payload) => {
-      const id = payload?.userId ?? payload ?? null;
-      if (!id) return;
-      setOnlineSet((prev) => {
-        const next = new Set(prev);
-        next.delete(String(id));
-        return next;
-      });
-    };
-
-    const onReceive = (msg) => {
-      const normalized = normalizeMessage(msg);
-      setChats((prev) =>
-        prev.map((c) => {
-          const mid = String(
-            normalized.chatId ?? normalized.chat?.id ?? normalized.chatId ?? ""
-          );
-          if (String(c.id) !== mid) return c;
-          const lm = { ...normalized };
-          if (lm.senderId === "me" && currentUserId) lm.senderId = currentUserId;
-          return { ...c, lastMessage: lm };
-        })
-      );
-      setSelectedChat((prev) => {
-        if (!prev) return prev;
-        const mid = String(
-          normalized.chatId ?? normalized.chat?.id ?? normalized.chatId ?? ""
-        );
-        if (String(prev.id) !== mid) return prev;
-        const lm = { ...normalized };
-        if (lm.senderId === "me" && currentUserId) lm.senderId = currentUserId;
-        return { ...prev, lastMessage: lm };
-      });
-    };
-
-    connection.on("ReceiveMessage", onReceive);
-    connection.on("UserTyping", () => {});
-
-    connection.on && connection.on("UserOnline", onUserOnline);
-    connection.on && connection.on("UserOffline", onUserOffline);
-    connection.on &&
-      connection.on("PresenceUpdated", (payload) => {
-        if (!payload) return;
-        if (Array.isArray(payload)) {
-          setOnlineSet(new Set(payload.map((x) => String(x))));
-        } else if (payload.online && Array.isArray(payload.online)) {
-          setOnlineSet(new Set(payload.online.map((x) => String(x))));
-        }
-      });
-
-    return () => {
-      try {
-        connection.off && connection.off("ReceiveMessage", onReceive);
-        connection.off && connection.off("UserTyping");
-        connection.off && connection.off("UserOnline", onUserOnline);
-        connection.off && connection.off("UserOffline", onUserOffline);
-        connection.off && connection.off("PresenceUpdated");
-      } catch (e) {
-        /* ignore */
+          },
+        });
       }
     };
-  }, [connection, usersMap, currentUserId]);
 
-  useEffect(() => {
-    setChats((prev) => normalizeChats(prev, usersMap, onlineSet, currentUserId));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onlineSet, usersMap]);
+    const onChatCreated = () => {
+      // Fetch the receiver's own chat summary. Direct-chat names are viewer-specific.
+      loadChats();
+    };
 
-  const prevChatRef = useRef(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        const prev = prevChatRef.current;
-        if (prev && prev.id && leaveGroup)
-          await leaveGroup(prev.id).catch(() => {});
-        if (selectedChat && selectedChat.id && joinGroup)
-          await joinGroup(selectedChat.id).catch(() => {});
-        prevChatRef.current = selectedChat;
-      } catch (err) {
-        console.warn("join/leave group error", err);
-      }
-    })();
-  }, [selectedChat, joinGroup, leaveGroup]);
-
-  async function createChat(payload) {
-    try {
-      const token = localStorage.getItem("token") || localStorage.getItem("auth_token") || null;
-      const headers = token
-        ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-        : { "Content-Type": "application/json" };
-      const res = await fetch(`${API_BASE}/chats`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`createChat failed ${res.status} ${txt}`);
-      }
-      const json = await res.json();
-      const chatObj = normalizeChats(
-        [json.data ?? json],
-        usersMap,
-        onlineSet,
-        currentUserId
-      )[0];
-      setChats((prev) => {
-        const exists = prev.find((p) => String(p.id) === String(chatObj.id));
-        if (exists)
-          return prev.map((p) =>
-            String(p.id) === String(chatObj.id) ? chatObj : p
-          );
-        return [chatObj, ...prev];
-      });
-      setSelectedChat(chatObj);
-      try {
-        if (chatObj?.id && joinGroup) await joinGroup(chatObj.id);
-      } catch {}
-      setShowNewChat(false);
-      return chatObj;
-    } catch (err) {
-      console.error("createChat error", err);
-      alert("Failed to create chat: " + (err.message ?? "unknown"));
-      throw err;
-    }
-  }
-
-  async function deleteChat(chatId) {
-    if (!chatId) return;
-    const ok = window.confirm(
-      "Delete this chat? This will remove the conversation from your list."
-    );
-    if (!ok) return;
-    try {
-      const token = localStorage.getItem("token") || localStorage.getItem("auth_token") || null;
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(
-        `${API_BASE}/chats/${encodeURIComponent(chatId)}`,
-        {
-          method: "DELETE",
-          headers,
-        }
-      );
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Delete failed ${res.status} ${txt}`);
-      }
+    const removeChat = (payload) => {
+      const chatId = payload?.chatId ?? payload?.ChatId;
       setChats((prev) => prev.filter((c) => String(c.id) !== String(chatId)));
-      if (selectedChat && String(selectedChat.id) === String(chatId)) {
-        setSelectedChat(null);
-      }
-    } catch (err) {
-      console.error("deleteChat error", err);
-      alert("Failed to delete chat: " + (err.message ?? "unknown"));
+      setSelectedChat((cur) => (cur && String(cur.id) === String(chatId) ? null : cur));
+    };
+
+    connection.on("ReceiveMessage", onReceiveMessage);
+    connection.on("ChatCreated", onChatCreated);
+    connection.on("ChatDeleted", removeChat);
+    connection.on("ChatSoftDeleted", removeChat);
+    return () => {
+      try { connection.off("ReceiveMessage", onReceiveMessage); } catch {}
+      try { connection.off("ChatCreated", onChatCreated); } catch {}
+      try { connection.off("ChatDeleted", removeChat); } catch {}
+      try { connection.off("ChatSoftDeleted", removeChat); } catch {}
+    };
+  }, [connection, loadChats, meId]);
+  // Keep a ref to selectedChat so SignalR handlers see the latest value
+  // without resubscribing on every selection change.
+  const selectedChatRef = useRef(selectedChat);
+  const chatsRef = useRef(chats);
+  useEffect(() => {
+    selectedChatRef.current = selectedChat;
+  }, [selectedChat]);
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  /* ----- call (WebRTC) hook ----- */
+  const call = useChatCall({
+    connection,
+    chat: selectedChat,
+    meId,
+  });
+
+  // Resolve the peer's display name for the call overlay. Incoming calls can
+  // arrive even when that conversation is not currently open.
+  const callChat = useMemo(() => {
+    const callChatId = call.callState?.chatId;
+    if (callChatId) {
+      const found = chats.find((c) => String(c.id) === String(callChatId));
+      if (found) return found;
     }
-  }
+    return selectedChat;
+  }, [call.callState?.chatId, chats, selectedChat]);
 
-  function handleMessageCreated(msg) {
-    const normalized = normalizeMessage(msg);
-    setChats((prev) =>
-      prev.map((c) => {
-        const chatId = String(c.id);
-        const msgChatId = String(
-          normalized.chatId ?? normalized.chat?.id ?? normalized.chatId ?? ""
-        );
-        if (chatId === msgChatId) {
-          return { ...c, lastMessage: normalized, unreadCount: 0 };
-        }
-        return c;
-      })
-    );
-  }
+  const callPeerName = useMemo(() => {
+    if (!callChat) return "";
+    const otherId = callChat.otherId;
+    if (otherId) {
+      const u = usersMap[String(otherId)];
+      if (u) return u.displayName || u.name || u.username || String(otherId);
+    }
+    return callChat.name || callChat.title || "Conversation";
+  }, [callChat, usersMap]);
 
-  const computedOtherOnline = React.useMemo(() => {
-    if (!selectedChat) return false;
-    if (selectedChat.isGroup) return false;
-    const otherId = selectedChat.otherId ?? selectedChat.other?.id ?? null;
-    if (!otherId) return false;
-    if (onlineSet.has(String(otherId))) return true;
-    const u = usersMap[String(otherId)];
-    if (u?.isOnline) return true;
-    return false;
-  }, [selectedChat, onlineSet, usersMap]);
+  // Join/leave SignalR groups when the open chat changes.
+  useEffect(() => {
+    if (!selectedChat?.id || !isConnected) return;
+    const cid = String(selectedChat.id);
+    joinGroup(cid);
+    return () => { leaveGroup(cid); };
+  }, [selectedChat?.id, isConnected, joinGroup, leaveGroup]);
 
-  /* --------------------------- responsive UI --------------------------- */
+  /* ----- handlers ----- */
 
-  const showListPane = !isMobile || !selectedChat;
-  const showChatPane = !isMobile || !!selectedChat;
+  const onSelect = (chat) => {
+    setSelectedChat(chat);
+    setShowListOnMobile(false);
+    // optimistic: zero out unread so it disappears immediately
+    setChats((prev) => prev.map((c) =>
+      String(c.id) === String(chat.id) ? { ...c, unreadCount: 0 } : c
+    ));
+  };
+
+  const onBack = () => {
+    setSelectedChat(null);
+    setShowListOnMobile(true);
+  };
+
+  const onDelete = async (chatId) => {
+    if (!chatId) return;
+    if (!window.confirm("Delete this chat? This cannot be undone.")) return;
+    try {
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/chats/${chatId}`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+      });
+      if (!res.ok && res.status !== 404) throw new Error("Delete failed");
+      setChats((prev) => prev.filter((c) => String(c.id) !== String(chatId)));
+      setSelectedChat((cur) =>
+        cur && String(cur.id) === String(chatId) ? null : cur
+      );
+    } catch (e) {
+      console.error("[ChatPage] delete failed", e);
+      alert("Failed to delete chat. Please try again.");
+    }
+  };
+
+  const onCreate = async ({ userId, usernameOrEmail }) => {
+    const token = getToken();
+    const payload = userId ? { userId, usernameOrEmail } : { usernameOrEmail };
+    const res = await fetch(`${API_BASE}/chats`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      throw new Error(await readApiError(res, `Failed to create chat (${res.status})`));
+    }
+    const chat = await res.json().catch(() => null);
+    if (chat) {
+      setChatError("");
+      setChats((prev) => {
+        if (prev.some((c) => String(c.id) === String(chat.id))) return prev;
+        return [chat, ...prev];
+      });
+      setSelectedChat(chat);
+      setShowListOnMobile(false);
+      loadChats();
+    }
+    return chat;
+  };
+
+  const onMessageCreated = (msg) => {
+    // Bump the chat in the list, set last message + preview
+    const chatKnown = chatsRef.current.some((chat) => String(chat.id) === String(msg.chatId));
+    setChats((prev) => bumpChatWithMessage(prev, {
+      chatId: msg.chatId,
+      text: msg.text,
+      content: msg.text,
+      senderId: msg.senderId,
+      createdAt: msg.createdAt,
+    }, /* incrementUnread */ false));
+    if (!chatKnown) loadChats();
+  };
+
+  const startChatCall = useCallback((type) => {
+    if (!selectedChat?.id) return;
+    if (!isConnected) {
+      alert("Chat is reconnecting. Please try the call again in a moment.");
+      return;
+    }
+    call.startCall(type);
+  }, [call.startCall, isConnected, selectedChat?.id]);
+
+  /* ----- render ----- */
 
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: isMobile ? 0 : 16,
-        height: "100%",
-        flexDirection: isMobile ? "column" : "row",
-      }}
-    >
-      {/* Left: chat list (hidden on mobile when a chat is open) */}
-      {showListPane && (
-        <div
-          style={{
-            width: isMobile ? "100%" : 360,
-            borderRight: isMobile ? "none" : "1px solid rgba(0,0,0,0.04)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "12px 16px",
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 18 }}>Messages</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => loadChats()}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  background: "#fff",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13,
-                }}
-                title="Refresh"
-              >
-                <span style={{ fontSize: 16 }}>⟳</span> Refresh
-              </button>
-              <button
-                onClick={() => setShowNewChat(true)}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#2d6cdf",
-                  color: "#fff",
-                  cursor: "pointer",
-                  boxShadow: "0 4px 10px rgba(45,108,223,0.18)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13,
-                }}
-                title="Start a new chat"
-              >
-                <span style={{ fontSize: 16 }}>＋</span> New Chat
-              </button>
-            </div>
+    // Fill the parent's available height. Using h-full here is more
+    // reliable than calc(100vh - X) because the parent <main> in Layout
+    // already has a constrained height; on mobile, viewport-based units
+    // jump around when the address bar shows/hides.
+    <div className="h-full min-h-0 flex flex-col bg-slate-100"
+         style={{ height: "calc(100dvh - 3.5rem)" }}>
+      {/* Brand bar */}
+      <div className="bg-gradient-to-r from-emerald-700 to-teal-700 text-white px-3 sm:px-4 py-2 flex items-center gap-2 shadow shrink-0">
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/15 shrink-0">
+          <Cross className="w-4 h-4" />
+        </span>
+        <div className="leading-tight min-w-0">
+          <div className="text-sm sm:text-base font-bold tracking-wide">Jai Masih</div>
+          <div className="text-[10px] sm:text-xs text-emerald-100/80 truncate">
+            {isConnected ? "Connected" : "Reconnecting..."}
           </div>
+        </div>
+        <div className="flex-1" />
+        <button
+          onClick={loadChats}
+          type="button"
+          title="Refresh chats"
+          aria-label="Refresh chats"
+          className="w-11 h-11 rounded-full hover:bg-white/15 active:bg-white/25 flex items-center justify-center shrink-0"
+        >
+          <RefreshCw className={`w-4 h-4 ${loadingChats ? "animate-spin" : ""}`} />
+        </button>
+        <button
+          onClick={() => setShowNewChat(true)}
+          type="button"
+          title="New chat"
+          aria-label="New chat"
+          className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 flex items-center justify-center shrink-0"
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+        </button>
+      </div>
 
+      {chatError && (
+        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 flex items-center justify-between gap-3">
+          <span className="truncate">{chatError}</span>
+          <button
+            type="button"
+            onClick={loadChats}
+            className="rounded-full border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Two-pane area */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Sidebar (chat list) */}
+        <aside
+          className={`${
+            showListOnMobile ? "flex" : "hidden"
+          } md:flex w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 bg-white flex-col min-h-0`}
+        >
           <ChatList
             chats={chats}
             loading={loadingChats}
-            onSelect={(c) => setSelectedChat(c)}
+            onSelect={onSelect}
+            onDelete={onDelete}
+            onCompose={() => setShowNewChat(true)}
+            onRefresh={loadChats}
             selectedId={selectedChat?.id}
-            currentUserId={currentUserId}
+            currentUserId={meId}
             usersMap={usersMap}
-            onDelete={(id) => deleteChat(id)}
+            onlineUserIds={onlineUserIds}
           />
-        </div>
-      )}
+        </aside>
 
-      {/* Right: chat window (full-width on mobile) */}
-      {showChatPane && (
-        <div style={{ flex: 1, minWidth: isMobile ? "100%" : 420 }}>
+        {/* Conversation pane */}
+        <main className={`${showListOnMobile ? "hidden" : "flex"} md:flex flex-1 min-w-0 min-h-0 flex-col`}>
           <ChatWindow
             chat={selectedChat}
             connection={connection}
-            isConnected={Boolean(hubConnected || computedOtherOnline)}
-            currentUserId={currentUserId}
-            onMessageCreated={handleMessageCreated}
-            // on mobile, back takes you to list; on desktop it just deselects
-            onBack={() => setSelectedChat(null)}
-            onStartAudioCall={() =>
-              alert("Audio call not implemented in this build")
-            }
-            onStartVideoCall={() =>
-              alert("Video call not implemented in this build")
-            }
+            isConnected={isConnected}
+            onlineUserIds={onlineUserIds}
+            currentUserId={meId}
+            usersMap={usersMap}
+            onMessageCreated={onMessageCreated}
+            onBack={onBack}
+            onStartAudioCall={() => startChatCall("audio")}
+            onStartVideoCall={() => startChatCall("video")}
           />
-        </div>
-      )}
+        </main>
+      </div>
 
-      {/* New chat modal */}
-      {showNewChat && (
-        <NewChatModal
-          open={showNewChat}
-          onClose={() => setShowNewChat(false)}
-          onCreate={async (payload) => {
-            try {
-              await createChat(payload);
-            } catch {
-              /* handled */
-            }
-          }}
-        />
-      )}
+      {/* Modal */}
+      <NewChatModal
+        open={showNewChat}
+        onClose={() => setShowNewChat(false)}
+        onCreate={onCreate}
+        currentUserId={meId}
+      />
+
+      {/* Audio / Video call overlay */}
+      <CallOverlay
+        callState={call.callState}
+        peerName={callPeerName}
+        peerId={callChat?.otherId || callChat?.id}
+        localStream={call.localStream}
+        remoteStream={call.remoteStream}
+        audioMuted={call.audioMuted}
+        videoOff={call.videoOff}
+        onAccept={call.accept}
+        onReject={call.reject}
+        onEnd={call.endCall}
+        onToggleMic={call.toggleMic}
+        onToggleCamera={call.toggleCamera}
+      />
     </div>
   );
 }
+
+/* helpers */
+
+// Move the chat with this message to the top of the list, update last
+// message preview, and (optionally) increment unread.
+function bumpChatWithMessage(prev, msg, incrementUnread = true) {
+  const cid = String(msg.chatId ?? msg.ChatId ?? "");
+  if (!cid) return prev;
+
+  const idx = prev.findIndex((c) => String(c.id) === cid);
+  const text = msg.text ?? msg.content ?? msg.Content ?? "";
+  const sentAt = msg.createdAt ?? msg.sentAt ?? new Date().toISOString();
+  const lastMessage = {
+    text,
+    Content: text,
+    senderId: msg.senderId ?? msg.fromUserId ?? msg.userId ?? null,
+    senderName: msg.senderName ?? null,
+    createdAt: sentAt,
+  };
+
+  if (idx === -1) return prev; // chat not in list yet — server should push ChatCreated
+  const updated = {
+    ...prev[idx],
+    lastMessage,
+    updatedAt: sentAt,
+    unreadCount: incrementUnread
+      ? Number(prev[idx].unreadCount || 0) + 1
+      : prev[idx].unreadCount,
+  };
+  const next = [...prev];
+  next.splice(idx, 1);
+  return [updated, ...next];
+}
+
+

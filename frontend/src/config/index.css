@@ -1,0 +1,27 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{
+  --mahima-500: #4f46e5;
+  --mahima-600: #4338ca;
+  --accent-500: #06b6d4;
+}
+
+body { background-color: #f8fafc; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+
+/* Sideways logo flip — rotates around the vertical axis so the logo flips like a coin.
+   Used by the brand logo in components/Layout.jsx. */
+@keyframes mahimaLogoSpinY {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(360deg); }
+}
+.mahima-logo-spin-y {
+  animation: mahimaLogoSpinY 8s linear infinite;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mahima-logo-spin-y { animation: none; }
+}
+

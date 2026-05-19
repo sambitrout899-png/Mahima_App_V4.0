@@ -1,1816 +1,1001 @@
 // src/features/home/HomeLanding.jsx
+//
+// Mahima Ministry landing page — sleeker, leaner, no duplicates.
+//
+// Flow:
+//   TopNav  → Hero  → Services  → About+Visit  → Get Involved
+//          → Ministries  → Scripture Marquee  → Gallery  → Footer
+//
+// Removed from the old version:
+//   - NextService (its content is now inside Services)
+//   - Hero FloatingCards (Welcome/Daily Word) — those live in Get Involved
+//   - Old GetInvolved trio (Serve/Pray/Give) — merged into one richer
+//     Get Involved section with four well-labelled paths
+//   - Standalone Testimony block — Scripture Marquee covers the role
+//
 import React, { useEffect, useRef, useState } from "react";
-import { apiFetchJson } from "../../utils/fetch-auth-shim";
+import { useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  ChevronRight,
+  Clock,
+  Heart,
+  HelpCircle,
+  Mail,
+  MapPin,
+  Menu,
+  MessageSquare,
+  Moon,
+  Phone,
+  PhoneCall,
+  Play,
+  Quote,
+  Sparkles,
   Sun,
   Users,
-  Heart,
-  BookOpen,
-  Play,
-  MessageSquare,
-  PhoneCall,
-  Calendar
+  X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { canAccessPage } from "../auth/permissionService";
-import { getToken } from "../auth/authService";
+import { getToken, logout as authLogout } from "../auth/authService";
+import mahimaLogo from "../../assets/mahima-logo.png";
 
+const galleryImages = [
+  "/images/prayer.jpg",
+  "/images/welcome.jpg",
+  "/images/worship.jpg",
+  "/images/Mahima-Word.png",
+  "/images/1000236883.jpg",
+  "/images/1000236884.jpg",
+  "/images/1000236885.jpg",
+  "/images/1000236887.jpg",
+  "/images/1000236888.jpg",
+  "/images/1000236889.jpg",
+  "/images/1000236890.jpg",
+  "/images/1000236891.jpg",
+];
 
-function scrollToSection(id) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }
-}
-//import axios from "axios";
-/* -------------------- Simple i18n setup -------------------- */
+const verses = [
+  '"Come to Me, all you who labor and are heavy laden, and I will give you rest." — Matthew 11:28',
+  '"The Lord is my shepherd; I shall not want." — Psalm 23:1',
+  '"I can do all things through Christ who strengthens me." — Philippians 4:13',
+  '"Be still, and know that I am God." — Psalm 46:10',
+  '"For with God nothing will be impossible." — Luke 1:37',
+  '"Therefore if anyone is in Christ, he is a new creation; old things have passed away; all things have become new." — 2 Corinthians 5:17',
+];
 
-const translations = {
-  en: {
-    "app.name": "Mahima Ministry",
-    "app.tagline": "Restoration • Healing • Mission",
-
-    "nav.about": "About",
-    "nav.ministries": "Ministries",
-    "nav.getInvolved": "Get Involved",
-    "nav.donate": "Donate",
-    "nav.theme": "Theme",
-    "nav.language": "Language",
-
-    "mobile.sermons": "Sermons",
-    "mobile.prayer": "Prayer",
-    "mobile.give": "Give",
-
-    "hero.welcomePill": "Come and be blessed - all are welcome",
-    "hero.saturdayTime": "Saturday - 6pm to 9 PM",
-    "hero.heading": "Worship • Heal • Send",
-    "hero.body":
-      "Mahima Ministry is a place where faith finds practical expression — worship that honors God, prayer that brings healing, and discipleship that sends people into the world with purpose.",
-    "hero.watchSermons": "Watch Sermons",
-    "hero.joinGroup": "Join a Group",
-    "hero.requestPrayer": "Request Prayer",
-    "hero.nightPrayer": "Night Prayer - every Friday and Tuesday 10:30 pm onwards @ Church Campus",
-    "hero.upcomingActivities": "Upcoming activities",
-    "hero.loading": "Loading...",
-    "hero.noEvents": "No upcoming events",
-    "hero.upcomingCardTitle": "Upcoming",
-    "hero.fallbackEventTitle": "Harvest Outreach",
-    "hero.fallbackEventTime": "Sat • 10 AM",
-    "hero.joinUs": "Join Us",
-    "hero.kidsClub": "Kids Club",
-    "hero.kidsClubTime": "Sundays • 9AM",
-
-    "daily.title": "Daily Word",
-    "daily.subtitle": "A short verse to encourage you today",
-    "daily.loading": "Loading verse…",
-    "daily.error":
-      "Sorry, the daily verse couldn't be loaded. Please try again later.",
-    "daily.none": "No verse available right now.",
-    "daily.more":
-      "Want more? Visit our Resources or request prayer for a deeper devotional.",
-
-    "welcome.title": "Welcome Guide",
-    "welcome.salvationTitle": "Salvation & Word of God",
-    "welcome.salvationBody":
-      "Mahima Ministry believes the good news of Jesus Christ — that salvation is by grace through faith in Christ alone. We encourage daily engagement with God's Word for personal growth, healing and transformation.",
-    "welcome.prayerModuleTitle": "Prayer Support Module",
-    "welcome.prayerModuleBody":
-      "Our Prayer Support team is available to receive confidential requests. Submit a request and a volunteer will follow up in prayer, with the option for ongoing pastoral care if needed. Urgent requests are flagged for immediate attention.",
-    "welcome.chatModuleTitle": "Chat Module — 24/7 Support",
-    "welcome.chatModuleBody":
-      "Use the chat bubble to connect with volunteers. While we strive for quick responses, times may vary. For emergencies call the numbers listed on the site.",
-
-    "qa.welcomeTitle": "Welcome Guide",
-    "qa.welcomeSubtitle": "New here? Start here.",
-    "qa.dailyTitle": "Daily Word",
-    "qa.dailySubtitle": "Short devotionals",
-    "qa.prayerTitle": "Prayer Requests",
-    "qa.prayerSubtitle": "We will pray with you",
-
-    "about.title": "Who we are",
-    "about.body":
-      "Mahima Ministry is a Christ-centred local church in Punjab dedicated to worship, healing, and sending disciples. We are a warm community where broken lives are restored and people are equipped for ministry in everyday life.",
-    "about.stat.members": "Active Members",
-    "about.stat.years": "Years",
-    "about.stat.groups": "Small Groups",
-    "about.contactTitle": "Contact & Visit",
-    "about.contactButton": "Contact",
-    "about.planVisit": "Plan Visit",
-
-    "values.title": "Our Heart & Mission",
-    "values.body":
-      "We exist to glorify God by making mature followers of Jesus Christ — loving God, loving people and serving our city.",
-    "values.b1": "Worship & Biblical Teaching",
-    "values.b2": "Prayer & Healing Ministry",
-    "values.b3": "Discipleship & Leadership Training",
-    "values.b4": "Local Outreach & Care",
-    "values.connect": "Connect",
-    "values.contactUs": "Contact Us",
-
-    "involved.title": "Get Involved",
-    "involved.subtitle": "Ways to serve or receive help",
-    "involved.serveTitle": "Serve on a Team",
-    "involved.serveBody": "Worship, kids, hospitality, media.",
-    "involved.serveMore": "Click to learn more →",
-    "involved.requestPrayerTitle": "Request Prayer",
-    "involved.requestPrayerBody": "Submit a confidential prayer request.",
-    "involved.giveTitle": "Give",
-    "involved.giveBody": "Support our ministries and outreach.",
-    "involved.donateMore": "Click to donate →",
-
-    "serveModal.title": "Serve on a Team",
-    "serveModal.body":
-      "Please contact Mr. Pawan Kumar for team assignments, training and scheduling.",
-    "serveModal.contactLabel": "Contact:",
-    "serveModal.phoneLabel": "Phone:",
-    "serveModal.footerNote":
-      "He will guide you to the appropriate team (worship, kids, hospitality, media).",
-
-    "footer.rights": "Mahima Ministry — All rights reserved",
-    "footer.privacy": "Privacy",
-    "footer.terms": "Terms",
-
-    "donate.title": "Support Mahima Ministry",
-    "donate.scan": "Scan to donate via UPI",
-    "donate.thanks": "Thank you for your generous support ❤️",
-    "donate.closeAria": "Close donate modal",
-
-    "fallback.error":
-      "Fallback — something went wrong rendering the landing.",
-
-    "common.close": "Close"
-  },
-
-  hi: {
-    "app.name": "महिमा मंत्रालय",
-    "app.tagline": "पुनर्स्थापन • चंगाई • मिशन",
-
-    "nav.about": "हमारे बारे में",
-    "nav.ministries": "सेवाएं",
-    "nav.getInvolved": "शामिल हों",
-    "nav.donate": "दान करें",
-    "nav.theme": "थीम",
-    "nav.language": "भाषा",
-
-    "mobile.sermons": "प्रवचन",
-    "mobile.prayer": "प्रार्थना",
-    "mobile.give": "दान",
-
-    "hero.welcomePill": "आइए और आशीष पाएँ – सबका स्वागत है",
-    "hero.saturdayTime": "शनिवार – शाम 6 बजे से रात 9 बजे तक",
-    "hero.heading": "आराधना • चंगाई • भेजना",
-    "hero.body":
-      "महिमा मंत्रालय वह स्थान है जहाँ विश्वास व्यावहारिक जीवन में दिखाई देता है — ऐसी आराधना जो परमेश्वर का सम्मान करती है, ऐसी प्रार्थना जो चंगाई लाती है, और ऐसा शिष्यत्व जो लोगों को उद्देश्य के साथ संसार में भेजता है।",
-    "hero.watchSermons": "प्रवचन देखें",
-    "hero.joinGroup": "समूह से जुड़ें",
-    "hero.requestPrayer": "प्रार्थना के लिए अनुरोध",
-    "hero.nightPrayer": "रात्रि प्रार्थना – प्रत्येक शुक्रवार रात 10:30 बजे से",
-    "hero.upcomingActivities": "आगामी गतिविधियाँ",
-    "hero.loading": "लोड हो रहा है...",
-    "hero.noEvents": "कोई आगामी कार्यक्रम नहीं",
-    "hero.upcomingCardTitle": "आगामी",
-    "hero.fallbackEventTitle": "फसल आउटरीच",
-    "hero.fallbackEventTime": "शनिवार • सुबह 10 बजे",
-    "hero.joinUs": "हमसे जुड़ें",
-    "hero.kidsClub": "बच्चों की सभा",
-    "hero.kidsClubTime": "रविवार • सुबह 9 बजे",
-
-    "daily.title": "दैनिक वचन",
-    "daily.subtitle": "आज आपके लिए एक छोटा उत्साहजनक वचन",
-    "daily.loading": "वचन लोड हो रहा है…",
-    "daily.error":
-      "क्षमा कीजिए, दैनिक वचन लोड नहीं हो सका। कृपया बाद में पुनः प्रयास करें।",
-    "daily.none": "इस समय कोई वचन उपलब्ध नहीं है।",
-    "daily.more":
-      "और चाहते हैं? हमारे संसाधन देखें या गहरे ध्यान के लिए प्रार्थना अनुरोध भेजें।",
-
-    "welcome.title": "स्वागत मार्गदर्शिका",
-    "welcome.salvationTitle": "उद्धार और परमेश्वर का वचन",
-    "welcome.salvationBody":
-      "महिमा मंत्रालय यीशु मसीह के सुसमाचार पर विश्वास रखता है — कि उद्धार केवल कृपा से और केवल मसीह पर विश्वास के द्वारा है। हम व्यक्तिगत बढ़ोतरी, चंगाई और परिवर्तन के लिए प्रतिदिन परमेश्वर के वचन में बने रहने के लिए प्रोत्साहित करते हैं।",
-    "welcome.prayerModuleTitle": "प्रार्थना सहायता मॉड्यूल",
-    "welcome.prayerModuleBody":
-      "हमारी प्रार्थना टीम गुप्त प्रार्थना अनुरोधों को ग्रहण करने के लिए उपलब्ध है। आप अपना अनुरोध भेजें, और एक स्वयंसेवक प्रार्थना के साथ आपके लिए फॉलो-अप करेगा। ज़रूरत पड़ने पर पास्टोरल देखरेख भी दी जा सकती है। अत्यावश्यक मामलों को तुरंत ध्यान के लिए चिह्नित किया जाता है।",
-    "welcome.chatModuleTitle": "चैट मॉड्यूल — 24/7 सहायता",
-    "welcome.chatModuleBody":
-      "स्वयंसेवकों से जुड़ने के लिए चैट बबल का उपयोग करें। हम शीघ्र उत्तर देने का प्रयास करते हैं, परंतु समय अलग-अलग हो सकता है। आपात स्थिति में, कृपया साइट पर दिए गए नंबरों पर कॉल करें।",
-
-    "qa.welcomeTitle": "स्वागत मार्गदर्शिका",
-    "qa.welcomeSubtitle": "पहली बार आए हैं? यहाँ से शुरू करें।",
-    "qa.dailyTitle": "दैनिक वचन",
-    "qa.dailySubtitle": "छोटे ध्यान और वचन",
-    "qa.prayerTitle": "प्रार्थना अनुरोध",
-    "qa.prayerSubtitle": "हम आपके साथ प्रार्थना करेंगे",
-
-    "about.title": "हम कौन हैं",
-    "about.body":
-      "महिमा मंत्रालय पंजाब में एक मसीह-केंद्रित स्थानीय कलीसिया है जो आराधना, चंगाई और शिष्यों को भेजने के लिए समर्पित है। हम एक ऐसा परिवार हैं जहाँ टूटे हुए जीवन पुनर्स्थापित होते हैं और लोगों को दैनिक जीवन में सेवा के लिए तैयार किया जाता है।",
-    "about.stat.members": "सक्रिय सदस्य",
-    "about.stat.years": "वर्ष",
-    "about.stat.groups": "छोटे समूह",
-    "about.contactTitle": "सम्पर्क और भेंट",
-    "about.contactButton": "सम्पर्क करें",
-    "about.planVisit": "भेंट की योजना बनाएँ",
-
-    "values.title": "हमारा हृदय और मिशन",
-    "values.body":
-      "हम अस्तित्व में हैं ताकि हम परमेश्वर की महिमा करें — यीशु मसीह के परिपक्व शिष्यों को बनाकर — जो परमेश्वर से प्रेम करते हैं, लोगों से प्रेम करते हैं और अपने नगर की सेवा करते हैं।",
-    "values.b1": "आराधना और बाइबल आधारित शिक्षा",
-    "values.b2": "प्रार्थना और चंगाई सेवा",
-    "values.b3": "शिष्यत्व और नेतृत्व प्रशिक्षण",
-    "values.b4": "स्थानीय आउटरीच और देखभाल",
-    "values.connect": "जुड़ें",
-    "values.contactUs": "हमसे संपर्क करें",
-
-    "involved.title": "शामिल हों",
-    "involved.subtitle": "सेवा करने या सहायता प्राप्त करने के तरीके",
-    "involved.serveTitle": "टीम में सेवा करें",
-    "involved.serveBody": "आराधना, बच्चों की सेवा, आतिथ्य, मीडिया।",
-    "involved.serveMore": "और जानने के लिए क्लिक करें →",
-    "involved.requestPrayerTitle": "प्रार्थना के लिए अनुरोध",
-    "involved.requestPrayerBody": "गोपनीय प्रार्थना अनुरोध भेजें।",
-    "involved.giveTitle": "दान करें",
-    "involved.giveBody": "हमारी सेवाओं और आउटरीच को सहारा दें।",
-    "involved.donateMore": "दान करने के लिए क्लिक करें →",
-
-    "serveModal.title": "टीम में सेवा करें",
-    "serveModal.body":
-      "कृपया टीम में नियुक्ति, प्रशिक्षण और समय-सारणी के लिए श्री एंड्रियास मसीह से संपर्क करें।",
-    "serveModal.contactLabel": "संपर्क:",
-    "serveModal.phoneLabel": "फ़ोन:",
-    "serveModal.footerNote":
-      "वह आपको उचित टीम (आराधना, बच्चे, आतिथ्य, मीडिया) की ओर मार्गदर्शन करेंगे।",
-
-    "footer.rights": "महिमा मंत्रालय — सर्वाधिकार सुरक्षित",
-    "footer.privacy": "गोपनीयता नीति",
-    "footer.terms": "नियम व शर्तें",
-
-    "donate.title": "महिमा मंत्रालय का सहयोग करें",
-    "donate.scan": "यूपीआई के माध्यम से दान करने के लिए स्कैन करें",
-    "donate.thanks": "आपके उदार सहयोग के लिए धन्यवाद ❤️",
-    "donate.closeAria": "दान मोडल बंद करें",
-
-    "fallback.error":
-      "कुछ गड़बड़ हो गई — पेज को दिखाने में त्रुटि हुई।",
-
-    "common.close": "बंद करें"
-  },
-
-  pa: {
-    "app.name": "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ",
-    "app.tagline": "ਬਹਾਲੀ • ਚੰਗਾਈ • ਮਿਸ਼ਨ",
-
-    "nav.about": "ਸਾਡੇ ਬਾਰੇ",
-    "nav.ministries": "ਸੇਵਾਵਾਂ",
-    "nav.getInvolved": "ਜੁੜੋ",
-    "nav.donate": "ਭੇਟ ਕਰੋ",
-    "nav.theme": "ਥੀਮ",
-    "nav.language": "ਭਾਸ਼ਾ",
-
-    "mobile.sermons": "ਸੰਦੇਸ਼",
-    "mobile.prayer": "ਪ੍ਰਾਰਥਨਾ",
-    "mobile.give": "ਭੇਟ",
-
-    "hero.welcomePill": "ਆਓ ਅਸੀਸ ਪਾਓ – ਸਭ ਦਾ ਸੁਆਗਤ ਹੈ",
-    "hero.saturdayTime": "ਸ਼ਨੀਵਾਰ – ਸ਼ਾਮ 6 ਵਜੇ ਤੋਂ ਰਾਤ 9 ਵਜੇ ਤੱਕ",
-    "hero.heading": "ਆਰਾਧਨਾ • ਚੰਗਾਈ • ਭੇਜਣਾ",
-    "hero.body":
-      "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ ਉਹ ਜਗ੍ਹਾ ਹੈ ਜਿੱਥੇ ਵਿਸ਼ਵਾਸ਼ ਜੀਵਨ ਵਿੱਚ ਨਜ਼ਰ ਆਉਂਦਾ ਹੈ — ਆਰਾਧਨਾ ਜੋ ਪਰਮੇਸ਼ੁਰ ਦੀ ਮਹਿਮਾ ਕਰਦੀ ਹੈ, ਪ੍ਰਾਰਥਨਾ ਜੋ ਚੰਗਾਈ ਲਿਆਉਂਦੀ ਹੈ, ਅਤੇ ਸ਼ਗਿਰਦੀ ਜੋ ਲੋਕਾਂ ਨੂੰ ਮਕਸਦ ਨਾਲ ਦੁਨੀਆ ਵਿੱਚ ਭੇਜਦੀ ਹੈ।",
-    "hero.watchSermons": "ਸੰਦੇਸ਼ ਵੇਖੋ",
-    "hero.joinGroup": "ਸਮੂਹ ਨਾਲ ਜੁੜੋ",
-    "hero.requestPrayer": "ਪ੍ਰਾਰਥਨਾ ਲਈ ਅਰਜ਼ੀ",
-    "hero.nightPrayer": "ਰਾਤ ਦੀ ਪ੍ਰਾਰਥਨਾ – ਹਰ ਸ਼ੁੱਕਰਵਾਰ ਰਾਤ 10:30 ਤੋਂ",
-    "hero.upcomingActivities": "ਆਉਣ ਵਾਲੀਆਂ ਗਤੀਵਿਧੀਆਂ",
-    "hero.loading": "ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...",
-    "hero.noEvents": "ਕੋਈ ਆਉਣ ਵਾਲਾ ਪ੍ਰੋਗਰਾਮ ਨਹੀਂ",
-    "hero.upcomingCardTitle": "ਆਉਣ ਵਾਲਾ",
-    "hero.fallbackEventTitle": "ਫਸਲ ਆਉਟਰੀਚ",
-    "hero.fallbackEventTime": "ਸ਼ਨੀਵਾਰ • ਸਵੇਰੇ 10 ਵਜੇ",
-    "hero.joinUs": "ਸਾਡੇ ਨਾਲ ਜੁੜੋ",
-    "hero.kidsClub": "ਬੱਚਿਆਂ ਦਾ ਕਲੱਬ",
-    "hero.kidsClubTime": "ਐਤਵਾਰ • ਸਵੇਰੇ 9 ਵਜੇ",
-
-    "daily.title": "ਰੋਜ਼ਾਨਾ ਕਲਾਮ",
-    "daily.subtitle": "ਅੱਜ ਤੁਹਾਡੇ ਲਈ ਇੱਕ ਛੋਟਾ ਹੌਸਲਾ ਦੇਣ ਵਾਲਾ ਅਯਾਤ",
-    "daily.loading": "ਅਯਾਤ ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ…",
-    "daily.error":
-      "ਮਾਫ਼ ਕਰਨਾ, ਰੋਜ਼ਾਨਾ ਕਲਾਮ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਫਿਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
-    "daily.none": "ਇਸ ਵੇਲੇ ਕੋਈ ਅਯਾਤ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।",
-    "daily.more":
-      "ਹੋਰ ਚਾਹੀਦਾ ਹੈ? ਸਾਡੇ ਸਰੋਤ ਵੇਖੋ ਜਾਂ ਹੋਰ ਡੂੰਘੇ ਧਿਆਨ ਲਈ ਪ੍ਰਾਰਥਨਾ ਅਰਜ਼ੀ ਭੇਜੋ।",
-
-    "welcome.title": "ਸਵਾਗਤ ਗਾਈਡ",
-    "welcome.salvationTitle": "ਮੁਕਤੀ ਅਤੇ ਪਰਮੇਸ਼ੁਰ ਦਾ ਬਚਨ",
-    "welcome.salvationBody":
-      "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ ਯਿਸੂ ਮਸੀਹ ਦੇ ਸੁੱਸਮਾਚਾਰ 'ਤੇ ਵਿਸ਼ਵਾਸ਼ ਰੱਖਦੀ ਹੈ — ਕਿ ਮੁਕਤੀ ਸਿਰਫ਼ ਕਿਰਪਾ ਨਾਲ ਅਤੇ ਸਿਰਫ਼ ਮਸੀਹ 'ਤੇ ਵਿਸ਼ਵਾਸ਼ ਰਾਹੀਂ ਹੈ। ਅਸੀਂ ਵਿਅਕਤੀਗਤ ਵਾਧੇ, ਚੰਗਾਈ ਅਤੇ ਬਦਲਾਅ ਲਈ ਹਰ ਰੋਜ਼ ਪਰਮੇਸ਼ੁਰ ਦੇ ਬਚਨ ਵਿੱਚ ਰਹਿਣ ਲਈ ਹੌਸਲਾ ਦਿੰਦੇ ਹਾਂ।",
-    "welcome.prayerModuleTitle": "ਪ੍ਰਾਰਥਨਾ ਸਹਾਇਤਾ ਮਾਡਿਊਲ",
-    "welcome.prayerModuleBody":
-      "ਸਾਡੀ ਪ੍ਰਾਰਥਨਾ ਟੀਮ ਗੁਪਤ ਪ੍ਰਾਰਥਨਾ ਅਰਜ਼ੀਆਂ ਲੈਣ ਲਈ ਤਿਆਰ ਹੈ। ਤੁਸੀਂ ਆਪਣੀ ਅਰਜ਼ੀ ਭੇਜੋ, ਅਤੇ ਇੱਕ ਸੇਵਕ ਪ੍ਰਾਰਥਦਾ ਨਾਲ ਤੁਹਾਡੇ ਨਾਲ ਫਾਲੋ-ਅੱਪ ਕਰੇਗਾ। ਲੋੜ ਪੈਣ ਤੇ ਪਾਸਟੋਰਲ ਦੇਖਭਾਲ ਵੀ ਦਿੱਤੀ ਜਾ ਸਕਦੀ ਹੈ। ਜ਼ਰੂਰੀ ਮਾਮਲਿਆਂ ਨੂੰ ਤੁਰੰਤ ਧਿਆਨ ਲਈ ਚਿੰਨ੍ਹਿਤ ਕੀਤਾ ਜਾਂਦਾ ਹੈ।",
-    "welcome.chatModuleTitle": "ਚੈਟ ਮਾਡਿਊਲ — 24/7 ਸਹਾਇਤਾ",
-    "welcome.chatModuleBody":
-      "ਸੇਵਕਾਂ ਨਾਲ ਜੁੜਣ ਲਈ ਚੈਟ ਬਬਲ ਵਰਤੋਂ। ਅਸੀਂ ਜਲਦੀ ਜਵਾਬ ਦੇਣ ਦੀ ਕੋਸ਼ਿਸ਼ ਕਰਦੇ ਹਾਂ, ਪਰ ਸਮਾਂ ਵੱਖ-ਵੱਖ ਹੋ ਸਕਦਾ ਹੈ। ਐਮਰਜੈਂਸੀ ਵਿੱਚ, ਕਿਰਪਾ ਕਰਕੇ ਸਾਈਟ 'ਤੇ ਦਿੱਤੇ ਨੰਬਰਾਂ 'ਤੇ ਕਾਲ ਕਰੋ।",
-
-    "qa.welcomeTitle": "ਸਵਾਗਤ ਗਾਈਡ",
-    "qa.welcomeSubtitle": "ਪਹਿਲੀ ਵਾਰ ਆਏ ਹੋ? ਇਥੋਂ ਸ਼ੁਰੂ ਕਰੋ।",
-    "qa.dailyTitle": "ਰੋਜ਼ਾਨਾ ਕਲਾਮ",
-    "qa.dailySubtitle": "ਛੋਟੇ ਧਿਆਨ",
-    "qa.prayerTitle": "ਪ੍ਰਾਰਥਨਾ ਅਰਜ਼ੀਆਂ",
-    "qa.prayerSubtitle": "ਅਸੀਂ ਤੁਹਾਡੇ ਨਾਲ ਪ੍ਰਾਰਥਨਾ ਕਰਾਂਗੇ",
-
-    "about.title": "ਅਸੀਂ ਕੌਣ ਹਾਂ",
-    "about.body":
-      "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ ਪੰਜਾਬ ਵਿੱਚ ਇੱਕ ਮਸੀਹ-ਕੇਂਦਰਤ ਸਥਾਨਕ ਕਲੀਸੀਆ ਹੈ ਜੋ ਆਰਾਧਨਾ, ਚੰਗਾਈ ਅਤੇ ਸ਼ਗਿਰਦਾਂ ਨੂੰ ਭੇਜਣ ਲਈ ਸਮਰਪਿਤ ਹੈ। ਅਸੀਂ ਇੱਕ ਪਿਆਰ ਭਰੀ ਸੰਗਤ ਹਾਂ ਜਿੱਥੇ ਟੁੱਟੇ ਜੀਵਨ ਦੁਬਾਰਾ ਬਣਾਏ ਜਾਂਦੇ ਹਨ ਅਤੇ ਲੋਕਾਂ ਨੂੰ ਰੋਜ਼ਮਰ੍ਹਾ ਜੀਵਨ ਵਿੱਚ ਸੇਵਾ ਲਈ ਤਿਆਰ ਕੀਤਾ ਜਾਂਦਾ ਹੈ।",
-    "about.stat.members": "ਸਰਗਰਮ ਮੈਂਬਰ",
-    "about.stat.years": "ਸਾਲ",
-    "about.stat.groups": "ਛੋਟੇ ਸਮੂਹ",
-    "about.contactTitle": "ਸੰਪਰਕ ਅਤੇ ਮੁਲਾਕਾਤ",
-    "about.contactButton": "ਸੰਪਰਕ ਕਰੋ",
-    "about.planVisit": "ਮੁਲਾਕਾਤ ਦੀ ਯੋਜਨਾ ਬਣਾਓ",
-
-    "values.title": "ਸਾਡਾ ਦਿਲ ਅਤੇ ਮਿਸ਼ਨ",
-    "values.body":
-      "ਅਸੀਂ ਇਸ ਲਈ ਮੌਜੂਦ ਹਾਂ ਕਿ ਅਸੀਂ ਪਰਮੇਸ਼ੁਰ ਦੀ ਮਹਿਮਾ ਕਰੀਏ — ਯਿਸੂ ਮਸੀਹ ਦੇ ਪੱਕੇ ਚੇਲੇ ਬਣਾਕੇ — ਜੋ ਪਰਮੇਸ਼ੁਰ ਨਾਲ ਪਿਆਰ ਕਰਦੇ ਹਨ, ਲੋਕਾਂ ਨਾਲ ਪਿਆਰ ਕਰਦੇ ਹਨ ਅਤੇ ਆਪਣੇ ਸ਼ਹਿਰ ਦੀ ਸੇਵਾ ਕਰਦੇ ਹਨ।",
-    "values.b1": "ਆਰਾਧਨਾ ਅਤੇ ਬਾਈਬਲ ਅਧਾਰਿਤ ਸਿੱਖਿਆ",
-    "values.b2": "ਪ੍ਰਾਰਥਨਾ ਅਤੇ ਚੰਗਾਈ ਸੇਵਾ",
-    "values.b3": "ਸ਼ਗਿਰਦੀ ਅਤੇ ਲੀਡਰਸ਼ਿਪ ਟ੍ਰੇਨਿੰਗ",
-    "values.b4": "ਸਥਾਨਕ ਆਉਟਰੀਚ ਅਤੇ ਦੇਖਭਾਲ",
-    "values.connect": "ਜੁੜੋ",
-    "values.contactUs": "ਸਾਡੇ ਨਾਲ ਸੰਪਰਕ ਕਰੋ",
-
-    "involved.title": "ਜੁੜੋ",
-    "involved.subtitle": "ਸੇਵਾ ਕਰਨ ਜਾਂ ਮਦਦ ਲੈਣ ਦੇ ਤਰੀਕੇ",
-    "involved.serveTitle": "ਟੀਮ ਵਿੱਚ ਸੇਵਾ ਕਰੋ",
-    "involved.serveBody": "ਆਰਾਧਨਾ, ਬੱਚੇ, আতਿਥਿਆਈ, ਮੀਡੀਆ।",
-    "involved.serveMore": "ਹੋਰ ਜਾਣਨ ਲਈ ਕਲਿੱਕ ਕਰੋ →",
-    "involved.requestPrayerTitle": "ਪ੍ਰਾਰਥਨਾ ਅਰਜ਼ੀ",
-    "involved.requestPrayerBody": "ਗੁਪਤ ਪ੍ਰਾਰਥਨਾ ਅਰਜ਼ੀ ਭੇਜੋ।",
-    "involved.giveTitle": "ਭੇਟ ਕਰੋ",
-    "involved.giveBody": "ਸਾਡੀਆਂ ਸੇਵਾਵਾਂ ਅਤੇ ਆਉਟਰੀਚ ਦਾ ਸਹਿਯੋਗ ਕਰੋ।",
-    "involved.donateMore": "ਭੇਟ ਕਰਨ ਲਈ ਕਲਿੱਕ ਕਰੋ →",
-
-    "serveModal.title": "ਟੀਮ ਵਿੱਚ ਸੇਵਾ ਕਰੋ",
-    "serveModal.body":
-      "ਕਿਰਪਾ ਕਰਕੇ ਟੀਮ ਨਿਯੁਕਤੀ, ਟ੍ਰੇਨਿੰਗ ਅਤੇ ਸਮਾਂ-ਸਾਰਣੀ ਲਈ ਸ਼੍ਰੀ ਐਂਡਰੀਅਸ ਮਸੀਹ ਨਾਲ ਸੰਪਰਕ ਕਰੋ।",
-    "serveModal.contactLabel": "ਸੰਪਰਕ:",
-    "serveModal.phoneLabel": "ਫ਼ੋਨ:",
-    "serveModal.footerNote":
-      "ਉਹ ਤੁਹਾਨੂੰ ਠੀਕ ਟੀਮ ਵੱਲ ਦਿਸ਼ਾ ਦੇਣਗੇ (ਆਰਾਧਨਾ, ਬੱਚੇ, আতਿਥਿਆਈ, ਮੀਡੀਆ)।",
-
-    "footer.rights": "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ — ਸਾਰੇ ਹੱਕ ਰਾਖਵੇਂ ਹਨ",
-    "footer.privacy": "ਪਰਦੇਦਾਰੀ",
-    "footer.terms": "ਨਿਯਮ ਅਤੇ ਸ਼ਰਤਾਂ",
-
-    "donate.title": "ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ ਦਾ ਸਹਿਯੋਗ ਕਰੋ",
-    "donate.scan": "UPI ਰਾਹੀਂ ਭੇਟ ਕਰਨ ਲਈ ਸਕੈਨ ਕਰੋ",
-    "donate.thanks": "ਤੁਹਾਡੇ ਉਦਾਰ ਸਹਿਯੋਗ ਲਈ ਧੰਨਵਾਦ ❤️",
-    "donate.closeAria": "ਭੇਟ ਮੋਡਲ ਬੰਦ ਕਰੋ",
-
-    "fallback.error":
-      "ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ — ਲੈਂਡਿੰਗ ਦਿਖਾਉਣ ਵਿੱਚ ਗਲਤੀ ਆ ਗਈ।",
-
-    "common.close": "ਬੰਦ ਕਰੋ"
-  }
+const contact = {
+  phone: "+91 7087775465",
+  phoneHref: "tel:+917087775465",
+  email: "Contact@mahimaministries.in",
+  address: "Universal Public School, Gurunanak Nagar, Gulab Devi Road, Jalandhar, Punjab 144021",
 };
 
-const LanguageContext = React.createContext({
-  lang: "en",
-  setLang: () => {},
-  t: (key) => translations.en[key] || key
-});
+const services = [
+  { day: "Saturday", title: "Worship Service", time: "6:00 – 9:00 PM", tag: "Weekly",
+    bg: "linear-gradient(135deg, #881337 0%, #b45309 100%)" },
+  { day: "Tuesday",  title: "Night Prayer",    time: "10:30 PM",       tag: "Prayer",
+    bg: "linear-gradient(135deg, #312e81 0%, #9f1239 100%)" },
+  { day: "Friday",   title: "Night Prayer",    time: "10:30 PM",       tag: "Prayer",
+    bg: "linear-gradient(135deg, #b45309 0%, #881337 100%)" },
+];
 
-function useLanguage() {
-  return React.useContext(LanguageContext);
-}
-
-function LanguageProvider({ children }) {
-  const [lang, setLangState] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("mahima_lang") || "en";
-    }
-    return "en";
-  });
-
-  const value = React.useMemo(
-    () => ({
-      lang,
-      setLang: (next) => {
-        setLangState(next);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("mahima_lang", next);
-        }
-      },
-      t: (key) => translations[lang]?.[key] ?? translations.en[key] ?? key
-    }),
-    [lang]
-  );
-
-  return (
-    <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
-  );
-}
-
-/* ---------------- small http helper ---------------- */
-async function fetchFromUrl(url, opts = {}) {
-  try {
-    // ✅ FIX: use dynamic URL
-    const res = await apiFetchJson(url);
-
-    return { ok: true, data: res }; // ✅ FIX: no .data
-  } catch (err) {
-    return { ok: false, err };
-  }
-}
-
-/* ---------------- Error boundary -------------------- */
-export function ErrorBoundary({ children }) {
-  const [hasError, setHasError] = React.useState(false);
-
-  React.useEffect(() => {
-    const onErr = (e) => {
-      console.error("Runtime error caught by ErrorBoundary:", e);
-      setHasError(true);
-    };
-    window.addEventListener("error", onErr);
-    window.addEventListener("unhandledrejection", onErr);
-    return () => {
-      window.removeEventListener("error", onErr);
-      window.removeEventListener("unhandledrejection", onErr);
-    };
-  }, []);
-
-  if (hasError) return <HomeLandingFallback />;
-  return children;
-}
-
-function HomeLandingFallback() {
-
-
-  const { t } = useLanguage() || { t: (k) => translations.en[k] || k };
-  return (
-    <main className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-amber-50 p-6">
-      <div className="mx-auto max-w-6xl">
-        <div className="p-8">{t("fallback.error")}</div>
-      </div>
-    </main>
-  );
-}
-
-/* ---------------- Main exported component ------------- */
-export default function HomeLanding() {
-
- 	const navigate = useNavigate();
-	const [showJoinPopup, setShowJoinPopup] = useState(false);	
-
-  const [showDonate, setShowDonate] = useState(false);
-
-  useEffect(() => {
-    function onOpenDonate() {
-      setShowDonate(true);
-    }
-    window.addEventListener("mahima_open_donate", onOpenDonate);
-    window.addEventListener("mahima_show_donate_modal", onOpenDonate);
-    return () => {
-      window.removeEventListener("mahima_open_donate", onOpenDonate);
-      window.removeEventListener("mahima_show_donate_modal", onOpenDonate);
-    };
-  }, []);
-
-  return (
-    <main className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-amber-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 p-4 sm:p-6">
-      <LanguageProvider>
-        <InnerHomeLanding showDonate={showDonate} setShowDonate={setShowDonate} />
-      </LanguageProvider>
-    </main>
-  );
-}
-
-/* ---------------- TopNav (Donate calls event) ------------ */
-function TopNav({ onOpenDonate }) {
-  const { t, lang, setLang } = useLanguage();
-
-  function toggleTheme() {
-    const el = document.documentElement;
-    el.classList.toggle("dark");
-    localStorage.setItem(
-      "mahima_theme",
-      el.classList.contains("dark") ? "dark" : "light"
-    );
-  }
-
-  useEffect(() => {
-    const pref = localStorage.getItem("mahima_theme");
-    if (pref === "dark") document.documentElement.classList.add("dark");
-  }, []);
-
-  return (
-    <header className="flex items-center justify-between py-3 sm:py-4">
-
-  {/* LEFT SIDE (logo + menu) */}
-  <div className="flex items-center gap-4">
-    {/* keep your existing logo + menu here */}
-  </div>
-
-  {/* RIGHT SIDE (login button) */}
-     
-
-<div className="flex items-center gap-3 sm:gap-4">
-        <div className="rounded-2xl bg-gradient-to-r from-white/70 to-white/40 px-2.5 sm:px-3 py-2 flex items-center gap-2.5 sm:gap-3 shadow-md backdrop-blur-sm">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white flex items-center justify-center shadow-inner">
-            <svg
-              viewBox="0 0 48 48"
-              className="w-7 h-7 sm:w-8 sm:h-8"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <defs>
-                <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-                  <stop offset="0" stopColor="#f97316" />
-                  <stop offset="1" stopColor="#f43f5e" />
-                </linearGradient>
-              </defs>
-              <rect width="48" height="48" rx="10" fill="url(#g)" />
-              <path
-                d="M24 10c-4 4-8 9-8 14a8 8 0 0016 0c0-5-4-10-8-14z"
-                fill="#fff"
-                opacity="0.95"
-              />
-            </svg>
-          </div>
-
-          <div>
-            <div className="text-lg sm:text-xl font-extrabold text-rose-700 dark:text-rose-300">
-              {t("app.name")}
-            </div>
-            <div className="text-[10px] sm:text-xs text-rose-400 -mt-0.5">
-              {t("app.tagline")}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <nav className="hidden sm:flex items-center gap-3">
-        <a
-    href="#"
-    className="px-3 py-2 text-sm text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
-    onClick={(e) => {
-      e.preventDefault();
-      scrollToSection("about");
-    }}
-  >
-    {t("nav.about")}
-  </a>
-
-  {/* MINISTRIES */}
-  <a
-    href="#"
-    className="px-3 py-2 text-sm text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
-    onClick={(e) => {
-      e.preventDefault();
-      scrollToSection("ministries");
-    }}
-  >
-    {t("nav.ministries")}
-  </a>
-
-  {/* GET INVOLVED */}
-  <a
-    href="#"
-    className="px-3 py-2 text-sm text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
-    onClick={(e) => {
-      e.preventDefault();
-      scrollToSection("get-involved");
-    }}
-  >
-    {t("get involved")}
-  </a>
-        <button
-          onClick={() => {
-            if (typeof onOpenDonate === "function") onOpenDonate();
-            else window.dispatchEvent(new CustomEvent("mahima_open_donate"));
-          }}
-          className="ml-2 rounded-full bg-gradient-to-r from-rose-500 to-amber-400 text-white py-2 px-4 text-sm font-semibold shadow-lg active:scale-95"
-        >
-          {t("nav.donate")}
-        </button>
-        <button
-          onClick={toggleTheme}
-          className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300"
-        >
-          {t("nav.theme")}
-        </button>
-
-        {/* Language selector */}
-        <label className="flex items-center gap-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300">
-          <span className="hidden sm:inline">{t("nav.language")}:</span>
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value)}
-            className="border rounded-full px-2 py-1 text-xs sm:text-sm bg-white dark:bg-slate-800"
-          >
-            <option value="en">English</option>
-            <option value="hi">हिन्दी</option>
-            <option value="pa">ਪੰਜਾਬੀ</option>
-          </select>
-        </label>
-      </nav>
-
-
-	<div style={{ marginLeft: "auto" }}>
-  <button
-    onClick={() => {
-      const token =
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("mahima:user") ||
-        getToken?.();
-
-      if (!token) {
-        window.location.hash = "#/login";
-      }
-    }}
-    disabled={
-      !!(
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("mahima:user") ||
-        getToken?.()
-      )
-    }
-    style={{
-      padding: "10px 22px",
-      fontSize: "14px",
-      fontWeight: "600",
-      color: "#fff",
-      background: (
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("mahima:user") ||
-        getToken?.()
-      )
-        ? "#94a3b8" // disabled grey
-        : "linear-gradient(135deg, #ff7a18, #ff3d81)", // ?? warm ministry theme
-      border: "none",
-      borderRadius: "999px", // pill shape
-      cursor: (
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("mahima:user") ||
-        getToken?.()
-      )
-        ? "not-allowed"
-        : "pointer",
-      boxShadow: (
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("mahima:user") ||
-        getToken?.()
-      )
-        ? "none"
-        : "0 6px 18px rgba(255, 61, 129, 0.4)",
-      transition: "all 0.25s ease"
-    }}
-  >
-    {(
-      localStorage.getItem("mahima_token") ||
+function hasToken() {
+  return Boolean(
+    localStorage.getItem("mahima_token") ||
+      localStorage.getItem("authToken") ||
+      localStorage.getItem("token") ||
       localStorage.getItem("mahima:user") ||
       getToken?.()
-    )
-      ? "Logged In"
-      : "Login"}
-  </button>
-</div>    </header>
   );
 }
-
-/* ---------------- Mobile sticky CTA ------------------- */
-function MobileCTA({ onOpenDonate }) {
-  const { t } = useLanguage();
-  return (
-    <div className="sm:hidden sticky bottom-3 inset-x-3 z-40">
-      <div className="rounded-full bg-white/95 shadow-xl backdrop-blur p-2 grid grid-cols-3 gap-2">
-        <a
-          href="#/sermons"
-          className="text-center text-sm py-2 rounded-full border"
-        >
-          {t("mobile.sermons")}
-        </a>
-        <a
-          href="#/home/prayerrequests"
-          className="text-center text-sm py-2 rounded-full border"
-        >
-          {t("mobile.prayer")}
-        </a>
-        <button
-          onClick={() => {
-            if (typeof onOpenDonate === "function") onOpenDonate();
-            else window.dispatchEvent(new CustomEvent("mahima_open_donate"));
-          }}
-          className="text-center text-sm py-2 rounded-full bg-gradient-to-r from-rose-500 to-amber-400 text-white"
-        >
-          {t("mobile.give")}
-        </button>
-      </div>
-    </div>
-  );
+function isMobileAppMode() {
+  try {
+    return import.meta.env.MODE === "mobile" ||
+      Boolean(window.Capacitor?.isNativePlatform?.());
+  } catch { return false; }
+}
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/* ---------------- QuickActions (dispatch events) --------- */
-function QuickActions() {
-  const { t } = useLanguage();
-  return (
-    <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <button
-        onClick={() =>
-          window.dispatchEvent(new CustomEvent("mahima_open_welcome_guide"))
-        }
-        className="group block rounded-2xl p-4 shadow-lg active:-translate-y-0.5 transition bg-gradient-to-r from-rose-500 to-amber-400 text-white"
-      >
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white">
-            <Sun size={20} />
-          </div>
-          <div>
-            <div className="text-white font-semibold">
-              {t("qa.welcomeTitle")}
-            </div>
-            <div className="text-white/90 text-sm mt-1">
-              {t("qa.welcomeSubtitle")}
-            </div>
-          </div>
-        </div>
-      </button>
-
-      <button
-        onClick={() =>
-          window.dispatchEvent(new CustomEvent("mahima_open_daily_word"))
-        }
-        className="group block rounded-2xl p-4 shadow-lg active:-translate-y-0.5 transition bg-gradient-to-r from-amber-400 to-rose-400 text-white"
-      >
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white">
-            <BookOpen size={20} />
-          </div>
-          <div>
-            <div className="text-white font-semibold">{t("qa.dailyTitle")}</div>
-            <div className="text-white/90 text-sm mt-1">
-              {t("qa.dailySubtitle")}
-            </div>
-          </div>
-        </div>
-      </button>
-
-      <button
-  onClick={() => {
-    const token =
-      localStorage.getItem("mahima_token") ||
-      localStorage.getItem("mahima:user") ||
-      getToken(); // you already have this
-
-    if (!token) {
-      alert("Please Create User/Login to enter a prayer request");
-      return;
-    }
-
-    window.location.hash = "#/prayerrequests";
-  }}
-  className="group block rounded-2xl p-4 shadow-lg active:-translate-y-0.5 transition bg-gradient-to-r from-rose-500 to-pink-500 text-white"
->
-  <div className="flex items-start gap-4">
-    <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white">
-      <Heart size={20} />
-    </div>
-    <div>
-      <div className="text-white font-semibold">{t("qa.prayerTitle")}</div>
-      <div className="text-white/90 text-sm mt-1">
-        {t("qa.prayerSubtitle")}
-      </div>
-    </div>
-  </div>
-</button>    </div>
-  );
-}
-
-/* ---------------- Hero (mobile-first design) --- */
-function Hero({ vibrant = false, onOpenDonate }) {
-  const navigate = useNavigate();
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [showDaily, setShowDaily] = useState(false);
-  const [dailyVerse, setDailyVerse] = useState(null);
-  const [dailyLoading, setDailyLoading] = useState(false);
-  const [dailyError, setDailyError] = useState(null);
-
-  const [showWelcome, setShowWelcome] = useState(false);
-  const { t } = useLanguage();
+/* ========================================================================
+   MAIN
+   ===================================================================== */
+export default function HomeLanding() {
+  const [showDonate, setShowDonate] = useState(false);
+  const appMode = isMobileAppMode();
 
   useEffect(() => {
-    let mounted = true;
-    const candidates = [
-      "/tasks",
-      "/tasks/calendar",
-      "/tasks/calendar",
-      "/tasks?upcoming=true"
-    ];
-
-    async function tryFetch(url) {
-      const token =
-        getToken && typeof getToken === "function" ? getToken() : null;
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      try {
-       // const res = await axios.get(url, { headers });
-        const res = await apiFetchJson(url);
-                async function tryFetch(url) {
-  try {
-    const res = await apiFetchJson(url);
-
-    if (Array.isArray(res)) return res;
-    if (res && Array.isArray(res.items)) return res.items;
-    if (res && Array.isArray(res.tasks)) return res.tasks;
-
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
-        return null;
-      } catch (err) {
-        if (
-          err &&
-          err.response &&
-          (err.response.status === 404 || err.response.status === 410)
-        ) {
-          return null;
-        }
-        throw err;
-      }
-    }
-
-    function hasBroadcastTrue(tItem) {
-      return (
-        tItem &&
-        (tItem.broadcast === true ||
-          tItem.Broadcast === true ||
-          tItem.isBroadcast === true ||
-          tItem.broadcast_flag === true ||
-          tItem.broadcastFlag === true)
-      );
-    }
-
-    async function fetchTasks() {
-      setLoading(true);
-      try {
-        let result = null;
-        for (const url of candidates) {
-          result = await tryFetch(url);
-          if (result && result.length) break;
-        }
-        if (!mounted) return;
-        const list = Array.isArray(result) ? result.filter(hasBroadcastTrue) : [];
-        setTasks(list.slice(0, 3));
-        setLoading(false);
-      } catch (err) {
-        console.error("Failed to load calendar tasks (unexpected):", err);
-        if (mounted) {
-          setTasks([]);
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchTasks();
+    const openDonate = () => setShowDonate(true);
+    window.addEventListener("mahima_open_donate", openDonate);
+    window.addEventListener("mahima_show_donate_modal", openDonate);
     return () => {
-      mounted = false;
+      window.removeEventListener("mahima_open_donate", openDonate);
+      window.removeEventListener("mahima_show_donate_modal", openDonate);
     };
   }, []);
 
-  async function handleWatchSermons() {
-    try {
-      let allowed = false;
-      if (canAccessPage && typeof canAccessPage === "function") {
-        try {
-          const maybe = canAccessPage("resources");
-          if (maybe && typeof maybe.then === "function") allowed = await maybe;
-          else allowed = !!maybe;
-        } catch {
-          try {
-            const maybe2 = canAccessPage("Sermons");
-            if (maybe2 && typeof maybe2.then === "function")
-              allowed = await maybe2;
-            else allowed = !!maybe2;
-          } catch {
-            allowed = false;
-          }
-        }
-      }
-      if (allowed) {
-        try {
-          navigate("/resources");
-          return;
-        } catch {}
-      }
-      try {
-        navigate("/sermons");
-      } catch {
-        window.location.hash = "#/sermons";
-      }
-    } catch {
-      try {
-        navigate("/sermons");
-      } catch {
-        window.location.hash = "#/sermons";
-      }
-    }
-  }
+  return (
+    <main className="relative min-h-screen overflow-x-hidden bg-[#f7f1e3] text-stone-900 antialiased selection:bg-rose-900 selection:text-amber-100 dark:bg-[#0b0807] dark:text-stone-50">
+      <Background />
+      <GlobalStyles />
 
-  async function handleRequestPrayer() {
-  try {
-    const token =
-      localStorage.getItem("mahima_token") ||
-      localStorage.getItem("mahima:user") ||
-      getToken();
+      <TopNav onDonate={() => setShowDonate(true)} />
 
-    // ?? Check login
-    if (!token) {
-      alert("Please Create User/Login to enter a prayer request");
-      return;
-    }
+      <div className="mx-auto w-full max-w-[1280px] px-4 pb-32 sm:px-6 sm:pb-12">
+        <Hero onDonate={() => setShowDonate(true)} />
+        <Services />
+        {!appMode && <AboutVisit />}
+        <GetInvolved onDonate={() => setShowDonate(true)} />
+        {!appMode && <Ministries />}
+        <ScriptureMarquee />
+        {!appMode && <Gallery />}
+        <Footer />
+      </div>
 
-    // ? If logged in ? navigate
-    try {
-      navigate("/prayerrequests");
-      return;
-    } catch {}
+      <MobileCTA onDonate={() => setShowDonate(true)} />
 
-    try {
-      navigate("/prayer-requests");
-      return;
-    } catch {}
-
-    // fallback
-    window.location.hash = "#/prayerrequests";
-  } catch (e) {
-    console.log("Prayer navigation error:", e);
-  }
+      {showDonate && <DonateModal onClose={() => setShowDonate(false)} />}
+    </main>
+  );
 }
 
-  const dailyCandidates = [
-  {
-    url: "https://bible-api.com/?random=verse",
-    parser: (data) => {
-      try {
-        const text =
-          data?.text ||
-          data?.verses?.map((v) => v.text).join(" ") ||
-          "";
-
-        const reference = data?.reference || "";
-
-        if (!text || text.trim().length < 5) return null;
-
-        return {
-          text: text.trim(),
-          reference
-        };
-      } catch {
-        return null;
-      }
-    }
-  }
-];  async function loadDailyVerse() {
-  setDailyLoading(true);
-  setDailyError(null);
-
-  try {
-    // ? Hardcoded daily verse (guaranteed to work)
-    const verse = {
-      text: "For God so loved the world that He gave His only begotten Son, that whoever believes in Him should not perish but have everlasting life.",
-      reference: "John 3:16"
-    };
-
-    // simulate small delay (optional)
-    await new Promise((r) => setTimeout(r, 500));
-
-    setDailyVerse(verse);
-  } catch (e) {
-    setDailyError("Failed to load verse");
-  } finally {
-    setDailyLoading(false);
-  }
+function Background() {
+  return (
+    <div className="pointer-events-none fixed inset-0 -z-10">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(180,83,9,.18),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(159,18,57,.14),transparent_60%),linear-gradient(180deg,#f7f1e3,#fbf6ea_60%,#f3ecd7)] dark:bg-[radial-gradient(ellipse_at_top,rgba(180,83,9,.16),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(159,18,57,.16),transparent_60%),linear-gradient(180deg,#0b0807,#120c0a_60%,#0b0807)]" />
+      <div className="absolute inset-0 opacity-[0.07] mix-blend-multiply [background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%222%22 stitchTiles=%22stitch%22/><feColorMatrix values=%220 0 0 0 0.4 0 0 0 0 0.25 0 0 0 0 0.1 0 0 0 0 0.6 0%22/></filter><rect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%220.55%22/></svg>')] dark:opacity-[0.10] dark:mix-blend-overlay" />
+    </div>
+  );
 }
-  function openDaily() {
-    setShowDaily(true);
-    if (!dailyVerse && !dailyLoading && !dailyError) loadDailyVerse();
-  }
-  function closeDaily() {
-    setShowDaily(false);
-  }
-  function openWelcome() {
-    setShowWelcome(true);
-  }
-  function closeWelcome() {
-    setShowWelcome(false);
-  }
+
+/* ========================================================================
+   TOP NAV
+   ===================================================================== */
+function TopNav({ onDonate }) {
+  const navigate = useNavigate();
+  const [loggedIn, setLoggedIn] = useState(() => hasToken());
+  const [dark, setDark] = useState(() =>
+    typeof document !== "undefined" ? document.documentElement.classList.contains("dark") : false
+  );
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    function onDailyEvent() {
-      openDaily();
-    }
-    function onWelcomeEvent() {
-      openWelcome();
-    }
-    function onDonateEvent() {
-      if (typeof onOpenDonate === "function") onOpenDonate();
-      else window.dispatchEvent(new CustomEvent("mahima_open_donate"));
-    }
-
-    window.addEventListener("mahima_open_daily_word", onDailyEvent);
-    window.addEventListener("mahima_open_welcome_guide", onWelcomeEvent);
-    window.addEventListener("mahima_open_donate", onDonateEvent);
-    window.addEventListener("mahima_show_donate_modal", onDonateEvent);
-
+    const sync = () => setLoggedIn(hasToken());
+    window.addEventListener("auth:change", sync);
+    window.addEventListener("storage", sync);
     return () => {
-      window.removeEventListener("mahima_open_daily_word", onDailyEvent);
-      window.removeEventListener("mahima_open_welcome_guide", onWelcomeEvent);
-      window.removeEventListener("mahima_open_donate", onDonateEvent);
-      window.removeEventListener("mahima_show_donate_modal", onDonateEvent);
+      window.removeEventListener("auth:change", sync);
+      window.removeEventListener("storage", sync);
     };
-  }, [onOpenDonate]);
+  }, []);
 
-  const imageUrl = "/assets/mahimachurch-hero.jpg";
-  const placeholderUnsplash =
-    "https://images.unsplash.com/photo-1502791451860-3f88b3e74f66?q=80&w=1600&auto=format&fit=crop&ixlib=rb-4.0.3&s=placeholder";
+  useEffect(() => {
+    if (localStorage.getItem("mahima_theme") === "dark") {
+      document.documentElement.classList.add("dark");
+      setDark(true);
+    }
+  }, []);
 
-  const posterPrimary = "/glory-to-grace.jpg";
-  const posterFallback = "/assets/glory-to-grace.jpg";
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function toggleTheme() {
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("mahima_theme", next ? "dark" : "light");
+    setDark(next);
+  }
+
+  function jump(id) {
+    setMenuOpen(false);
+    setTimeout(() => scrollToSection(id), 60);
+  }
+
+  function handleAuthClick() {
+    if (loggedIn) {
+      if (isMobileAppMode()) { navigate("/home", { replace: true }); return; }
+      authLogout();
+      localStorage.removeItem("mahima_user");
+      localStorage.removeItem("mahima:user");
+      setLoggedIn(false);
+      navigate("/login", { replace: true });
+      return;
+    }
+    navigate("/login");
+  }
+
+  const navLinks = [
+    ["Services",     "services"],
+    ["About",        "about"],
+    ["Get Involved", "get-involved"],
+    ["Ministries",   "ministries"],
+    ["Moments",      "moments"],
+  ];
 
   return (
     <>
-      <section
-        className={`mt-3 sm:mt-6 rounded-3xl overflow-hidden shadow-2xl grid grid-cols-1 md:grid-cols-2 bg-white/80 dark:bg-white/5 backdrop-blur-sm ${
-          vibrant ? "border-2 border-rose-100" : ""
+      <header
+        className={`sticky top-0 z-40 w-full transition-all duration-300 ${
+          scrolled
+            ? "border-b border-stone-900/5 bg-[#f7f1e3]/85 backdrop-blur-xl dark:border-white/5 dark:bg-[#0b0807]/85"
+            : "bg-transparent"
         }`}
-        aria-label="Hero"
       >
-        <div className="p-4 sm:p-8 md:p-12 flex flex-col justify-center gap-3 sm:gap-4">
-          <div className="inline-flex flex-wrap items-center gap-2 sm:gap-3">
-            <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-xs sm:text-sm font-semibold">
-              {t("hero.welcomePill")}
+        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <button type="button" onClick={() => scrollToSection("top")}
+            className="flex min-w-0 items-center gap-2.5 transition active:scale-[0.97]">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-stone-900 shadow-sm dark:bg-stone-100">
+              <img src={mahimaLogo} alt="Mahima Ministry" className="h-7 w-7 object-contain" />
             </span>
-            <span className="text-[11px] sm:text-xs text-gray-600">
-              {t("hero.saturdayTime")}
+            <span className="min-w-0 text-left leading-none">
+              <span className="block truncate font-serif text-[15px] font-black tracking-tight text-stone-900 dark:text-stone-50 sm:text-base">Mahima Ministry</span>
+              <span className="mt-1 hidden text-[10px] font-bold uppercase tracking-[0.28em] text-amber-700 dark:text-amber-300 sm:block">Restoration · Healing · Mission</span>
             </span>
-          </div>
+          </button>
 
-          <figure className="mt-2 w-56 sm:w-64 md:w-80 rounded-xl overflow-hidden bg-white shadow border border-rose-100">
-         
-	      
-	  <img 
-	  src="/images/Mahima-Word.png" style={{ width: "500%", borderRadius: "10px" }}
-          className="w-full h-auto object-cover"
-	 />   
+          {/* Desktop nav */}
+          <nav className="hidden items-center gap-1 lg:flex">
+            {navLinks.map(([label, id]) => (
+              <button key={id} type="button" onClick={() => jump(id)} className="navBtn">{label}</button>
+            ))}
+          </nav>
 
-	</figure>
-
-          <h1 className="text-2xl sm:text-3xl md:text-5xl font-extrabold leading-tight text-rose-800 dark:text-rose-200">
-            {t("hero.heading")}
-          </h1>
-
-          <p className="text-gray-700 dark:text-gray-300 max-w-xl text-base sm:text-lg">
-            {t("hero.body")}
-          </p>
-
-          <div className="flex flex-wrap gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/sermons")}
-              className="inline-flex items-center gap-2 sm:gap-3 rounded-full bg-gradient-to-r from-rose-600 to-amber-400 text-white py-2.5 sm:py-3 px-4 sm:px-5 font-semibold shadow-lg active:scale-95"
-            >
-              <Play size={16} /> {t("hero.watchSermons")}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" onClick={toggleTheme} className="iconBtn" aria-label="Toggle theme">
+              {dark ? <Sun size={17} /> : <Moon size={17} />}
             </button>
 
-            </div>
+            <button type="button" onClick={handleAuthClick}
+              className="inline-flex h-11 items-center rounded-full bg-stone-900 px-3.5 text-[13px] font-bold text-stone-50 transition active:scale-[0.97] dark:bg-stone-50 dark:text-stone-900 sm:px-4 sm:text-sm">
+              {loggedIn ? (isMobileAppMode() ? "Open App" : "Logout") : "Login"}
+            </button>
 
-          <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-1 sm:mt-2">
-            <div className="flex items-center gap-2">
-              <PhoneCall size={16} />{" "}
-              <span>+91 9646628466</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar size={16} />{" "}
-              <span>{t("hero.nightPrayer")}</span>
-            </div>
-          </div>
+            <button type="button" onClick={onDonate}
+              className="hidden h-11 items-center gap-2 rounded-full bg-gradient-to-br from-rose-800 to-amber-600 px-5 text-sm font-black text-amber-50 shadow-[0_8px_24px_-8px_rgba(159,18,57,.5)] transition active:scale-[0.97] lg:inline-flex">
+              <Heart size={14} fill="currentColor" /> Donate
+            </button>
 
-          <div className="mt-2">
-           
-            {loading ? (
-              <div className="text-sm text-gray-500 mt-2">
-                {t("hero.loading")}
-              </div>
-            ) : tasks.length === 0 ? (
-              <div className="text-sm text-gray-500 mt-2">
-                {t("hero.noEvents")}
-              </div>
-            ) : (
-              <ul className="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200">
-                {tasks.map((tItem) => (
-                  <li
-                    key={tItem.id || tItem.key || JSON.stringify(tItem)}
-                    className="flex justify-between items-start bg-white/70 dark:bg-white/10 rounded-lg p-2"
-                  >
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-gray-100">
-                        {tItem.title || tItem.name || "Untitled"}
-                      </div>
-                      {tItem.description ? (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {tItem.description}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {tItem.startDate
-                        ? new Date(tItem.startDate).toLocaleString()
-                        : tItem.start
-                        ? new Date(tItem.start).toLocaleString()
-                        : ""}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <button type="button" onClick={() => setMenuOpen(true)} className="iconBtn lg:hidden" aria-label="Open menu">
+              <Menu size={18} />
+            </button>
           </div>
         </div>
+      </header>
 
-        <div
-          className="relative h-64 sm:h-72 md:h-auto"
-          style={{
-            backgroundImage: `linear-gradient(to bottom right, rgba(249,115,22,0.15), rgba(244,63,94,0.06)), url(${imageUrl}), url(${placeholderUnsplash})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center"
-          }}
-        >
-          <div className="p-3">
-           
-            {tasks[0] ? (
-              <>
-                <div className="font-semibold text-rose-700">
-                  {tasks[0].title || tasks[0].name}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {tasks[0].startDate
-                    ? new Date(tasks[0].startDate).toLocaleString()
-                    : tasks[0].start
-                    ? new Date(tasks[0].start).toLocaleString()
-                    : ""}
-                </div>
-              </>
-            ) : (
-              <>
-                
-              </>
-            )}
-
-	 </div>
-	  {/* ?? Ministry Moments Section */}
-<div style={{ marginTop: "20px" }}>
-  <h3
-  style={{
-    fontFamily: "'Playfair Display', serif",
-    fontWeight: "700",
-    fontSize: "28px",
-    letterSpacing: "1px",
-    background: "linear-gradient(90deg, #FFD700, #FF8C00)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    marginBottom: "12px",
-    textAlign: "center",
-    textShadow: "0 2px 10px rgba(0,0,0,0.2)"
-  }}
->
-  ? Ministry Moments ?
-</h3>
-  <div
-    style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-      gap: "12px"
-    }}
-  >
-    <div className="img-card">
-    <img src="/images/prayer.jpg" style={{ width: "100%", borderRadius: "10px" }} />
-    <img src="/images/worship.jpg" style={{ width: "100%", borderRadius: "10px" }} />
-    
-    </div>
-
-
-  </div>
-</div>
-
-          
-        </div>
-      </section>
-
-      {/* Daily Word modal */}
-      {showDaily && (
-        <Modal onClose={closeDaily}>
-          <div className="max-w-xl">
-            <div className="text-center mb-4">
-              <h3 className="text-2xl font-bold text-rose-700 dark:text-rose-300">
-                {t("daily.title")}
-              </h3>
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                {t("daily.subtitle")}
+      {menuOpen && (
+        <div className="fixed inset-0 z-[60] lg:hidden">
+          <button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}
+            className="absolute inset-0 bg-stone-950/50 backdrop-blur-sm" />
+          <div className="absolute inset-x-3 top-3 overflow-hidden rounded-3xl bg-[#f7f1e3] p-5 shadow-2xl ring-1 ring-stone-900/10 dark:bg-[#120c0a] dark:ring-white/10 animate-slideDown">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-stone-900 dark:bg-stone-100">
+                  <img src={mahimaLogo} alt="" className="h-7 w-7 object-contain" />
+                </span>
+                <span className="font-serif text-base font-black">Mahima Ministry</span>
               </div>
+              <button type="button" onClick={() => setMenuOpen(false)} className="iconBtn" aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-md">
-              {dailyLoading ? (
-                <div className="text-center py-8">
-                  <div className="text-gray-500 dark:text-gray-400">
-                    {t("daily.loading")}
-                  </div>
-                </div>
-              ) : dailyError ? (
-                <div className="text-center py-6 text-sm text-red-600">
-                  {dailyError}
-                </div>
-              ) : dailyVerse ? (
-                <>
-                  <div className="text-lg italic text-gray-800 dark:text-gray-100 mb-3">
-                    {`"${dailyVerse.text}"`}
-                  </div>
-                  <div className="text-sm text-rose-700 dark:text-rose-300 font-semibold">
-                    {dailyVerse.reference}
-                  </div>
-                  <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                    {t("daily.more")}
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-6 text-sm text-gray-600 dark:text-gray-300">
-                  {t("daily.none")}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={closeDaily}
-                className="px-4 py-2 rounded-md border"
-              >
-                {t("common.close")}
+            <nav className="mt-5 grid grid-cols-1 gap-1">
+              {navLinks.map(([label, id]) => (
+                <button key={id} type="button" onClick={() => jump(id)}
+                  className="flex h-14 items-center justify-between rounded-2xl bg-white px-5 text-base font-bold text-stone-900 ring-1 ring-stone-900/5 active:scale-[0.99] dark:bg-white/[0.06] dark:text-stone-50 dark:ring-white/10">
+                  {label} <ArrowUpRight size={18} className="text-rose-800 dark:text-amber-300" />
+                </button>
+              ))}
+            </nav>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button"
+                onClick={() => { setMenuOpen(false); if (!hasToken()) window.location.hash = "#/login"; }}
+                className="h-14 rounded-2xl bg-stone-900 text-sm font-black text-stone-50 active:scale-[0.98] dark:bg-stone-100 dark:text-stone-900">
+                {hasToken() ? "My Account" : "Login"}
+              </button>
+              <button type="button" onClick={() => { setMenuOpen(false); onDonate(); }}
+                className="h-14 rounded-2xl bg-gradient-to-br from-rose-800 to-amber-600 text-sm font-black text-amber-50 active:scale-[0.98]">
+                Donate
               </button>
             </div>
           </div>
-        </Modal>
-      )}
-
-      {/* Welcome Guide modal */}
-      {showWelcome && (
-        <Modal onClose={closeWelcome}>
-          <div className="max-w-2xl">
-            <div className="text-center mb-4">
-              <h3 className="text-2xl font-bold text-rose-700 dark:text-rose-300">
-                {t("welcome.title")}
-              </h3>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-md space-y-4">
-              <section>
-                <h4 className="font-semibold text-rose-700 dark:text-rose-300">
-                  {t("welcome.salvationTitle")}
-                </h4>
-                <p className="text-gray-700 dark:text-gray-300 mt-2">
-                  {t("welcome.salvationBody")}
-                </p>
-              </section>
-
-              <section>
-                <h4 className="font-semibold text-rose-700 dark:text-rose-300">
-                  {t("welcome.prayerModuleTitle")}
-                </h4>
-                <p className="text-gray-700 dark:text-gray-300 mt-2">
-                  {t("welcome.prayerModuleBody")}
-                </p>
-              </section>
-
-              <section>
-                <h4 className="font-semibold text-rose-700 dark:text-rose-300">
-                  {t("welcome.chatModuleTitle")}
-                </h4>
-                <p className="text-gray-700 dark:text-gray-300 mt-2">
-                  {t("welcome.chatModuleBody")}
-                </p>
-              </section>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={closeWelcome}
-                className="px-4 py-2 rounded-md bg-rose-600 text-white"
-              >
-                {t("common.close")}
-              </button>
-            </div>
-          </div>
-        </Modal>
+        </div>
       )}
     </>
   );
 }
 
-/* ---------------- Modal primitive ---------------------- */
-function Modal({ children, onClose }) {
-  const overlayRef = useRef();
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+/* ========================================================================
+   HERO  (clean: 3 CTAs, no inline floating cards)
+   ===================================================================== */
+function Hero({ onDonate }) {
+  const navigate = useNavigate();
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onMouseDown={(e) => {
-        if (e.target === overlayRef.current) onClose();
-      }}
-    >
-      <div className="bg-transparent">{children}</div>
-    </div>
-  );
-}
-
-/* ---------------- About / Stats etc ----- */
-function AboutSection() {
-  const { t } = useLanguage();
-  return (
-    <section
-      id="about"
-      className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6 items-start"
-    >
-      <div className="md:col-span-2 rounded-2xl bg-white dark:bg-white/10 p-6 shadow">
-        <h3 className="text-2xl font-bold text-rose-700 dark:text-rose-300">
-          {t("about.title")}
-        </h3>
-        <p className="mt-3 text-gray-700 dark:text-gray-300">
-          {t("about.body")}
-        </p>
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Stat
-            label={t("about.stat.members")}
-            value="300+"
-            icon={<Users size={14} />}
-          />
-          <Stat
-            label={t("about.stat.years")}
-            value="1+"
-            icon={<Calendar size={14} />}
-          />
-          <Stat
-            label={t("about.stat.groups")}
-            value="10"
-            icon={<Users size={14} />}
-          />
-        </div>
+    <section id="top"
+      className="relative mt-3 overflow-hidden rounded-[2rem] bg-stone-950 shadow-[0_30px_60px_-30px_rgba(0,0,0,.5)] sm:mt-4">
+      <div className="absolute inset-0">
+        <img src="/assets/mahimachurch-hero.jpg" alt=""
+          className="h-full w-full animate-kenburns object-cover opacity-65" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(180,83,9,.35),transparent_60%)] mix-blend-overlay" />
+        <div className="absolute inset-0 bg-gradient-to-b from-stone-950/40 via-stone-950/45 to-stone-950/95" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-stone-950 to-transparent" />
       </div>
 
-      <aside className="rounded-2xl bg-gradient-to-b from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5 p-6 shadow">
-        <h4 className="font-semibold text-rose-700 dark:text-rose-300">
-          {t("about.contactTitle")}
-        </h4>
-        <div className="mt-3 text-sm text-gray-700 dark:text-gray-300 space-y-2">
-          <div className="flex items-center gap-2">
-            <PhoneCall size={16} /> +91 9646628466
-          </div>
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} /> PawanK@mahimaministries.in
-          </div>
-          <div>
-            Universal Public School, Gurunanak Nagar, Gulab Devi Road Near
-            Nagra Phatak, Jalandhar, Punjab-144021
-          </div>
+      <div className="relative flex min-h-[80svh] flex-col justify-end p-6 pb-8 sm:min-h-[72svh] sm:p-10 lg:min-h-[640px] lg:p-14">
+        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-amber-200/30 bg-amber-100/10 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.22em] text-amber-200 backdrop-blur-md">
+          <span className="relative grid h-2 w-2 place-items-center">
+            <span className="absolute inset-0 rounded-full bg-amber-300 animate-pingSoft" />
+            <span className="relative h-2 w-2 rounded-full bg-amber-300" />
+          </span>
+          Jalandhar, Punjab
         </div>
 
-        <div className="mt-4 flex gap-2">
-          <a
-            className="px-3 py-2 rounded-full bg-white dark:bg-white/10 font-semibold"
-            href="/contact"
-          >
-            {t("about.contactButton")}
-          </a>
-          <a
-            className="px-3 py-2 rounded-full border border-rose-200 text-rose-700 dark:border-white/20 dark:text-rose-300"
-            href="/plan-visit"
-          >
-            {t("about.planVisit")}
-          </a>
+        <h1 className="mt-5 font-serif text-[2.85rem] font-black leading-[0.94] tracking-[-0.03em] text-amber-50 sm:text-7xl lg:text-[6.5rem]">
+          Worship.<br />
+          <span className="italic text-amber-200">Heal.</span><br />
+          Send.
+        </h1>
+
+        <p className="mt-5 max-w-xl text-base leading-7 text-stone-200/85 sm:text-lg sm:leading-8">
+          A Christ-centred ministry in Punjab where faith becomes practical worship,
+          healing prayer, discipleship, and mission for everyday life.
+        </p>
+
+        <div className="mt-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:gap-3">
+          <button type="button" onClick={() => navigate("/sermons")}
+            className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-amber-50 px-6 text-[15px] font-black text-stone-900 shadow-lg transition active:scale-[0.98]">
+            <Play size={16} fill="currentColor" /> Watch Sermons
+            <ArrowRight size={15} className="opacity-60 transition group-hover:translate-x-0.5" />
+          </button>
+          <button type="button"
+            onClick={() => {
+              if (!hasToken()) { alert("Please create an account / sign in to submit a prayer request."); return; }
+              navigate("/prayerrequests");
+            }}
+            className="inline-flex h-14 items-center justify-center gap-2 rounded-full border border-amber-100/25 bg-white/8 px-6 text-[15px] font-black text-amber-50 backdrop-blur-md transition active:scale-[0.98] hover:bg-white/14">
+            <Heart size={16} /> Request Prayer
+          </button>
+          <button type="button" onClick={onDonate}
+            className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-rose-800 to-amber-600 px-6 text-[15px] font-black text-amber-50 shadow-lg transition active:scale-[0.98]">
+            <Sparkles size={16} /> Give
+          </button>
         </div>
-      </aside>
+
+        <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] font-bold text-amber-100/85">
+          <a href={contact.phoneHref} className="inline-flex items-center gap-1.5">
+            <Phone size={13} /> {contact.phone}
+          </a>
+          <span className="text-amber-100/30">/</span>
+          <span className="inline-flex items-center gap-1.5">
+            <Clock size={13} /> Sat 6–9 PM · Night prayer Tue & Fri 10:30 PM
+          </span>
+        </div>
+      </div>
     </section>
   );
 }
 
-function Stat({ label, value, icon }) {
+/* ========================================================================
+   SERVICES  (merged NextService + ServiceTimes)
+   ===================================================================== */
+function Services() {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-white dark:bg-white/10 p-3 shadow">
-      <div className="w-10 h-10 rounded-md bg-rose-50 dark:bg-white/10 flex items-center justify-center text-rose-600 dark:text-rose-300">
-        {icon}
-      </div>
-      <div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">{label}</div>
-        <div className="font-semibold text-gray-800 dark:text-gray-100">
-          {value}
+    <section id="services" className="mt-12 scroll-mt-24">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="kicker">Plan your visit</p>
+          <h2 className="sectionTitle">Service times</h2>
         </div>
+        <p className="max-w-md text-[14px] leading-6 text-stone-600 dark:text-stone-300">
+          First time? Come as you are — there's a place at the table.
+        </p>
       </div>
-    </div>
-  );
-}
 
-function MinistriesGrid() {
-  const { t } = useLanguage();
-  const items = [
-    {
-      title: "Worship & Services",
-      desc: "Biblical teaching and worship.",
-      icon: <Play size={18} />
-    },
-    {
-      title: "Healing Ministry",
-      desc: "Prayer, deliverance & counseling.",
-      icon: <Heart size={18} />
-    },
-    {
-      title: "Children & Youth",
-      desc: "Safe, fun discipleship programs.",
-      icon: <Users size={18} />
-    },
-    {
-      title: "Outreach & Mercy",
-      desc: "Local feeding and care.",
-      icon: <Heart size={18} />
-    },
-    {
-      title: "Small Groups",
-      desc: "Life-on-life discipleship.",
-      icon: <Users size={18} />
-    },
-    {
-      title: "Training & Leadership",
-      desc: "Equipping believers to serve.",
-      icon: <BookOpen size={18} />
-    }
-  ];
-
-  return (
-    <section id="ministries" className="mt-8">
-      <h3 className="text-2xl font-bold text-rose-700 dark:text-rose-300 mb-4">
-        {t("nav.ministries")}
-      </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((it) => (
-          <div
-            key={it.title}
-            className="rounded-2xl p-4 bg-white dark:bg-white/10 shadow-lg flex gap-4 items-start"
-          >
-            <div className="w-12 h-12 rounded-lg bg-gradient-to-tr from-rose-400 to-amber-300 text-white flex items-center justify-center">
-              {it.icon}
-            </div>
-            <div>
-              <div className="font-semibold text-gray-800 dark:text-gray-100">
-                {it.title}
+      <div className="mt-5 flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible sm:pb-0 hideScrollbar">
+        {services.map((s, i) => (
+          <article key={i}
+            className="relative shrink-0 snap-center w-[82%] sm:w-auto overflow-hidden rounded-[1.75rem] p-6 text-amber-50 shadow-lg"
+            style={{ background: s.bg }}>
+            <div className="pointer-events-none absolute -right-12 -bottom-12 h-48 w-48 rounded-full bg-amber-100/15 blur-3xl" />
+            <div className="relative flex items-start justify-between">
+              <div>
+                <div className="text-[10.5px] font-black uppercase tracking-[0.24em] text-amber-100/85">{s.day}</div>
+                <div className="mt-2 font-serif text-2xl font-black leading-tight">{s.title}</div>
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                {it.desc}
-              </div>
+              <span className="rounded-full bg-amber-50/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest backdrop-blur">{s.tag}</span>
             </div>
-          </div>
+            <div className="relative mt-6 inline-flex items-center gap-2 rounded-full bg-amber-50/15 px-3.5 py-1.5 text-[13px] font-black backdrop-blur">
+              <Clock size={13} /> {s.time}
+            </div>
+          </article>
         ))}
       </div>
     </section>
   );
 }
 
-/* ---------------- CoreValues --------------------------- */
-function CoreValues({ compact = false }) {
-  const { t } = useLanguage();
+/* ========================================================================
+   ABOUT + VISIT
+   ===================================================================== */
+function AboutVisit() {
   return (
-    <section
-      className={`mt-8 grid ${
-        compact ? "grid-cols-1" : "grid-cols-1 md:grid-cols-3"
-      } gap-4`}
-    >
-      <div className="md:col-span-2 rounded-2xl bg-white dark:bg-white/10 p-6 shadow">
-        <h4 className="text-xl font-bold text-rose-700 dark:text-rose-300">
-          {t("values.title")}
-        </h4>
-        <p className="mt-2 text-gray-700 dark:text-gray-300">
-          {t("values.body")}
+    <section id="about" className="mt-12 scroll-mt-24 grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="relative overflow-hidden rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-stone-900/5 dark:bg-white/[0.04] dark:ring-white/10 sm:p-10">
+        <p className="kicker">Who we are</p>
+        <h2 className="sectionTitle mt-1">
+          A warm church family in{" "}
+          <em className="font-serif italic text-rose-800 dark:text-amber-300">Jalandhar</em>
+        </h2>
+        <p className="mt-4 max-w-2xl text-[15px] leading-[1.75] text-stone-700 dark:text-stone-300 sm:text-base">
+          Mahima Ministry is dedicated to worship, healing, discipleship, and local care.
+          We believe broken lives can be restored — and every believer can be equipped for ministry.
         </p>
-        <ul className="mt-4 space-y-2 text-gray-700 dark:text-gray-300">
-          <li>• {t("values.b1")}</li>
-          <li>• {t("values.b2")}</li>
-          <li>• {t("values.b3")}</li>
-          <li>• {t("values.b4")}</li>
-        </ul>
+        <div className="mt-7 grid grid-cols-3 gap-3">
+          <Stat label="Members" value="300+" />
+          <Stat label="Year" value="1+" />
+          <Stat label="Groups" value="10" />
+        </div>
       </div>
 
-      <div className="rounded-2xl bg-rose-50 dark:bg-white/10 p-6 shadow flex flex-col justify-between">
-        <div>
-          <div className="font-semibold text-rose-700 dark:text-rose-300">
-            {t("values.connect")}
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-rose-900 via-rose-800 to-amber-700 p-6 text-amber-50 shadow-lg sm:p-8">
+        <div className="pointer-events-none absolute -right-12 -bottom-12 h-56 w-56 rounded-full bg-amber-200/15 blur-3xl" />
+        <div className="pointer-events-none absolute -left-8 -top-8 h-36 w-36 rounded-full bg-amber-300/20 blur-3xl" />
+        <div className="relative">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50/15 px-3 py-1 text-[10.5px] font-black uppercase tracking-[0.24em] backdrop-blur">
+            <MapPin size={11} /> Visit Us
           </div>
-          <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">
-            Office: +91 9646628466
-            <br />
-            Email: PawanK@mahimaministries.in
-            <br />
-            Location: Jalandhar, Punjab
+          <h3 className="mt-3 font-serif text-2xl font-black tracking-tight">Drop by & say hello</h3>
+          <div className="mt-5 space-y-3.5 text-[14.5px]">
+            <a href={contact.phoneHref} className="contactRow group">
+              <span className="contactIcon"><PhoneCall size={13} /></span>
+              <span className="font-bold">{contact.phone}</span>
+              <ArrowUpRight size={14} className="ml-auto opacity-50 transition group-hover:opacity-100" />
+            </a>
+            <a href={`mailto:${contact.email}`} className="contactRow group">
+              <span className="contactIcon"><Mail size={13} /></span>
+              <span className="break-all font-bold">{contact.email}</span>
+            </a>
+            <div className="contactRow !items-start">
+              <span className="contactIcon mt-0.5"><MapPin size={13} /></span>
+              <span className="leading-6">{contact.address}</span>
+            </div>
           </div>
-        </div>
-        <div className="mt-4">
-          <a
-            href="/contact"
-            className="inline-block py-2 px-4 rounded-full bg-white dark:bg-white/10 font-semibold"
-          >
-            {t("values.contactUs")}
-          </a>
         </div>
       </div>
     </section>
   );
 }
 
-/* ----------------- GetInvolved ------------------------ */
-function GetInvolved({ onOpenDonate }) {
-  const [showServeModal, setShowServeModal] = useState(false);
-  const { t } = useLanguage();
+function Stat({ label, value }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-900/5 dark:bg-white/[0.05] dark:ring-white/10">
+      <div className="font-serif text-3xl font-black leading-none tracking-tight text-rose-900 dark:text-amber-200 sm:text-4xl">{value}</div>
+      <div className="mt-2 text-[10.5px] font-black uppercase tracking-[0.22em] text-stone-500 dark:text-stone-300">{label}</div>
+    </div>
+  );
+}
+
+/* ========================================================================
+   GET INVOLVED  (single source of all secondary actions)
+   ===================================================================== */
+function GetInvolved({ onDonate }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(null); // null | "daily" | "welcome" | "serve"
+
+  const cards = [
+    {
+      key: "daily",
+      title: "Daily Word",
+      text: "A short verse. Fresh hope for today, every day.",
+      icon: <BookOpen size={22} />,
+      iconBg: "#9f1239",
+      glow: "linear-gradient(135deg, #fecdd3 0%, #fde68a 100%)",
+      onClick: () => setOpen("daily"),
+    },
+    {
+      key: "welcome",
+      title: "Welcome Guide",
+      text: "New here? Start with who we are and what to expect.",
+      icon: <Sun size={22} />,
+      iconBg: "#b45309",
+      glow: "linear-gradient(135deg, #fde68a 0%, #fcd34d 100%)",
+      onClick: () => setOpen("welcome"),
+    },
+    {
+      key: "prayer",
+      title: "Request Prayer",
+      text: "Share a confidential need. Our team will pray with you.",
+      icon: <Heart size={22} />,
+      iconBg: "#9f1239",
+      glow: "linear-gradient(135deg, #fecdd3 0%, #fda4af 100%)",
+      onClick: () => {
+        if (!hasToken()) { alert("Please create an account / sign in to submit a prayer request."); return; }
+        navigate("/prayerrequests");
+      },
+    },
+    {
+      key: "serve",
+      title: "Serve with us",
+      text: "Worship, kids, hospitality, media — there's a doorway in.",
+      icon: <Users size={22} />,
+      iconBg: "#312e81",
+      glow: "linear-gradient(135deg, #c7d2fe 0%, #fecdd3 100%)",
+      onClick: () => setOpen("serve"),
+    },
+    {
+      key: "give",
+      title: "Give",
+      text: "Support Mahima's worship, healing & outreach work.",
+      icon: <Sparkles size={22} />,
+      iconBg: "#b45309",
+      glow: "linear-gradient(135deg, #fde68a 0%, #fecdd3 100%)",
+      onClick: onDonate,
+    },
+    {
+      key: "ask",
+      title: "Ask a question",
+      text: "Reach out — we'll respond personally as a team.",
+      icon: <HelpCircle size={22} />,
+      iconBg: "#0f172a",
+      glow: "linear-gradient(135deg, #ddd6fe 0%, #fcd34d 100%)",
+      onClick: () => (window.location.href = `mailto:${contact.email}?subject=Question%20for%20Mahima%20Ministry`),
+    },
+  ];
 
   return (
-    <section
-      id="get-involved"
-      className="mt-8 rounded-2xl bg-white dark:bg-white/10 p-6 shadow"
-    >
-      <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-bold text-rose-700 dark:text-rose-300">
-          {t("involved.title")}
-        </h3>
-        <div className="text-sm text-gray-600 dark:text-gray-300">
-          {t("involved.subtitle")}
-        </div>
+    <section id="get-involved" className="mt-12 scroll-mt-24">
+      <div>
+        <p className="kicker">Get involved</p>
+        <h2 className="sectionTitle">Take the next step</h2>
+        <p className="mt-2 max-w-xl text-[14px] leading-6 text-stone-600 dark:text-stone-300">
+          Whatever season you're in, choose your doorway in.
+        </p>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <button
-          onClick={() => setShowServeModal(true)}
-          className="block rounded-xl border p-4 hover:shadow-md transition bg-gradient-to-r from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5"
-        >
-          <div className="font-semibold text-rose-700 dark:text-rose-300">
-            {t("involved.serveTitle")}
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-300 mt-2">
-            {t("involved.serveBody")}
-          </div>
-          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            {t("involved.serveMore")}
-          </div>
-        </button>
-
-       <a
-  href="#/prayerrequests"
-  onClick={(e) => {
-    const token =
-      localStorage.getItem("mahima_token") ||
-      localStorage.getItem("mahima:user") ||
-      getToken();
-
-    if (!token) {
-      e.preventDefault(); // ?? stop navigation
-      alert("Please Create User/Login to enter a prayer request");
-      return;
-    }
-  }}
-  className="block rounded-xl border p-4 hover:shadow-md transition bg-gradient-to-r from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5"
->          <div className="font-semibold text-rose-700 dark:text-rose-300">
-            {t("involved.requestPrayerTitle")}
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-300 mt-2">
-            {t("involved.requestPrayerBody")}
-          </div>
-          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            {t("involved.serveMore")}
-          </div>
-        </a>
-
-        <button
-          onClick={() => {
-            if (typeof onOpenDonate === "function") onOpenDonate();
-            else window.dispatchEvent(new CustomEvent("mahima_open_donate"));
-          }}
-          className="block rounded-xl border p-4 hover:shadow-md transition bg-gradient-to-r from-rose-50 to-amber-50 dark:from-white/10 dark:to-white/5"
-        >
-          <div className="font-semibold text-rose-700 dark:text-rose-300">
-            {t("involved.giveTitle")}
-          </div>
-          <div className="text-sm text-gray-600 dark:text-gray-300 mt-2">
-            {t("involved.giveBody")}
-          </div>
-          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            {t("involved.donateMore")}
-          </div>
-        </button>
+      <div className="mt-5 quickGrid">
+        {cards.map((c) => (
+          <button key={c.key} type="button" onClick={c.onClick} className="quickCard">
+            <div aria-hidden="true" className="quickGlow" style={{ background: c.glow }} />
+            <div className="quickIcon" style={{ background: c.iconBg }}>{c.icon}</div>
+            <div className="quickTitle">{c.title}</div>
+            <div className="quickText">{c.text}</div>
+            <div className="quickLink">Open <ArrowRight size={12} /></div>
+          </button>
+        ))}
       </div>
 
-      {showServeModal && (
-        <Modal onClose={() => setShowServeModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xl w-96 relative">
-            <button
-              className="absolute top-3 right-4 text-gray-500"
-              onClick={() => setShowServeModal(false)}
-            >
-              ×
-            </button>
-            <h3 className="text-xl font-bold text-rose-700 dark:text-rose-300 mb-2">
-              {t("serveModal.title")}
-            </h3>
-            <p className="text-gray-700 dark:text-gray-300 mb-4">
-              {t("serveModal.body")}
+      {open === "daily" && (
+        <Modal onClose={() => setOpen(null)}>
+          <ModalCard title="Daily Word">
+            <p className="font-serif text-lg italic leading-8 text-stone-700 dark:text-stone-200">
+              {'"For God so loved the world that He gave His only begotten Son, that whoever believes in Him should not perish but have everlasting life."'}
             </p>
-            <div className="text-sm text-gray-700 dark:text-gray-300">
-              <div>
-                <strong>{t("serveModal.contactLabel")}</strong> Pawan Kumar
-              </div>
-              <div>
-                <strong>{t("serveModal.phoneLabel")}</strong> +91 9646628466
-              </div>
-              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                {t("serveModal.footerNote")}
-              </div>
+            <p className="mt-4 font-black text-rose-800 dark:text-rose-300">John 3:16</p>
+          </ModalCard>
+        </Modal>
+      )}
+      {open === "welcome" && (
+        <Modal onClose={() => setOpen(null)}>
+          <ModalCard title="Welcome Guide">
+            <div className="space-y-4 text-stone-700 dark:text-stone-300">
+              <p><strong>Salvation & Word of God:</strong> We believe salvation is by grace through faith in Jesus Christ.</p>
+              <p><strong>Prayer Support:</strong> Submit confidential prayer needs and our team will pray with you.</p>
+              <p><strong>Community:</strong> Join worship, discipleship, outreach, and care ministries.</p>
             </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setShowServeModal(false)}
-                className="px-4 py-2 rounded-md bg-rose-600 text-white"
-              >
-                {t("common.close")}
-              </button>
-            </div>
-          </div>
+          </ModalCard>
+        </Modal>
+      )}
+      {open === "serve" && (
+        <Modal onClose={() => setOpen(null)}>
+          <ModalCard title="Serve with us">
+            <p className="text-stone-700 dark:text-stone-300">
+              Get in touch with us for team assignments, training, and scheduling.
+            </p>
+            <p className="mt-4 font-black text-rose-800 dark:text-rose-300">
+              Phone: {contact.phone}
+            </p>
+          </ModalCard>
         </Modal>
       )}
     </section>
   );
 }
 
-function Footer() {
-  const { t } = useLanguage();
-  const year = new Date().getFullYear();
+/* ========================================================================
+   MINISTRIES
+   ===================================================================== */
+function Ministries() {
+  const items = [
+    ["Worship & Services",    "Biblical teaching and worship.",            <Play size={20} />],
+    ["Healing Ministry",      "Prayer, deliverance, and counselling.",     <Heart size={20} />],
+    ["Children & Youth",      "Safe discipleship programs.",               <Users size={20} />],
+    ["Outreach & Mercy",      "Serving the local community.",              <Sparkles size={20} />],
+    ["Small Groups",          "Life-on-life discipleship.",                <MessageSquare size={20} />],
+    ["Training & Leadership", "Equipping believers to serve.",             <BookOpen size={20} />],
+  ];
   return (
-    <footer className="mt-8 py-6 text-sm text-gray-600 dark:text-gray-300">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+    <section id="ministries" className="mt-12 scroll-mt-24">
+      <p className="kicker">Ministries</p>
+      <h2 className="sectionTitle">Many ways to grow & serve</h2>
+      <p className="mt-2 max-w-xl text-[14px] leading-6 text-stone-600 dark:text-stone-300">
+        Whatever season you're in, there's a doorway in.
+      </p>
+
+      <div className="mt-6 flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:pb-0 lg:grid-cols-3 hideScrollbar">
+        {items.map(([title, desc, icon], i) => (
+          <article key={title}
+            className="group relative shrink-0 snap-center w-[78%] sm:w-auto overflow-hidden rounded-[1.5rem] bg-white p-6 shadow-sm ring-1 ring-stone-900/5 transition hover:-translate-y-0.5 hover:shadow-xl dark:bg-white/[0.05] dark:ring-white/10"
+            style={{ minHeight: 200 }}>
+            <span className="absolute right-5 top-5 font-serif text-xs font-black text-stone-300 dark:text-white/20">
+              0{i + 1}
+            </span>
+            <div className="mb-5 grid h-12 w-12 place-items-center rounded-2xl bg-stone-900 text-amber-50 transition group-hover:bg-gradient-to-br group-hover:from-rose-800 group-hover:to-amber-700 dark:bg-stone-100 dark:text-stone-900">
+              {icon}
+            </div>
+            <h3 className="font-serif text-lg font-black leading-tight">{title}</h3>
+            <p className="mt-2 text-[13.5px] leading-6 text-stone-600 dark:text-stone-300">{desc}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ========================================================================
+   SCRIPTURE MARQUEE  (replaces Testimony + VerseMarquee duplication)
+   ===================================================================== */
+function ScriptureMarquee() {
+  return (
+    <section className="mt-12 overflow-hidden rounded-full border border-stone-900/5 bg-amber-50/80 py-3 backdrop-blur dark:border-white/10 dark:bg-white/5">
+      <div className="marquee flex items-center gap-10 whitespace-nowrap font-serif text-[14px] italic text-stone-800 dark:text-stone-200">
+        {[...verses, ...verses].map((v, i) => (
+          <span key={i} className="inline-flex items-center gap-3">
+            <Quote size={13} className="text-rose-800 dark:text-amber-300" />
+            <span>{v}</span>
+            <span className="text-rose-800/40 dark:text-amber-300/40">·</span>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ========================================================================
+   GALLERY
+   ===================================================================== */
+function Gallery() {
+  return (
+    <section id="moments" className="mt-12 scroll-mt-24">
+      <p className="kicker">Moments</p>
+      <h2 className="sectionTitle">Worship, prayer, community</h2>
+
+      <div className="mt-5 flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2 sm:hidden hideScrollbar">
+        {galleryImages.map((src, i) => (
+          <figure key={src} className="relative shrink-0 snap-center w-[78%] aspect-[4/5] overflow-hidden rounded-[1.5rem] bg-stone-200 dark:bg-white/5">
+            <img src={src} alt={`Mahima moment ${i + 1}`} className="h-full w-full object-cover" loading="lazy" />
+            <figcaption className="absolute inset-x-3 bottom-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-amber-50">
+              <span className="rounded-full bg-stone-950/60 px-2.5 py-1 backdrop-blur">Moment {String(i + 1).padStart(2, "0")}</span>
+              <Sparkles size={12} className="text-amber-200" />
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+
+      <div className="mt-5 hidden columns-2 gap-4 sm:block lg:columns-3">
+        {galleryImages.map((src, i) => (
+          <figure key={src}
+            className="group relative mb-4 break-inside-avoid overflow-hidden rounded-[1.5rem] bg-stone-200 ring-1 ring-stone-900/5 dark:bg-white/5 dark:ring-white/10">
+            <img src={src} alt={`Mahima Ministry moment ${i + 1}`}
+              className="w-full object-cover transition duration-700 group-hover:scale-[1.04]" loading="lazy" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-stone-950/55 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+            <figcaption className="pointer-events-none absolute inset-x-5 bottom-4 flex items-center justify-between text-[10.5px] font-black uppercase tracking-widest text-amber-50 opacity-0 transition group-hover:opacity-100">
+              <span>Moment {String(i + 1).padStart(2, "0")}</span>
+              <Sparkles size={12} className="text-amber-200" />
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ========================================================================
+   FOOTER  (slimmer — no nav-link duplication)
+   ===================================================================== */
+function Footer() {
+  return (
+    <footer className="mt-14 border-t border-stone-900/10 py-10 text-[13.5px] text-stone-500 dark:border-white/10 dark:text-stone-400">
+      <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
         <div>
-          © {year} {t("footer.rights")}
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-stone-900 dark:bg-stone-100">
+              <img src={mahimaLogo} alt="" className="h-7 w-7 object-contain" />
+            </span>
+            <span className="font-serif text-base font-black tracking-tight text-stone-900 dark:text-stone-50">
+              Mahima Ministry
+            </span>
+          </div>
+          <p className="mt-4 max-w-sm leading-6">
+            Restoration, healing, and mission. A Christ-centred ministry family in Jalandhar, Punjab.
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <a href="/privacy" className="hover:underline">
-            {t("footer.privacy")}
-          </a>
-          <a href="/terms" className="hover:underline">
-            {t("footer.terms")}
-          </a>
+        <div className="sm:text-right">
+          <p className="text-[10.5px] font-black uppercase tracking-[0.24em] text-rose-800 dark:text-amber-300">Connect</p>
+          <ul className="mt-3 space-y-2">
+            <li><a className="hover:text-rose-800 dark:hover:text-amber-300" href={contact.phoneHref}>{contact.phone}</a></li>
+            <li><a className="hover:text-rose-800 dark:hover:text-amber-300" href={`mailto:${contact.email}`}>{contact.email}</a></li>
+            <li className="leading-6">{contact.address}</li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-stone-900/10 pt-6 sm:flex-row sm:items-center dark:border-white/10">
+        <p>© {new Date().getFullYear()} Mahima Ministry. All rights reserved.</p>
+        <div className="flex gap-4">
+          <a href="/privacy" className="hover:text-rose-800 dark:hover:text-amber-300">Privacy</a>
+          <a href="/terms" className="hover:text-rose-800 dark:hover:text-amber-300">Terms</a>
         </div>
       </div>
     </footer>
   );
 }
 
-/* ---------------- InnerHomeLanding --------------------- */
-function InnerHomeLanding({ showDonate, setShowDonate }) {
-  const { t } = useLanguage();
-
+/* ========================================================================
+   MOBILE CTA
+   ===================================================================== */
+function MobileCTA({ onDonate }) {
+  const navigate = useNavigate();
   return (
-    <>
-      <div className="mx-auto max-w-7xl">
-        <TopNav onOpenDonate={() => setShowDonate(true)} />
-        <Hero vibrant onOpenDonate={() => setShowDonate(true)} />
-        <MobileCTA onOpenDonate={() => setShowDonate(true)} />
-        <QuickActions />
-        <AboutSection />
-        <MinistriesGrid />
-        <CoreValues />
-        <GetInvolved onOpenDonate={() => setShowDonate(true)} />
-        <Footer />
+    <div className="fixed inset-x-3 bottom-3 z-50 lg:hidden">
+      <div className="flex items-center gap-1.5 rounded-full bg-stone-950/95 p-1.5 shadow-[0_18px_50px_-15px_rgba(0,0,0,.5)] backdrop-blur ring-1 ring-white/10">
+        <button type="button" onClick={() => navigate("/sermons")}
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full text-[13px] font-black text-amber-50 active:scale-[0.98]" aria-label="Sermons">
+          <Play size={14} /> Sermons
+        </button>
+        <button type="button"
+          onClick={() => {
+            if (!hasToken()) { alert("Please create an account / sign in to submit a prayer request."); return; }
+            navigate("/prayerrequests");
+          }}
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full text-[13px] font-black text-amber-50 active:scale-[0.98]" aria-label="Prayer">
+          <Heart size={14} /> Prayer
+        </button>
+        <button type="button" onClick={onDonate}
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-gradient-to-br from-rose-700 to-amber-500 text-[13px] font-black text-amber-50 shadow-md active:scale-[0.98]" aria-label="Give">
+          <Sparkles size={14} /> Give
+        </button>
       </div>
-
-      {showDonate && (
-        <Modal onClose={() => setShowDonate(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl text-center relative w-80">
-            <button
-              onClick={() => setShowDonate(false)}
-              aria-label={t("donate.closeAria")}
-              className="absolute top-2 right-3 text-gray-500 hover:text-rose-600 font-bold text-lg"
-            >
-              ×
-            </button>
-            <h2 className="text-lg font-bold text-rose-700 dark:text-rose-300 mb-3">
-              {t("donate.title")}
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              {t("donate.scan")}
-            </p>
-            <img
-              src="/assets/upi-qr.jpg"
-              alt="UPI QR Code"
-              className="rounded-lg shadow-md mx-auto mb-4"
-              loading="lazy"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {t("donate.thanks")}
-            </p>
-          </div>
-        </Modal>
-      )}
-    </>
-  );
-
-	{showJoinPopup && (
-  <div style={{
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 9999
-  }}>
-    <div style={{
-      background: "#fff",
-      padding: 20,
-      borderRadius: 12,
-      maxWidth: 320,
-      textAlign: "center"
-    }}>
-      <h3>Join Group</h3>
-      <p>Please Contact Bro. Pawan Kumar</p>
-
-      <button
-        onClick={() => setShowJoinPopup(false)}
-        style={{
-          marginTop: 10,
-          padding: "6px 12px",
-          borderRadius: 6,
-          border: "none",
-          background: "#123a63",
-          color: "#fff",
-          cursor: "pointer"
-        }}
-      >
-        Close
-      </button>
     </div>
-  </div>
-
-)}
-
-<section style={{ padding: "40px 20px" }}>
-  <h2 style={{ textAlign: "center", marginBottom: "20px" }}>
-    Ministry Moments
-  </h2>
-
-  <div
-    style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-      gap: "20px"
-    }}
-  >
-    <img src="/images/prayer.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/welcome.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/worship.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/Mahima-Word.png" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236883.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236884.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236885.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236887.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236888.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236889.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236890.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236891.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236892.jpg" style={{ width: "100%", borderRadius: "12px" }} />
-    <img src="/images/1000236893.jpg" style={{ width: "100%", borderRadius: "12px" }} />
- 
-  </div>
-</section>
-
+  );
 }
 
-/* -------------- Setup: expose small global event for donate -------------- */
-(function setupGlobalUIEvents() {
-  if (typeof window === "undefined") return;
-  if (window.__mahima_ui_events_registered) return;
-  window.__mahima_ui_events_registered = true;
-  window.addEventListener("mahima_open_donate", () => {
-    window.dispatchEvent(new CustomEvent("mahima_show_donate_modal"));
-  });
-})();
+/* ========================================================================
+   MODALS
+   ===================================================================== */
+function Modal({ children, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div ref={ref}
+      className="fixed inset-0 z-[100] grid place-items-center bg-stone-950/65 p-4 backdrop-blur-sm"
+      onMouseDown={(e) => { if (e.target === ref.current) onClose(); }}>
+      {children}
+    </div>
+  );
+}
+
+function ModalCard({ title, children }) {
+  return (
+    <div className="w-full max-w-xl rounded-[1.5rem] bg-[#f7f1e3] p-6 shadow-2xl ring-1 ring-stone-900/10 dark:bg-[#120c0a] dark:ring-white/10 sm:p-8">
+      <h2 className="font-serif text-2xl font-black tracking-tight text-rose-900 dark:text-amber-200">{title}</h2>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function DonateModal({ onClose }) {
+  return (
+    <Modal onClose={onClose}>
+      <div className="w-[22rem] max-w-full overflow-hidden rounded-[1.5rem] bg-[#f7f1e3] text-center shadow-2xl ring-1 ring-stone-900/10 dark:bg-[#120c0a] dark:ring-white/10">
+        <div className="relative bg-gradient-to-br from-rose-900 to-amber-700 px-6 py-7 text-amber-50">
+          <button type="button" onClick={onClose}
+            className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-amber-50/15 backdrop-blur" aria-label="Close">
+            <X size={16} />
+          </button>
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-amber-50/15 backdrop-blur">
+            <Heart size={20} fill="currentColor" />
+          </div>
+          <h2 className="mt-3 font-serif text-2xl font-black tracking-tight">Support Mahima</h2>
+          <p className="mt-1 text-[12.5px] uppercase tracking-[0.22em] text-amber-100/80">Scan to give via UPI</p>
+        </div>
+        <div className="p-6">
+          <img src="/assets/upi-qr.jpg" alt="UPI QR Code" className="mx-auto rounded-2xl shadow-lg" loading="lazy" />
+          <p className="mt-5 font-serif text-[12.5px] italic text-stone-600 dark:text-stone-300">
+            {'"Each one must give as he has decided in his heart." — 2 Corinthians 9:7'}
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ========================================================================
+   GLOBAL STYLES
+   ===================================================================== */
+function GlobalStyles() {
+  return (
+    <style>{`
+      :root { --paper: #f7f1e3; }
+
+      .font-serif {
+        font-family: "Cormorant Garamond", "EB Garamond", "Source Serif Pro",
+                     ui-serif, Georgia, "Times New Roman", serif;
+        font-feature-settings: "ss01", "liga";
+      }
+
+      .kicker {
+        font-size: 10.5px; font-weight: 900; letter-spacing: 0.28em;
+        text-transform: uppercase; color: #9f1239;
+      }
+      .dark .kicker { color: #fcd34d; }
+
+      .sectionTitle {
+        margin-top: 6px;
+        font-family: "Cormorant Garamond", "EB Garamond", ui-serif, Georgia, serif;
+        font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.02;
+        font-weight: 900; letter-spacing: -0.025em;
+      }
+
+      .navBtn {
+        padding: 10px 14px; border-radius: 999px;
+        font-size: 13.5px; font-weight: 800; color: #1c1917;
+        transition: background .2s ease, color .2s ease;
+      }
+      .navBtn:hover { background: rgba(0,0,0,0.05); }
+      .dark .navBtn { color: #fafaf9; }
+      .dark .navBtn:hover { background: rgba(255,255,255,0.06); }
+
+      .iconBtn {
+        width: 44px; height: 44px; display: grid; place-items: center;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: all .15s ease;
+      }
+      .iconBtn:active { transform: scale(0.96); }
+      .dark .iconBtn {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+
+      .contactRow { display: flex; align-items: center; gap: 12px; min-height: 36px; }
+      .contactIcon {
+        display: grid; place-items: center; width: 30px; height: 30px;
+        border-radius: 10px; background: rgba(255,255,255,.22); backdrop-filter: blur(8px);
+      }
+
+      .hideScrollbar { scrollbar-width: none; }
+      .hideScrollbar::-webkit-scrollbar { display: none; }
+
+      .quickGrid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+      @media (min-width: 640px) { .quickGrid { grid-template-columns: 1fr 1fr; gap: 18px; } }
+      @media (min-width: 1024px) { .quickGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+      .quickCard {
+        position: relative; display: flex; flex-direction: column;
+        align-items: flex-start; text-align: left;
+        min-height: 210px; padding: 22px; border-radius: 28px;
+        background: #ffffff;
+        box-shadow: 0 6px 18px -8px rgba(28, 25, 23, 0.10);
+        border: 1px solid rgba(28, 25, 23, 0.06);
+        overflow: hidden; cursor: pointer;
+        transition: transform .18s ease, box-shadow .18s ease;
+      }
+      .quickCard:hover { transform: translateY(-3px); box-shadow: 0 22px 40px -18px rgba(28, 25, 23, 0.22); }
+      .quickCard:active { transform: scale(0.985); }
+      .dark .quickCard { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+
+      .quickGlow {
+        position: absolute; top: -48px; right: -48px;
+        width: 160px; height: 160px; border-radius: 9999px;
+        filter: blur(36px); opacity: 0.7; pointer-events: none;
+      }
+      .dark .quickGlow { opacity: 0.35; }
+
+      .quickIcon {
+        position: relative; z-index: 1;
+        display: grid; place-items: center;
+        width: 52px; height: 52px; margin-bottom: 16px;
+        border-radius: 16px; color: #fffbeb;
+        box-shadow: 0 10px 24px -10px rgba(0,0,0,0.35);
+      }
+
+      .quickTitle {
+        position: relative; z-index: 1;
+        font-family: "Cormorant Garamond", "EB Garamond", ui-serif, Georgia, serif;
+        font-size: 22px; font-weight: 900; line-height: 1.1;
+        letter-spacing: -0.01em; color: #1c1917;
+      }
+      .dark .quickTitle { color: #fafaf9; }
+
+      .quickText {
+        position: relative; z-index: 1; margin-top: 8px;
+        font-size: 13.5px; line-height: 1.55; color: #57534e;
+      }
+      .dark .quickText { color: #d6d3d1; }
+
+      .quickLink {
+        position: relative; z-index: 1; margin-top: auto; padding-top: 14px;
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11.5px; font-weight: 900; letter-spacing: 0.18em;
+        text-transform: uppercase; color: #9f1239;
+      }
+      .dark .quickLink { color: #fcd34d; }
+
+      @keyframes kenburns {
+        0%   { transform: scale(1.05); }
+        50%  { transform: scale(1.15) translate3d(-1.5%, -1%, 0); }
+        100% { transform: scale(1.05); }
+      }
+      .animate-kenburns { animation: kenburns 24s ease-in-out infinite; }
+
+      @keyframes marquee {
+        0%   { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+      }
+      .marquee { animation: marquee 42s linear infinite; width: max-content; }
+      .marquee:hover { animation-play-state: paused; }
+
+      @keyframes pingSoft {
+        0%   { transform: scale(1); opacity: 0.7; }
+        80%, 100% { transform: scale(2.2); opacity: 0; }
+      }
+      .animate-pingSoft { animation: pingSoft 1.8s cubic-bezier(0,0,.2,1) infinite; }
+
+      @keyframes slideDown {
+        from { transform: translateY(-12px); opacity: 0; }
+        to   { transform: translateY(0); opacity: 1; }
+      }
+      .animate-slideDown { animation: slideDown .22s ease-out; }
+
+      @media (pointer: coarse) {
+        .snap-x { scroll-padding-left: 1rem; scroll-padding-right: 1rem; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .animate-kenburns, .marquee, .animate-pingSoft, .animate-slideDown {
+          animation: none !important;
+        }
+      }
+
+      /* Lift chat-widget launchers above the mobile CTA bar. */
+      @media (max-width: 1023px) {
+        #tawk-bubble-container, .tawk-min-container,
+        .intercom-launcher, .intercom-launcher-frame,
+        .intercom-lightweight-app-launcher, .intercom-lightweight-app,
+        #intercom-container .intercom-launcher,
+        .crisp-client, .crisp-client .cc-kv-cw,
+        .woot-widget-bubble, .woot-widget-holder, .woot--bubble-holder,
+        #chat-widget-container,
+        .drift-frame-controller, .drift-widget-content,
+        .helpcrunch-iframe-wrapper,
+        #hubspot-messages-iframe-container,
+        #livechat-compact-container, #launcher,
+        iframe[id^="chat-widget"], iframe[id*="chat-widget"],
+        iframe[id*="livechat"], iframe[title*="chat" i] {
+          bottom: 80px !important;
+        }
+      }
+    `}</style>
+  );
+}

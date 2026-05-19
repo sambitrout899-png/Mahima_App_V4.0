@@ -1,453 +1,1237 @@
-// src/features/sermons/Page.jsx
-import React, { useEffect, useRef, useState } from "react";
+// src/pages/SermonsPage.jsx
+//
+// Modern resource library: Sermons, Books, Articles.
+// - Lucide icons everywhere (no mojibake from emoji glyphs)
+// - Toast + Confirm modals (no alert/confirm)
+// - Bookmarks via localStorage
+// - Detail modal with full player
+// - Sort + filter + search
+// - Hover-to-preview thumbnails
+// - Encoding-safe: ASCII-only source, special chars via lucide icons
+//
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
+import axios from "axios";
+import {
+  Headphones,
+  BookOpen,
+  FileText,
+  Search,
+  Plus,
+  Edit2,
+  Trash2,
+  Play,
+  ExternalLink,
+  Share2,
+  Bookmark,
+  BookmarkCheck,
+  Calendar as CalendarIcon,
+  User as UserIcon,
+  X,
+  RefreshCw,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  ShieldCheck,
+  Shield,
+  ArrowUpDown,
+  Sparkles,
+  ChevronDown,
+  Copy,
+} from "lucide-react";
 
-/* ---------- util: YouTube ---------- */
+/* ======================================================================== */
+/*  YouTube helpers                                                          */
+/* ======================================================================== */
+
 function extractYouTubeId(url) {
   if (!url) return null;
   try {
     const u = new URL(url);
-    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1) || null;
     if (u.hostname.includes("youtube.com")) {
-      const p = new URLSearchParams(u.search);
-      const v = p.get("v");
+      const v = new URLSearchParams(u.search).get("v");
       if (v) return v;
-      const m = u.pathname.match(/embed\/([^\/?]+)/);
+      const m = u.pathname.match(/embed\/([^/?]+)/);
       if (m) return m[1];
+      const sm = u.pathname.match(/shorts\/([^/?]+)/);
+      if (sm) return sm[1];
     }
-    const maybe = url.trim();
-    if (/^[A-Za-z0-9_-]{11}$/.test(maybe)) return maybe;
   } catch {
-    if (/^[A-Za-z0-9_-]{11}$/.test(String(url).trim())) return String(url).trim();
+    // not a URL — fall through
   }
+  const maybe = String(url).trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(maybe)) return maybe;
   return null;
 }
-const watchUrlFromId  = (id) => (id ? `https://www.youtube.com/watch?v=${id}` : null);
-function embedUrlFromId(id, opts = { autoplay: false, mute: true, controls: 1 }) {
+const watchUrlFromId = (id) => (id ? `https://www.youtube.com/watch?v=${id}` : null);
+const thumbnailUrlFromId = (id, q = "hqdefault") => (id ? `https://img.youtube.com/vi/${id}/${q}.jpg` : null);
+const embedUrlFromId = (id, opts = { autoplay: false, mute: true, controls: 1 }) => {
   if (!id) return null;
   const qp = new URLSearchParams();
   if (opts.autoplay) qp.set("autoplay", "1");
   if (opts.mute) qp.set("mute", "1");
   if (opts.controls != null) qp.set("controls", String(opts.controls));
-  qp.set("rel", "0"); qp.set("modestbranding", "1");
+  qp.set("rel", "0");
+  qp.set("modestbranding", "1");
+  qp.set("playsinline", "1");
   return `https://www.youtube.com/embed/${id}?${qp.toString()}`;
-}
-const thumbnailUrlFromId = (id) => (id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null);
+};
 
-/* ---------- util: Admin detection & Admin Mode ---------- */
+/* ======================================================================== */
+/*  Admin detection                                                          */
+/* ======================================================================== */
+
 const HARDCODED_ADMIN_ID = "ae9dfc94-07d8-469a-a8f6-a4c5aedcf3a9";
-
-function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }
-function decodeJwtPayload(token) {
+const tryParseJSON = (s) => { try { return JSON.parse(s); } catch { return null; } };
+const decodeJwtPayload = (token) => {
   try {
-    const [, payload] = token.split(".");
-    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    const [, p] = token.split(".");
+    return JSON.parse(atob(p.replace(/-/g, "+").replace(/_/g, "/")));
   } catch { return null; }
-}
+};
 
-/** Read current user from common places in localStorage and infer admin status. */
 function useAdminDetection() {
   const [isAdminUser, setIsAdminUser] = useState(false);
 
   useEffect(() => {
-    // try a few common keys your app might use
     const stored =
       localStorage.getItem("currentUser") ||
       localStorage.getItem("mahima_user") ||
-      localStorage.getItem("user") ||
-      null;
-
+      localStorage.getItem("user");
     const user = stored ? tryParseJSON(stored) : null;
-    const uidCandidates = [
+
+    const ids = [
       user?.id, user?.Id, user?.userId, user?.UserId,
       localStorage.getItem("userId"),
       localStorage.getItem("mahima_user_id"),
     ].filter(Boolean);
 
-    // read role-like fields
-    const roleCandidates = []
-      .concat(user?.role, user?.Role, user?.roleName, user?.RoleName)
-      .filter(Boolean)
-      .map(String);
+    const roles = [user?.role, user?.Role, user?.roleName, user?.RoleName]
+      .filter(Boolean).map(String);
 
-    // also peek at JWT (if any) for roles/role claims
-    const rawToken = localStorage.getItem("mahima_token") || localStorage.getItem("token") || null;
-    if (rawToken) {
-      const payload = decodeJwtPayload(rawToken);
-      if (payload) {
+    const token = localStorage.getItem("mahima_token") || localStorage.getItem("token");
+    if (token) {
+      const p = decodeJwtPayload(token);
+      if (p) {
         const jwtRoles = []
-          .concat(payload.role, payload.roles, payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"])
+          .concat(p.role, p.roles, p["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"])
           .filter(Boolean);
-        jwtRoles.forEach((r) => roleCandidates.push(...(Array.isArray(r) ? r : [r]).map(String)));
+        jwtRoles.forEach((r) => roles.push(...(Array.isArray(r) ? r : [r]).map(String)));
       }
     }
 
-    const byId = uidCandidates.some((x) => String(x) === HARDCODED_ADMIN_ID);
-    const byRole = roleCandidates.some((r) => r?.toLowerCase?.() === "admin");
+    const byId = ids.some((x) => String(x) === HARDCODED_ADMIN_ID);
+    const byRole = roles.some((r) => String(r).toLowerCase() === "admin");
     setIsAdminUser(byId || byRole);
   }, []);
 
-  // persist adminMode in sessionStorage so it survives refreshes (per-tab)
-  const [adminMode, _setAdminMode] = useState(() => sessionStorage.getItem("sermons_admin_mode") === "1");
-  const setAdminMode = (v) => { _setAdminMode(v); sessionStorage.setItem("sermons_admin_mode", v ? "1" : "0"); };
+  const [adminMode, setAdminModeState] = useState(
+    () => sessionStorage.getItem("sermons_admin_mode") === "1"
+  );
+  const setAdminMode = useCallback((v) => {
+    setAdminModeState(v);
+    sessionStorage.setItem("sermons_admin_mode", v ? "1" : "0");
+  }, []);
 
-  // Only allow adminMode when user is admin
   useEffect(() => {
     if (!isAdminUser) setAdminMode(false);
-  }, [isAdminUser]);
+  }, [isAdminUser, setAdminMode]);
 
   return { isAdminUser, adminMode, setAdminMode };
 }
 
-/* ---------- dynamic API resolution ---------- */
-function resolveApiFromModule(mod, name) {
+/* ======================================================================== */
+/*  API resolution                                                           */
+/* ======================================================================== */
+
+const resolveApi = (mod, name) => {
   if (!mod) return undefined;
   if (typeof mod[name] === "function") return mod[name];
   const obj = mod.sermonsApi ?? mod.default ?? mod;
   if (obj && typeof obj[name] === "function") return obj[name];
   return undefined;
-}
+};
 
-/* ---------- Component ---------- */
-export default function SermonsPage() {
-  // data + ui
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState("sermon");
-  const [hoverPlayingId, setHoverPlayingId] = useState(null);
-  const [query, setQuery] = useState("");
+/* ======================================================================== */
+/*  Toast system                                                             */
+/* ======================================================================== */
 
-  // admin
-  const { isAdminUser, adminMode, setAdminMode } = useAdminDetection();
+const useToasts = () => {
+  const [toasts, setToasts] = useState([]);
+  const idRef = useRef(0);
 
-  // modal
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ id: null, type: "sermon", title: "", speaker: "", date: "", youtube: "" });
-  const [saving, setSaving] = useState(false);
+  const push = useCallback((type, message, ttl = 3500) => {
+    const id = ++idRef.current;
+    setToasts((p) => [...p, { id, type, message }]);
+    if (ttl > 0) setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), ttl);
+    return id;
+  }, []);
 
-  // apis
-  const moduleRef = useRef(null);
-  const apisRef = useRef({ list: null, create: null, update: null, remove: null });
+  const dismiss = useCallback((id) => setToasts((p) => p.filter((t) => t.id !== id)), []);
+  const success = useCallback((m, ttl) => push("success", m, ttl), [push]);
+  const error = useCallback((m, ttl) => push("error", m, ttl ?? 5000), [push]);
+  const info = useCallback((m, ttl) => push("info", m, ttl), [push]);
 
-  /* ---------- styles (mobile-first) ---------- */
-  const Styles = (
-    <style>{`
-      :root{ --bg: linear-gradient(180deg,#fffdfa,#fbf3e8); --deep:#12223a; --muted:#6f5f4f; --gold:#d1a62a; --card: rgba(255,255,255,0.98); --shadow:0 12px 34px rgba(12,16,24,0.08); --radius:16px; }
-      .wrap{ min-height:100vh; padding:12px; background: var(--bg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--deep); }
-      .hero{ display:flex; gap:12px; align-items:flex-start; background:linear-gradient(90deg,#123a63,#0b2a47); color:#fff; padding:14px; border-radius:16px; box-shadow:var(--shadow); }
-      .hero-actions{ margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-      .btn{ border:none; border-radius:12px; padding:10px 12px; font-weight:800; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px; }
-      .btn-primary{ background: linear-gradient(90deg,var(--gold), #f4de93); color:#2b1f0f; box-shadow: 0 8px 20px rgba(178,136,7,0.18); }
-      .btn-muted{ background:#fff; border:1px solid rgba(0,0,0,0.06); color:#2d3b48; }
-      .btn-ghost{ background:transparent; border:1px dashed rgba(255,255,255,0.6); color:#fff; }
-      .switch{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); font-weight:800; }
-      .switch input{ transform:scale(1.1); }
-      .tabs{ display:flex; gap:8px; margin-top:12px; overflow:auto; }
-      .tab{ padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,0.6); color:#fff; background:transparent; font-weight:700; white-space:nowrap; }
-      .tab.active{ background:#fff; color:#0b2a47; border-color:transparent; }
-      .search-row{ display:flex; gap:8px; margin-top:12px; }
-      .search{ width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(0,0,0,0.08); background:#fff; }
+  return { toasts, success, error, info, dismiss };
+};
 
-      .grid{ display:grid; grid-template-columns: 1fr; gap:12px; margin-top:14px; }
-      @media(min-width: 760px){ .grid{ grid-template-columns: repeat(2,1fr); } }
-      @media(min-width: 1200px){ .grid{ grid-template-columns: repeat(3,1fr); } }
+const ToastStack = ({ toasts, onDismiss }) => (
+  <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2 w-[min(92vw,360px)]">
+    {toasts.map((t) => (
+      <div key={t.id}
+           className={`flex items-start gap-2 rounded-xl border px-3 py-2 shadow-lg backdrop-blur bg-white/95 text-xs ${
+             t.type === "success" ? "border-emerald-200 text-emerald-800"
+             : t.type === "error" ? "border-red-200 text-red-800"
+             : "border-slate-200 text-slate-800"
+           }`}>
+        {t.type === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+         : t.type === "error" ? <AlertCircle className="w-4 h-4 mt-0.5 text-red-600 shrink-0" />
+         : <Info className="w-4 h-4 mt-0.5 text-slate-500 shrink-0" />}
+        <div className="flex-1 leading-snug">{t.message}</div>
+        <button onClick={() => onDismiss(t.id)} className="text-slate-400 hover:text-slate-600">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    ))}
+  </div>
+);
 
-      .card{ background: var(--card); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); border:1px solid rgba(0,0,0,0.04); }
-      .thumb{ position: relative; width: 100%; padding-top: 56.25%; border-radius: 12px; overflow: hidden; background:#000; border:1px solid rgba(0,0,0,0.04); }
-      .play-hint{ position: absolute; left:10px; bottom:10px; background: rgba(0,0,0,0.5); padding:6px 8px; border-radius:8px; color:#fff; font-weight:800; }
-      .pill{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:12px; font-weight:800; }
-      .pill-type{ background:#fff2cc; border:1px solid rgba(200,170,90,0.3); color:#6a4e00; }
-      .dim{ opacity:.5; pointer-events:none; }
-      .hint{ font-size:12px; color:#cfe0ff; }
-      /* Modal */
-      .sheet{ position:fixed; inset:0; background: rgba(7,12,20,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:9999; }
-      .sheet-panel{ width:100%; max-width:860px; background: linear-gradient(180deg,#fff,#fffdf8); border-radius:18px 18px 0 0; box-shadow: 0 20px 60px rgba(17,24,39,0.2); padding:16px; max-height:88vh; overflow:auto; }
-      @media(min-width: 900px){ .sheet{ align-items:center; } .sheet-panel{ border-radius:18px; } }
-      .input{ width:100%; padding:12px; border-radius:12px; border:1px solid #e5e7eb; background:#fff; font-size:14px; }
-      .label{ display:block; font-size:12px; color:#6b5a46; font-weight:700; margin-bottom:6px; }
-    `}</style>
-  );
+/* ======================================================================== */
+/*  Confirm modal                                                            */
+/* ======================================================================== */
 
-  /* ---------- effects ---------- */
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [activeTab]);
-
-  async function ensureApis() {
-    if (!moduleRef.current) {
-      moduleRef.current = await import("../../api/sermons");
-      const mod = moduleRef.current;
-      apisRef.current.list   = resolveApiFromModule(mod, "list");
-      apisRef.current.create = resolveApiFromModule(mod, "create");
-      apisRef.current.update = resolveApiFromModule(mod, "update");
-      apisRef.current.remove = resolveApiFromModule(mod, "remove");
-    }
-  }
-
-  async function load() {
-    setLoading(true); setError(null);
-    try {
-      await ensureApis();
-      const listApi = apisRef.current.list;
-      if (typeof listApi !== "function") { setError("sermons API: 'list' not available."); setItems([]); return; }
-      let raw; try { raw = await listApi(); } catch { raw = await listApi(1, 1000, ""); }
-      const arr = Array.isArray(raw) ? raw : raw?.items ?? raw?.data ?? [];
-      const filtered = (arr || []).filter(r => {
-        const t = (r.type || r.Type || "sermon").toString().toLowerCase();
-        if (activeTab.startsWith("sermon"))  return t === "sermon";
-        if (activeTab.startsWith("book"))    return t === "book";
-        if (activeTab.startsWith("article")) return t === "article";
-        return true;
-      });
-      setItems(filtered);
-    } catch (e) { setError(e?.message ?? String(e)); setItems([]); }
-    finally { setLoading(false); }
-  }
-
-  /* ---------- actions ---------- */
-  const openWatch = (id) => { const url = watchUrlFromId(id); if (!url) return; window.open(url, "_blank", "noopener,noreferrer"); };
-  const onKeyOpen = (e, id) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openWatch(id); } };
-
-  const openAdd = () => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to add."); return; }
-    setForm({ id:null, type: activeTab.replace(/s$/,''), title:"", speaker:"", date:"", youtube:"" });
-    setShowModal(true);
-  };
-  const openEdit = (r) => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to edit."); return; }
-    setForm({
-      id: r.id ?? r.Id ?? null,
-      type: (r.type ?? r.Type ?? "sermon").toString().toLowerCase(),
-      title: r.title ?? r.name ?? "",
-      speaker: r.speaker ?? r.preacher ?? r.author ?? "",
-      date: (r.date || r.publishedAt || "").slice(0,10),
-      youtube: r.youtube ?? r.YoutubeUrl ?? r.YouTubeLink ?? r.YouTubeURL ?? r.youtubeUrl ?? r.yt ?? ""
-    });
-    setShowModal(true);
-  };
-
-  const save = async (e) => {
-    e?.preventDefault?.();
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to save."); return; }
-    if (!form.title || !form.youtube) { alert("Title and YouTube URL/ID are required"); return; }
-    setSaving(true);
-    try {
-      await ensureApis();
-      const youTubeId = extractYouTubeId(form.youtube);
-      const payload = {
-        Id: form.id ?? undefined,
-        Title: form.title,
-        Speaker: form.speaker || null,
-        Type: (form.type || "sermon").toString().toLowerCase(),
-        Date: form.date ? new Date(form.date).toISOString() : null,
-        YoutubeUrl: youTubeId ? `https://www.youtube.com/watch?v=${youTubeId}` : form.youtube,
-      };
-      const updateApi = apisRef.current.update;
-      const createApi = apisRef.current.create;
-      const isEdit = !!form.id && typeof updateApi === "function";
-      if (isEdit) await updateApi(payload);
-      else if (typeof createApi === "function") await createApi(payload);
-      else throw new Error("API: create/update not available");
-      setShowModal(false); await load();
-    } catch (err) { alert("Save failed: " + (err?.message || String(err))); }
-    finally { setSaving(false); }
-  };
-
-  const doDelete = async (id) => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to delete."); return; }
-    if (!window.confirm("Delete this item?")) return;
-    try {
-      await ensureApis();
-      const removeApi = apisRef.current.remove;
-      if (typeof removeApi !== "function") throw new Error("API: remove not available");
-      await removeApi(id);
-      setItems((arr) => arr.filter((x) => String(x.id ?? x.Id) !== String(id)));
-    } catch (err) { alert("Delete failed: " + (err?.message || String(err))); }
-  };
-
-  const viewItems = items.filter((r) => {
-    if (!query) return true; const s = query.toLowerCase();
-    return `${r.title||r.name||""} ${r.speaker||r.preacher||r.author||""} ${r.youtube||r.youtubeUrl||""}`.toLowerCase().includes(s);
-  });
-
-  /* ---------- render ---------- */
+const ConfirmModal = ({ open, title, body, onConfirm, onCancel, danger }) => {
+  if (!open) return null;
   return (
-    <div className="wrap">
-      {Styles}
-
-      {/* header */}
-      <div className="hero" role="region" aria-label="Sermons header">
-        <div>
-          <h2 style={{ margin:0, fontSize:22 }}>Resources</h2>
-          <div style={{ opacity:.9, fontSize:13 }}>Sermons, Books and Articles</div>
-          <div className="tabs" role="tablist" aria-label="Resource tabs">
-            {[
-              {k:'sermon', label:'Sermons'},
-              {k:'book', label:'Books'},
-              {k:'article', label:'Articles'},
-            ].map(t => (
-              <button key={t.k} role="tab" aria-selected={activeTab===t.k} className={`tab ${activeTab===t.k?'active':''}`} onClick={() => setActiveTab(t.k)}>{t.label}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="hero-actions">
-          <button className="btn btn-ghost" onClick={load}>âŸ³ Refresh</button>
-
-          {/* Admin Mode switch (visible only to admin users) */}
-          {isAdminUser && (
-            <label className="switch" title="Only administrators can toggle this">
-              <input type="checkbox" checked={adminMode} onChange={(e)=>setAdminMode(e.target.checked)} />
-              <span>{adminMode ? "Admin mode: ON" : "Admin mode: OFF"}</span>
-            </label>
-          )}
-
-          <button className={`btn btn-primary ${(!isAdminUser || !adminMode) ? "dim" : ""}`} onClick={openAdd}>
-            ï¼‹ Add {activeTab.replace(/s$/,'')}
+    <div className="fixed inset-0 z-[180] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3"
+         onClick={onCancel}>
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{body}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+                  className={`rounded-xl px-3 py-2 text-xs font-medium text-white ${
+                    danger ? "bg-red-600 hover:bg-red-700" : "bg-amber-500 hover:bg-amber-600"
+                  }`}>
+            Confirm
           </button>
         </div>
       </div>
+    </div>
+  );
+};
 
-      {/* small hint */}
-      {isAdminUser ? (
-        <div className="hint" style={{ marginTop:6 }}>
-          Tip: Toggle <strong>Admin mode</strong> ON to enable Add / Edit / Delete.
+/* ======================================================================== */
+/*  Tab metadata                                                             */
+/* ======================================================================== */
+
+const TABS = [
+  { key: "sermon",  label: "Sermons",  icon: Headphones, gradient: "from-indigo-500 to-blue-600" },
+  { key: "book",    label: "Books",    icon: BookOpen,   gradient: "from-amber-500 to-orange-600" },
+  { key: "article", label: "Articles", icon: FileText,   gradient: "from-emerald-500 to-teal-600" },
+];
+
+const SORT_OPTIONS = [
+  { id: "date_desc",  label: "Newest first" },
+  { id: "date_asc",   label: "Oldest first" },
+  { id: "title_asc",  label: "Title A-Z" },
+  { id: "title_desc", label: "Title Z-A" },
+];
+
+// Unwraps common API client response shapes:
+//   raw axios response  ->  { data: { items: [...] } }
+//   axios.data          ->  { items: [...] }
+//   plain JSON          ->  { items: [...] }  or  [...]
+//   wrapped envelope    ->  { data: [...] }
+// Best-effort clipboard write that works on insecure (http://) origins
+// where the modern navigator.clipboard API is unavailable. Returns true
+// on success.
+function legacyCopyToClipboard(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.left = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// Pull a meaningful message out of any axios/fetch/native error.
+const errMsg = (err, fallback = "Something went wrong.") => {
+  const r = err?.response;
+  if (r) {
+    if (typeof r.data === "string" && r.data.trim()) return r.data;
+    if (r.data?.message) return r.data.message;
+    if (r.data?.error) return r.data.error;
+    if (r.statusText) return `${r.status} ${r.statusText}`;
+    return `HTTP ${r.status}`;
+  }
+  return err?.message || fallback;
+};
+
+const arrayFrom = (data) => {
+  const candidates = [
+    data,
+    data?.items,
+    data?.data,
+    data?.data?.items,
+    data?.data?.data,
+    data?.results,
+    data?.data?.results,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  return [];
+};
+
+/* ======================================================================== */
+/*  Bookmarks (localStorage)                                                 */
+/* ======================================================================== */
+
+const BOOKMARK_KEY = "mahima_resource_bookmarks";
+const useBookmarks = () => {
+  const [bookmarks, setBookmarks] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(BOOKMARK_KEY) || "[]")); }
+    catch { return new Set(); }
+  });
+
+  const persist = (next) => {
+    setBookmarks(next);
+    try { localStorage.setItem(BOOKMARK_KEY, JSON.stringify([...next])); } catch {}
+  };
+
+  const toggle = useCallback((id) => {
+    const key = String(id);
+    setBookmarks((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try { localStorage.setItem(BOOKMARK_KEY, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }, []);
+
+  return { bookmarks, toggle, has: (id) => bookmarks.has(String(id)) };
+};
+
+/* ======================================================================== */
+/*  Main                                                                     */
+/* ======================================================================== */
+
+export default function SermonsPage() {
+  const { toasts, success: toastSuccess, error: toastError, dismiss: toastDismiss } = useToasts();
+  const { isAdminUser, adminMode, setAdminMode } = useAdminDetection();
+  const { bookmarks, toggle: toggleBookmark, has: isBookmarked } = useBookmarks();
+
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const [activeTab, setActiveTab] = useState("sermon");
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState("date_desc");
+  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [hoverPlayingId, setHoverPlayingId] = useState(null);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [detailTarget, setDetailTarget] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+
+  // dynamic API import (preserved from original)
+  const moduleRef = useRef(null);
+  const apisRef = useRef({ list: null, create: null, update: null, remove: null });
+
+  const ensureApis = useCallback(async () => {
+    if (!moduleRef.current) {
+      moduleRef.current = await import("../../api/sermons");
+      const mod = moduleRef.current;
+      apisRef.current.list   = resolveApi(mod, "list");
+      apisRef.current.create = resolveApi(mod, "create");
+      apisRef.current.update = resolveApi(mod, "update");
+      apisRef.current.remove = resolveApi(mod, "remove");
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await ensureApis();
+      const listApi = apisRef.current.list;
+      if (typeof listApi !== "function") {
+        setError("sermons API: 'list' not available.");
+        setItems([]);
+        return;
+      }
+      let raw;
+      try { raw = await listApi(); }
+      catch { raw = await listApi(1, 1000, ""); }
+      setItems(arrayFrom(raw));
+    } catch (e) {
+      setError(e?.message ?? String(e));
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [ensureApis]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Counts per tab (for badge labels)
+  const counts = useMemo(() => {
+    const c = { sermon: 0, book: 0, article: 0 };
+    for (const r of items) {
+      const t = String(r.type ?? r.Type ?? "sermon").toLowerCase();
+      if (c[t] !== undefined) c[t]++;
+    }
+    return c;
+  }, [items]);
+
+  // Filtered + sorted items for active tab
+  const visibleItems = useMemo(() => {
+    const tab = activeTab;
+    const q = query.trim().toLowerCase();
+    let list = items.filter((r) => {
+      const t = String(r.type ?? r.Type ?? "sermon").toLowerCase();
+      if (t !== tab) return false;
+      if (showBookmarksOnly && !isBookmarked(r.id ?? r.Id)) return false;
+      if (!q) return true;
+      const hay = `${r.title ?? r.name ?? ""} ${r.speaker ?? r.preacher ?? r.author ?? ""} ${
+        r.youtubeUrl ?? r.YoutubeUrl ?? ""
+      } ${r.description ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    list.sort((a, b) => {
+      const aDate = a.publishedAt ?? a.date ?? "";
+      const bDate = b.publishedAt ?? b.date ?? "";
+      const aTitle = (a.title ?? a.name ?? "").toLowerCase();
+      const bTitle = (b.title ?? b.name ?? "").toLowerCase();
+      switch (sortBy) {
+        case "date_asc":   return new Date(aDate) - new Date(bDate);
+        case "title_asc":  return aTitle.localeCompare(bTitle);
+        case "title_desc": return bTitle.localeCompare(aTitle);
+        case "date_desc":
+        default:           return new Date(bDate) - new Date(aDate);
+      }
+    });
+    return list;
+  }, [items, activeTab, query, sortBy, showBookmarksOnly, isBookmarked]);
+
+  const featured = useMemo(() => {
+    // Pick newest item that has a YouTube link, on the active tab
+    return visibleItems.find((r) => {
+      const yt = r.youtubeUrl ?? r.YoutubeUrl ?? r.youtube ?? r.YouTubeURL;
+      return !!extractYouTubeId(yt);
+    });
+  }, [visibleItems]);
+
+  /* ----- mutations ----- */
+
+  const requireAdmin = () => {
+    if (!isAdminUser) {
+      toastError("Only admins can do that.");
+      return false;
+    }
+    if (!adminMode) {
+      toastError("Enable Admin mode first.");
+      return false;
+    }
+    return true;
+  };
+
+  const handleSave = async (form) => {
+    if (!requireAdmin()) return;
+    if (!form.title?.trim()) { toastError("Title is required."); return; }
+    if (!form.youtube?.trim()) { toastError("YouTube URL or ID is required."); return; }
+
+    const ytId = extractYouTubeId(form.youtube);
+
+    // Backend SermonDto: Title, Speaker, Date, YoutubeUrl, Description, Type, ...
+    const payload = {
+      Title: form.title.trim(),
+      Speaker: form.speaker?.trim() || null,
+      Type: (form.type || "sermon").toLowerCase(),
+      Date: form.date ? new Date(form.date).toISOString() : null,
+      YoutubeUrl: ytId ? watchUrlFromId(ytId) : form.youtube.trim(),
+      Description: form.description?.trim() || null,
+    };
+
+    const isEdit = !!form.id;
+
+    try {
+      if (isEdit) {
+        // PUT /api/sermons/{id} — id MUST be in URL
+        await axios.put(`/api/sermons/${form.id}`, payload);
+      } else {
+        await axios.post(`/api/sermons`, payload);
+      }
+      toastSuccess(isEdit ? "Updated." : "Added.");
+      setShowAddModal(false);
+      setEditTarget(null);
+      await load();
+    } catch (err) {
+      console.error("Save failed:", err?.response ?? err);
+      toastError("Save failed: " + errMsg(err));
+    }
+  };
+
+  const handleDelete = (record) => {
+    if (!requireAdmin()) return;
+    const id = record.id ?? record.Id;
+    if (id == null) {
+      toastError("Can't delete: this item has no id.");
+      return;
+    }
+    setConfirm({
+      title: "Delete this item?",
+      body: `"${record.title ?? record.name ?? "Untitled"}" will be permanently removed.`,
+      danger: true,
+      onConfirm: async () => {
+        setConfirm(null);
+        try {
+          // DELETE /api/sermons/{id}
+          await axios.delete(`/api/sermons/${id}`);
+          setItems((arr) => arr.filter((x) => String(x.id ?? x.Id) !== String(id)));
+          toastSuccess("Deleted.");
+        } catch (err) {
+          console.error("Delete failed:", err?.response ?? err);
+          toastError("Delete failed: " + errMsg(err));
+        }
+      },
+    });
+  };
+
+  const copyShareLink = async (rec) => {
+    const yt = rec.youtubeUrl ?? rec.YoutubeUrl ?? rec.youtube;
+    const id = extractYouTubeId(yt);
+    const url = id ? watchUrlFromId(id) : null;
+    if (!url) { toastError("No shareable link."); return; }
+
+    // 1) Modern Web Share — only works in HTTPS / secure contexts. We
+    //    explicitly check `isSecureContext` because some browsers expose
+    //    `navigator.share` on http:// but throw at call time.
+    if (window.isSecureContext && typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: rec.title ?? "Resource", url });
+        toastSuccess("Shared.");
+        return;
+      } catch (err) {
+        // User cancelled the share sheet — that's not an error.
+        if (err?.name === "AbortError") return;
+        // Otherwise fall through to clipboard.
+      }
+    }
+
+    // 2) Async clipboard — also requires secure context.
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        toastSuccess("Link copied.");
+        return;
+      } catch {
+        // fall through to legacy
+      }
+    }
+
+    // 3) Legacy fallback that works on plain http:// dev servers.
+    if (legacyCopyToClipboard(url)) {
+      toastSuccess("Link copied.");
+    } else {
+      // 4) Last resort — show the URL so the user can copy it manually.
+      window.prompt("Copy this link:", url);
+    }
+  };
+
+  const tabMeta = TABS.find((t) => t.key === activeTab) || TABS[0];
+
+  /* ----- render ----- */
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-amber-50/30">
+      {/* Constrain content so the page looks consistent whether it's mounted
+          inside the /home/* app shell or rendered standalone. */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+      <ToastStack toasts={toasts} onDismiss={toastDismiss} />
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        body={confirm?.body}
+        danger={confirm?.danger}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
+
+      {/* HEADER */}
+      <header className={`relative mb-4 rounded-2xl overflow-hidden shadow-md text-white p-5 sm:p-6 bg-gradient-to-br ${tabMeta.gradient}`}>
+        <div className="absolute inset-0 opacity-20 pointer-events-none"
+             style={{ background: "radial-gradient(circle at 80% 20%, rgba(255,255,255,0.4), transparent 50%)" }} />
+        <div className="relative flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+              <Sparkles className="w-6 h-6" />
+              Resource library
+            </h1>
+            <p className="text-sm text-white/80 mt-1">
+              Sermons, books, and articles for the community.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={load} className="btn-ghost-light">
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            {isAdminUser && (
+              <button
+                onClick={() => setAdminMode(!adminMode)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  adminMode
+                    ? "bg-white text-slate-900"
+                    : "bg-white/20 text-white border border-white/30 hover:bg-white/30"
+                }`}
+              >
+                {adminMode ? <ShieldCheck className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                Admin {adminMode ? "ON" : "OFF"}
+              </button>
+            )}
+            {isAdminUser && adminMode && (
+              <button onClick={() => { setEditTarget(null); setShowAddModal(true); }} className="btn-light">
+                <Plus className="w-4 h-4" />
+                Add {tabMeta.label.replace(/s$/, "").toLowerCase()}
+              </button>
+            )}
+          </div>
         </div>
-      ) : (
-        <div className="hint" style={{ marginTop:6 }}>
-          Youâ€™re not an admin. Edit/Delete are unavailable.
+
+        {/* Tabs */}
+        <div className="relative mt-5 flex flex-wrap gap-2">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const active = activeTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition ${
+                  active
+                    ? "bg-white text-slate-900"
+                    : "bg-white/15 text-white border border-white/30 hover:bg-white/25"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {t.label}
+                <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${
+                  active ? "bg-slate-100 text-slate-600" : "bg-white/25 text-white"
+                }`}>
+                  {counts[t.key] ?? 0}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </header>
+
+      {/* FEATURED */}
+      {featured && !showBookmarksOnly && !query && (
+        <FeaturedCard
+          record={featured}
+          onPlay={() => setDetailTarget(featured)}
+          isBookmarked={isBookmarked(featured.id ?? featured.Id)}
+          onToggleBookmark={() => toggleBookmark(featured.id ?? featured.Id)}
+          onShare={() => copyShareLink(featured)}
+        />
+      )}
+
+      {/* TOOLBAR */}
+      <div className="mb-3 rounded-2xl bg-white border border-slate-200 shadow-sm p-2 sm:p-3 flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${tabMeta.label.toLowerCase()} by title, speaker, link...`}
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:bg-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none"
+          />
+        </div>
+
+        <div className="relative">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="appearance-none pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 outline-none focus:border-amber-400"
+          >
+            {SORT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <ArrowUpDown className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <ChevronDown className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        </div>
+
+        <button
+          onClick={() => setShowBookmarksOnly((v) => !v)}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition ${
+            showBookmarksOnly
+              ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          {showBookmarksOnly ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+          Bookmarks ({bookmarks.size})
+        </button>
+      </div>
+
+      {/* CONTENT */}
+      {error && (
+        <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" /> {error}
         </div>
       )}
 
-      {/* search */}
-      <div className="search-row">
-        <input className="search" placeholder={`Search ${activeTab}s by title, speaker or linkâ€¦`} value={query} onChange={(e)=>setQuery(e.target.value)} />
+      {loading ? (
+        <CardGridSkeleton />
+      ) : visibleItems.length === 0 ? (
+        <EmptyState
+          tab={tabMeta}
+          query={query}
+          showingBookmarksOnly={showBookmarksOnly}
+          canAdd={isAdminUser && adminMode}
+          onAdd={() => { setEditTarget(null); setShowAddModal(true); }}
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {visibleItems.map((rec) => (
+            <ResourceCard
+              key={rec.id ?? rec.Id}
+              record={rec}
+              hoverPlayingId={hoverPlayingId}
+              setHoverPlayingId={setHoverPlayingId}
+              isBookmarked={isBookmarked(rec.id ?? rec.Id)}
+              onToggleBookmark={() => toggleBookmark(rec.id ?? rec.Id)}
+              onOpenDetail={() => setDetailTarget(rec)}
+              onShare={() => copyShareLink(rec)}
+              onEdit={() => { setEditTarget(rec); setShowAddModal(true); }}
+              onDelete={() => handleDelete(rec)}
+              canManage={isAdminUser && adminMode}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* MODALS */}
+      {showAddModal && (
+        <ResourceFormModal
+          target={editTarget}
+          defaultType={activeTab}
+          onCancel={() => { setShowAddModal(false); setEditTarget(null); }}
+          onSave={handleSave}
+        />
+      )}
+
+      {detailTarget && (
+        <DetailModal
+          record={detailTarget}
+          onClose={() => setDetailTarget(null)}
+          isBookmarked={isBookmarked(detailTarget.id ?? detailTarget.Id)}
+          onToggleBookmark={() => toggleBookmark(detailTarget.id ?? detailTarget.Id)}
+          onShare={() => copyShareLink(detailTarget)}
+        />
+      )}
+
+      <style>{`
+        .btn-light{ display:inline-flex; align-items:center; gap:0.4rem; padding:0.45rem 0.85rem; border-radius:0.625rem; background:#fff; color:#0f172a; font-size:12px; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,0.06); }
+        .btn-light:hover{ background:#f8fafc; }
+        .btn-ghost-light{ display:inline-flex; align-items:center; gap:0.4rem; padding:0.45rem 0.85rem; border-radius:0.625rem; background:rgba(255,255,255,0.18); color:#fff; font-size:12px; font-weight:600; border:1px solid rgba(255,255,255,0.3); }
+        .btn-ghost-light:hover{ background:rgba(255,255,255,0.28); }
+      `}</style>
       </div>
+    </div>
+  );
+}
 
-      {loading && <div className="card" style={{ padding:12 }}>Loadingâ€¦</div>}
-      {error && <div className="card" style={{ padding:12, color:'#b91c1c', fontWeight:700 }}>{error}</div>}
+/* ======================================================================== */
+/*  Featured card                                                            */
+/* ======================================================================== */
 
-      {/* grid */}
-      <div className="grid" role="list">
-        {viewItems.map((r, idx) => {
-          const id = r.id ?? r.Id ?? idx;
-          const title = r.title ?? r.name ?? "Untitled";
-          const speaker = r.speaker ?? r.preacher ?? r.author ?? "";
-          const date = r.date ?? r.publishedAt ?? "";
-          const rawUrl = r.youtube ?? r.YoutubeUrl ?? r.YouTubeLink ?? r.YouTubeURL ?? r.youtubeUrl ?? r.yt ?? null;
-          const vid = extractYouTubeId(rawUrl);
-          const watchUrl = vid ? watchUrlFromId(vid) : null;
-          const embedUrlPreview = vid ? embedUrlFromId(vid, { autoplay: true, mute: true, controls: 1 }) : null;
-          const thumb = vid ? thumbnailUrlFromId(vid) : null;
-          const isPlaying = String(hoverPlayingId) === String(id);
-          const disableActions = !isAdminUser || !adminMode;
+function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare }) {
+  const yt = record.youtubeUrl ?? record.YoutubeUrl ?? record.youtube ?? record.YouTubeURL;
+  const id = extractYouTubeId(yt);
+  const thumb = thumbnailUrlFromId(id, "maxresdefault") || thumbnailUrlFromId(id);
+  const title = record.title ?? record.name ?? "Untitled";
+  const speaker = record.speaker ?? record.preacher ?? record.author ?? "";
+  const date = record.date ?? record.publishedAt ?? "";
 
-          return (
-            <article key={id} className="card" role="listitem" aria-labelledby={`res-${id}`}>
-              <div style={{ display:'flex', justifyContent:'space-between', gap:10 }}>
-                <div>
-                  <div id={`res-${id}`} style={{ fontWeight:800 }}>{title}</div>
-                  <div style={{ color:'#6b5a46', fontSize:13 }}>{speaker} {date ? `â€¢ ${new Date(date).toLocaleDateString()}` : ""}</div>
+  return (
+    <div className="mb-4 rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-md grid grid-cols-1 lg:grid-cols-[55%_45%]">
+      <div className="relative aspect-video lg:aspect-auto bg-slate-900 cursor-pointer group" onClick={onPlay}>
+        {thumb ? (
+          <img src={thumb} alt={title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-white/70">No preview</div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+        <div className="absolute left-4 top-4">
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wide px-2 py-1">
+            <Sparkles className="w-3 h-3" /> Featured
+          </span>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+            <Play className="w-6 h-6 text-slate-900 fill-slate-900 ml-1" />
+          </div>
+        </div>
+      </div>
+      <div className="p-5 flex flex-col">
+        <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">{title}</h2>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          {speaker && <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" />{speaker}</span>}
+          {date && <span className="inline-flex items-center gap-1"><CalendarIcon className="w-3 h-3" />{new Date(date).toLocaleDateString()}</span>}
+        </div>
+        {record.description && (
+          <p className="mt-3 text-sm text-slate-600 line-clamp-3">{record.description}</p>
+        )}
+        <div className="mt-auto pt-4 flex flex-wrap gap-2">
+          <button onClick={onPlay} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold px-3 py-2 hover:bg-slate-800">
+            <Play className="w-3.5 h-3.5" /> Play
+          </button>
+          <button onClick={onToggleBookmark} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
+            {isBookmarked ? <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" /> : <Bookmark className="w-3.5 h-3.5" />}
+            {isBookmarked ? "Bookmarked" : "Bookmark"}
+          </button>
+          <button onClick={onShare} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
+            <Share2 className="w-3.5 h-3.5" /> Share
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================== */
+/*  Resource card                                                            */
+/* ======================================================================== */
+
+function ResourceCard({
+  record, hoverPlayingId, setHoverPlayingId, isBookmarked, onToggleBookmark,
+  onOpenDetail, onShare, onEdit, onDelete, canManage,
+}) {
+  const id = record.id ?? record.Id;
+  const title = record.title ?? record.name ?? "Untitled";
+  const speaker = record.speaker ?? record.preacher ?? record.author ?? "";
+  const date = record.date ?? record.publishedAt ?? "";
+  const type = String(record.type ?? record.Type ?? "sermon").toLowerCase();
+  const yt = record.youtubeUrl ?? record.YoutubeUrl ?? record.youtube ?? record.YouTubeURL;
+  const ytId = extractYouTubeId(yt);
+  const thumb = thumbnailUrlFromId(ytId);
+  const watchUrl = watchUrlFromId(ytId);
+  const isPlaying = String(hoverPlayingId) === String(id);
+  const tabMeta = TABS.find((t) => t.key === type) || TABS[0];
+  const Icon = tabMeta.icon;
+
+  return (
+    <article className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg transition overflow-hidden flex flex-col">
+      <div
+        className="relative aspect-video bg-slate-900 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onMouseEnter={() => ytId && setHoverPlayingId(id)}
+        onMouseLeave={() => isPlaying && setHoverPlayingId(null)}
+        onClick={onOpenDetail}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenDetail(); } }}
+      >
+        {isPlaying && ytId ? (
+          <iframe
+            title={`yt-${id}`}
+            src={embedUrlFromId(ytId, { autoplay: true, mute: true, controls: 1 })}
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowFullScreen
+            className="absolute inset-0 w-full h-full"
+            frameBorder="0"
+          />
+        ) : thumb ? (
+          <img src={thumb} alt={title} className="absolute inset-0 w-full h-full object-cover" draggable={false} />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs">No preview</div>
+        )}
+
+        {!isPlaying && (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+            <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-800">
+              <Icon className="w-3 h-3" /> {tabMeta.label.replace(/s$/, "")}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
+              className="absolute right-2 top-2 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center hover:bg-white"
+              aria-label={isBookmarked ? "Remove bookmark" : "Bookmark"}
+            >
+              {isBookmarked
+                ? <BookmarkCheck className="w-4 h-4 text-amber-600" />
+                : <Bookmark className="w-4 h-4 text-slate-700" />}
+            </button>
+            {ytId && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition">
+                <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow">
+                  <Play className="w-5 h-5 text-slate-900 fill-slate-900 ml-0.5" />
                 </div>
-                <div className="pill pill-type">{(r.type ?? "Sermon").toString()}</div>
               </div>
-
-              <div style={{ marginTop: 10 }}>
-                <div
-                  role={watchUrl ? "button" : undefined}
-                  tabIndex={watchUrl ? 0 : -1}
-                  onDoubleClick={() => vid && openWatch(vid)}
-                  onKeyDown={(e) => vid && onKeyOpen(e, vid)}
-                  onMouseEnter={() => { if (vid) setHoverPlayingId(id); }}
-                  onMouseLeave={() => { if (hoverPlayingId === id) setHoverPlayingId(null); }}
-                  onClick={() => { if (!vid) return; openWatch(vid); }}
-                  className="thumb"
-                  aria-label={vid ? `YouTube preview for ${title}` : "No video"}
-                  title={vid ? "Double-tap/click to open on YouTube" : "No video available"}
-                >
-                  {isPlaying && embedUrlPreview ? (
-                    <iframe title={`yt-${id}`} src={embedUrlPreview} frameBorder="0" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} />
-                  ) : (
-                    thumb ? (
-                      <img alt={title} src={thumb} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} draggable={false} />
-                    ) : (
-                      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', background:'linear-gradient(180deg,#222,#444)' }}>No preview</div>
-                    )
-                  )}
-                  {!isPlaying && vid && (<div className="play-hint">â–¶ Tap to play â€¢ Double to open</div>)}
-                </div>
-              </div>
-
-              <div style={{ marginTop: 10, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                <div style={{ color:'#999', fontSize:12 }}>
-                  {rawUrl ? <a href={watchUrl} target="_blank" rel="noreferrer" style={{ color:'#2f4fa2', textDecoration:'none' }}>Open on YouTube â†—</a> : 'No link'}
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button className={`btn btn-muted ${disableActions ? "dim": ""}`} onClick={() => openEdit(r)} disabled={disableActions} aria-disabled={disableActions}>Edit</button>
-                  <button className={`btn ${disableActions ? "dim": ""}`} style={{ background:'linear-gradient(180deg,#e74c3c,#c0392b)', color:'#fff' }} onClick={() => doDelete(r.id ?? r.Id)} disabled={disableActions} aria-disabled={disableActions}>Delete</button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-
-        {(!loading && viewItems.length === 0) && (
-          <div className="card" style={{ padding:12, color:'#6f5f4f' }}>No items found.</div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Modal: Add / Edit */}
-      {showModal && (
-        <div className="sheet" role="dialog" aria-modal="true" aria-label={form.id ? 'Edit item' : 'Add item'} onClick={(e)=>{ if(e.target.classList.contains('sheet')) setShowModal(false); }}>
-          <div className="sheet-panel">
-            <h3 style={{ marginTop:0 }}>{form.id ? 'Edit' : 'Add'} {form.type}</h3>
-            <form onSubmit={save} style={{ display:'grid', gap:12 }}>
-              <div>
-                <label className="label">Type</label>
-                <select className="input" value={form.type} onChange={(e)=> setForm(f=>({...f, type:e.target.value}))}>
-                  <option value="sermon">Sermon</option>
-                  <option value="book">Book</option>
-                  <option value="article">Article</option>
-                </select>
-              </div>
+      <div className="p-3 flex-1 flex flex-col">
+        <h3 className="font-semibold text-sm text-slate-900 line-clamp-2" title={title}>{title}</h3>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+          {speaker && <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" />{speaker}</span>}
+          {date && <span className="inline-flex items-center gap-1"><CalendarIcon className="w-3 h-3" />{new Date(date).toLocaleDateString()}</span>}
+        </div>
 
-              <div>
-                <label className="label">Title *</label>
-                <input className="input" value={form.title} onChange={(e)=> setForm(f=>({...f, title:e.target.value}))} />
-              </div>
+        <div className="mt-auto pt-3 flex items-center justify-between gap-1">
+          <div className="flex gap-1">
+            <button
+              onClick={onShare}
+              title="Share"
+              className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-600"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+            {watchUrl && (
+              <a
+                href={watchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open on YouTube"
+                onClick={(e) => e.stopPropagation()}
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-600"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+          {canManage && (
+            <div className="flex gap-1">
+              <button
+                onClick={onEdit}
+                title="Edit"
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-600"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={onDelete}
+                title="Delete"
+                className="w-8 h-8 rounded-lg border border-red-100 bg-white hover:bg-red-50 flex items-center justify-center text-red-600"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
 
-              <div>
-                <label className="label">Speaker / Author</label>
-                <input className="input" value={form.speaker} onChange={(e)=> setForm(f=>({...f, speaker:e.target.value}))} />
-              </div>
+/* ======================================================================== */
+/*  Detail modal — full embedded player                                      */
+/* ======================================================================== */
 
-              <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-                <div style={{ flex:'1 1 240px', minWidth:220 }}>
-                  <label className="label">Date</label>
-                  <input type="date" className="input" value={form.date} onChange={(e)=> setForm(f=>({...f, date:e.target.value}))} />
-                </div>
-                <div style={{ flex:'2 1 320px', minWidth:280 }}>
-                  <label className="label">YouTube URL or ID *</label>
-                  <input className="input" placeholder="https://youtu.be/VIDEO_ID or VIDEO_ID" value={form.youtube} onChange={(e)=> setForm(f=>({...f, youtube:e.target.value}))} />
-                </div>
-              </div>
+function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare }) {
+  const title = record.title ?? record.name ?? "Untitled";
+  const speaker = record.speaker ?? record.preacher ?? record.author ?? "";
+  const date = record.date ?? record.publishedAt ?? "";
+  const yt = record.youtubeUrl ?? record.YoutubeUrl ?? record.youtube ?? record.YouTubeURL;
+  const id = extractYouTubeId(yt);
+  const watchUrl = watchUrlFromId(id);
 
-              {/* live preview */}
-              {extractYouTubeId(form.youtube) && (
-                <div>
-                  <div className="label">Preview</div>
-                  <div className="thumb" style={{ border:'1px dashed rgba(0,0,0,0.1)' }}>
-                    <iframe title="preview" src={embedUrlFromId(extractYouTubeId(form.youtube), { autoplay:false, mute:true, controls:1 })} frameBorder="0" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} />
-                  </div>
-                </div>
-              )}
+  // Close on Esc
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-              <div style={{ display:'flex', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
-                <button type="button" className="btn btn-muted" onClick={()=> setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Savingâ€¦' : (form.id ? 'Save Changes' : 'Add')}</button>
-              </div>
-            </form>
+  return (
+    <div className="fixed inset-0 z-[170] bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-3"
+         onClick={onClose}>
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-900 truncate pr-4">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="aspect-video bg-black">
+          {id ? (
+            <iframe
+              title={`detail-${record.id ?? record.Id}`}
+              src={embedUrlFromId(id, { autoplay: true, mute: false, controls: 1 })}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+              frameBorder="0"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-white/60 text-sm">No video available</div>
+          )}
+        </div>
+
+        <div className="p-4 overflow-y-auto">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+            {speaker && <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" />{speaker}</span>}
+            {date && <span className="inline-flex items-center gap-1"><CalendarIcon className="w-3 h-3" />{new Date(date).toLocaleDateString()}</span>}
+          </div>
+
+          {record.description && (
+            <p className="mt-3 text-sm text-slate-700 whitespace-pre-line">{record.description}</p>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button onClick={onToggleBookmark} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
+              {isBookmarked ? <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" /> : <Bookmark className="w-3.5 h-3.5" />}
+              {isBookmarked ? "Bookmarked" : "Bookmark"}
+            </button>
+            <button onClick={onShare} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
+              <Share2 className="w-3.5 h-3.5" /> Share
+            </button>
+            {watchUrl && (
+              <a href={watchUrl} target="_blank" rel="noopener noreferrer"
+                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
+                <ExternalLink className="w-3.5 h-3.5" /> Open on YouTube
+              </a>
+            )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================== */
+/*  Add / Edit form modal                                                    */
+/* ======================================================================== */
+
+function ResourceFormModal({ target, defaultType, onCancel, onSave }) {
+  const isEdit = !!target;
+  const [form, setForm] = useState(() => {
+    if (target) {
+      return {
+        id: target.id ?? target.Id ?? null,
+        type: String(target.type ?? target.Type ?? defaultType ?? "sermon").toLowerCase(),
+        title: target.title ?? target.name ?? "",
+        speaker: target.speaker ?? target.preacher ?? target.author ?? "",
+        date: (target.date || target.publishedAt || "").slice(0, 10),
+        youtube: target.youtube ?? target.youtubeUrl ?? target.YoutubeUrl ?? "",
+        description: target.description ?? "",
+      };
+    }
+    return {
+      id: null,
+      type: defaultType || "sermon",
+      title: "",
+      speaker: "",
+      date: "",
+      youtube: "",
+      description: "",
+    };
+  });
+  const [saving, setSaving] = useState(false);
+
+  const ytId = extractYouTubeId(form.youtube);
+  const previewUrl = ytId ? embedUrlFromId(ytId, { autoplay: false, mute: true, controls: 1 }) : null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3" onClick={onCancel}>
+      <form onSubmit={handleSubmit} onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xl bg-white rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-900">
+            {isEdit ? "Edit" : "Add"} resource
+          </h3>
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div className="grid grid-cols-3 gap-2">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const sel = form.type === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, type: t.key }))}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+                    sel
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {t.label.replace(/s$/, "")}
+                </button>
+              );
+            })}
+          </div>
+
+          <Field label="Title *">
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                   required autoFocus className="input" />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Speaker / Author">
+              <input value={form.speaker} onChange={(e) => setForm({ ...form, speaker: e.target.value })} className="input" />
+            </Field>
+            <Field label="Date">
+              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" />
+            </Field>
+          </div>
+
+          <Field label="YouTube URL or 11-character ID *">
+            <input
+              value={form.youtube}
+              onChange={(e) => setForm({ ...form, youtube: e.target.value })}
+              placeholder="https://youtu.be/VIDEO_ID  or  VIDEO_ID"
+              required
+              className="input font-mono text-xs"
+            />
+            {form.youtube && !ytId && (
+              <span className="text-[11px] text-amber-700 mt-1 inline-block">
+                Couldn't recognize that as a YouTube URL or ID.
+              </span>
+            )}
+          </Field>
+
+          <Field label="Description (optional)">
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={3}
+              className="input resize-y"
+              placeholder="A short summary, scripture references, or notes."
+            />
+          </Field>
+
+          {previewUrl && (
+            <div>
+              <span className="text-[11px] text-slate-500 mb-1 block">Preview</span>
+              <div className="aspect-video rounded-xl overflow-hidden bg-black border border-slate-200">
+                <iframe
+                  title="form-preview"
+                  src={previewUrl}
+                  allow="encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  className="w-full h-full"
+                  frameBorder="0"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
+          <button type="button" onClick={onCancel}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2 disabled:opacity-60">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {isEdit ? "Save changes" : "Add"}
+          </button>
+        </div>
+
+        <style>{`
+          .input{ width:100%; padding:0.5rem 0.75rem; border-radius:0.625rem; border:1px solid rgb(226,232,240); background:#fff; font-size:13px; outline:none; }
+          .input:focus{ border-color:rgb(245,158,11); box-shadow:0 0 0 1px rgb(245,158,11); }
+        `}</style>
+      </form>
+    </div>
+  );
+}
+
+/* ======================================================================== */
+/*  Empty state + Skeleton                                                   */
+/* ======================================================================== */
+
+function EmptyState({ tab, query, showingBookmarksOnly, canAdd, onAdd }) {
+  const Icon = tab.icon;
+  return (
+    <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-10 text-center">
+      <Icon className="w-10 h-10 mx-auto text-slate-300" />
+      <h3 className="mt-3 text-sm font-semibold text-slate-700">
+        {showingBookmarksOnly
+          ? `No bookmarked ${tab.label.toLowerCase()}.`
+          : query
+          ? `No ${tab.label.toLowerCase()} match "${query}".`
+          : `No ${tab.label.toLowerCase()} yet.`}
+      </h3>
+      <p className="mt-1 text-xs text-slate-500">
+        {canAdd ? "Add the first one to get started." : "Check back later — new content arrives regularly."}
+      </p>
+      {canAdd && (
+        <button onClick={onAdd}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2">
+          <Plus className="w-3.5 h-3.5" /> Add {tab.label.replace(/s$/, "").toLowerCase()}
+        </button>
       )}
     </div>
+  );
+}
+
+function CardGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="aspect-video bg-gradient-to-r from-slate-100 via-slate-200 to-slate-100 bg-[length:200%_100%] animate-pulse" />
+          <div className="p-3 space-y-2">
+            <div className="h-3 w-3/4 rounded bg-slate-100 animate-pulse" />
+            <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] text-slate-500 mb-0.5 block">{label}</span>
+      {children}
+    </label>
   );
 }

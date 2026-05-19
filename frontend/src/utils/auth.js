@@ -15,6 +15,8 @@ export function setToken(token) {
   if (!clean) return;
   try {
     localStorage.setItem(TOKEN_KEY, clean);
+    localStorage.setItem("authToken", clean);
+    localStorage.setItem("token", clean);
   } catch {
     // ignore storage errors (quota/private mode)
   }
@@ -23,8 +25,25 @@ export function setToken(token) {
 export function getToken() {
   // Always read from storage at call time (no in-memory cache!)
   try {
-    const t = localStorage.getItem(TOKEN_KEY);
-    return t ? t : "";
+    let t =
+      localStorage.getItem(TOKEN_KEY) ||
+      localStorage.getItem("authToken") ||
+      localStorage.getItem("auth_token") ||
+      localStorage.getItem("token") ||
+      "";
+
+    if (!t) {
+      for (const key of ["mahima:user", "mahima_user", "user", "me", "mahima_currentUser", "currentUser"]) {
+      const userRaw = localStorage.getItem(key);
+      if (userRaw) {
+        const parsed = JSON.parse(userRaw);
+        t = parsed?.token || parsed?.accessToken || parsed?.jwt || parsed?.data?.token || parsed?.data?.accessToken || "";
+        if (t) break;
+      }
+      }
+    }
+
+    return normalizeToken(t);
   } catch {
     return "";
   }
@@ -33,6 +52,10 @@ export function getToken() {
 export function clearToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("token");
+    localStorage.removeItem("mahima_remember_login");
   } catch {
     // ignore
   }

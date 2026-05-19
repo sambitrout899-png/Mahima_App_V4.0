@@ -25,12 +25,25 @@
     <script>
       (function () {
         try {
-          // Only set when not already set (so deployments can inject their own value)
-          if (typeof window !== "undefined" && !window.__API_BASE__) {
-            //window.__API_BASE__ = "https://www.mahimaministries.in/api";
-	    window.__API_BASE__ = "/api";
-            console.info("window.__API_BASE__ set to", window.__API_BASE__);
-          }
+          if (typeof window === "undefined" || window.__API_BASE__) return;
+
+          // Detect the runtime so we never hand a relative URL to Capacitor
+          // (where the WebView origin is https://localhost and "/api" is dead).
+          var proto = (window.location && window.location.protocol) || "";
+          var host  = (window.location && window.location.hostname) || "";
+          var isCapacitor =
+            proto === "capacitor:" ||
+            (proto === "https:" && host === "localhost") ||
+            (proto === "http:"  && host === "localhost" && !!window.Capacitor) ||
+            !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+          // Use the same host that .env.production / .env.mobile uses
+          // to avoid certificate-SAN mismatches between www. and bare domain.
+          window.__API_BASE__ = isCapacitor
+            ? "https://mahimaministries.in/api"
+            : "/api";
+
+          console.info("window.__API_BASE__ set to", window.__API_BASE__, "(capacitor:", isCapacitor + ")");
         } catch (e) {
           // noop
         }

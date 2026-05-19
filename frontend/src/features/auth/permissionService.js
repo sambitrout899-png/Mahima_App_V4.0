@@ -1,6 +1,5 @@
 // src/features/auth/permissionService.js
-
-/* ---------------- STORAGE ---------------- */
+import { apiFetch } from "../../utils/fetch-auth-shim";
 
 function getStoredUser() {
   try {
@@ -11,71 +10,49 @@ function getStoredUser() {
   }
 }
 
-/* ---------------- USER ---------------- */
-
 export async function getCurrentUser() {
-  // ✅ ALWAYS use stored user (from login)
-  const user = getStoredUser();
-  return user || null;
+  try {
+    const user = await apiFetch("/auth/me", { retryPublicApi: true });
+    if (user) {
+      localStorage.setItem("mahima_user", JSON.stringify(user));
+      return user;
+    }
+  } catch {}
+
+  return getStoredUser();
 }
 
-/* ---------------- HELPERS ---------------- */
-
-// 🔥 Normalize ALL possible role formats
 function normalizeRoles(user) {
   if (!user) return [];
 
-  return [
-    user.role,
-    ...(user.roles || []),
-  ]
-    .map((r) =>
-      typeof r === "string"
-        ? r
-        : r?.name || r?.roleName || r?.id
-    )
+  return [user.role, ...(user.roles || [])]
+    .map((r) => (typeof r === "string" ? r : r?.name || r?.roleName || r?.id))
     .filter(Boolean)
     .map((r) => String(r).toLowerCase());
 }
 
-// 🔥 STRONG ADMIN CHECK (fixes your issue)
 function isAdmin(user) {
   const roles = normalizeRoles(user);
 
-  return (
-    roles.includes("admin") ||
-    user?.username?.toLowerCase() === "admin"
-  );
+  return roles.includes("admin") || user?.username?.toLowerCase() === "admin";
 }
-
-/* ---------------- MAIN ACCESS ---------------- */
 
 export async function canAccessPage(pageKey) {
   if (!pageKey) return false;
 
   const user = await getCurrentUser();
   if (!user) return false;
-
-  // ✅ ADMIN → FULL ACCESS (NO RESTRICTION)
   if (isAdmin(user)) return true;
 
-  const key = String(pageKey).toLowerCase();
-
-  // ✅ fallback safe
+  const key = String(pageKey).toUpperCase();
   const pages = Array.isArray(user.pages)
-    ? user.pages.map((p) => String(p).toLowerCase())
+    ? user.pages.map((p) => String(p).toUpperCase())
     : [];
 
   return pages.includes(key);
 }
 
-/* ---------------- UTIL ---------------- */
-
-export function clearPermissionCache() {
-  // no-op (kept for compatibility)
-}
-
-/* ---------------- EXPORT ---------------- */
+export function clearPermissionCache() {}
 
 export default {
   getCurrentUser,

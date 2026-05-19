@@ -1,6 +1,51 @@
 ﻿// src/features/pages/PagesPage.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { getToken } from "../auth/authService";
+
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+
+// Centralized fetch helper:
+// - attaches auth (Bearer token from localStorage; adjust the key if you use something else)
+// - sends credentials so cookie-based sessions also work
+// - throws a clear error on non-2xx instead of failing later in r.json()
+// - safely parses JSON only when there's a body
+async function apiFetch(path, options = {}) {
+  const token = getToken?.() || localStorage.getItem('mahima_token') || localStorage.getItem('authToken') || localStorage.getItem('token');
+  const headers = {
+    'Accept': 'application/json',
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+
+  const resp = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include', // remove if you don't use cookies
+    ...options,
+    headers,
+  });
+
+  if (resp.status === 401) {
+    const err = new Error('Unauthorized — please log in again.');
+    err.status = 401;
+    // Optional: redirect to login automatically
+    // window.location.assign('/#/login');
+    throw err;
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text || `HTTP ${resp.status} ${resp.statusText}`);
+  }
+
+  if (resp.status === 204) return null;
+  const text = await resp.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('Server returned invalid JSON');
+  }
+}
 
 function IconPage() {
   return (
@@ -19,17 +64,14 @@ export default function PagesPage() {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState(null);
-
   const debounceRef = useRef(null);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API_BASE}/pages`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
-      setPages(json.items || []);
+      const json = (await apiFetch('/pages')) || {};
+      setPages(json.items || json.data || []);
     } catch (err) {
       console.error("load pages error", err);
       setPages([]);
@@ -50,17 +92,12 @@ export default function PagesPage() {
     setSaving(true);
     try {
       const isNew = !(pages.find(px => px.key === form.key));
-      const url = isNew ? `${API_BASE}/pages` : `${API_BASE}/pages/${encodeURIComponent(form.key)}`;
+      const path = isNew ? `/pages` : `/pages/${encodeURIComponent(form.key)}`;
       const method = isNew ? "POST" : "PUT";
-      const resp = await fetch(url, {
+      await apiFetch(path, {
         method,
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ Key: form.key, Title: form.title, Description: form.description })
       });
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
       setShow(false);
       await load();
     } catch (err) {
@@ -73,8 +110,7 @@ export default function PagesPage() {
   const del = async (key) => {
     if (!window.confirm("Delete page?")) return;
     try {
-      const resp = await fetch(`${API_BASE}/pages/${encodeURIComponent(key)}`, { method: "DELETE" });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await apiFetch(`/pages/${encodeURIComponent(key)}`, { method: "DELETE" });
       await load();
     } catch (err) {
       alert("Delete failed: " + (err?.message || err));
@@ -99,22 +135,17 @@ export default function PagesPage() {
       @media(prefers-color-scheme:dark){
         :root{ --bg: linear-gradient(180deg,#0e1320,#0b0f19); --muted:#b9b5ad; --deep:#eef2f8; --accent:#7aa2ff; --card:rgba(20,24,36,0.86); }
       }
-
       .pages-wrap{ min-height:100vh; padding: max(8px,var(--safe-top)) 12px calc(64px + var(--safe-bottom)); background: var(--bg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color: var(--deep); }
-
       /* Sticky header */
       .pages-header{ position:sticky; top:8px; z-index:40; display:flex; gap:10px; align-items:flex-start; padding:14px; border-radius: var(--radius); background: linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,250,240,0.95)); box-shadow: var(--shadow); border:1px solid rgba(0,0,0,0.04); margin-bottom:10px; }
       .pages-title{ font-size:18px; font-weight:900; }
       .subtitle{ color:#6f5f4f; margin-top:4px; font-size:13px; }
-
       .search-row{ display:flex; gap:8px; width:100%; }
       .search{ padding:14px 12px; border-radius:12px; border:1px solid rgba(0,0,0,0.06); width:100%; font-size:15px; background:#fff; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
-
       .btn{ border:none; border-radius:12px; padding:12px 14px; font-weight:800; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px; }
       .btn-primary{ background: linear-gradient(90deg,var(--gold), #f4de93); color:#2b1f0f; box-shadow: 0 8px 20px rgba(178,136,7,0.18); }
       .btn-muted{ background:#fff; border:1px solid rgba(0,0,0,0.06); color:#2d3b48; }
       .btn-danger{ background: linear-gradient(180deg,#e74c3c,#c0392b); color:#fff; }
-
       .grid{ display:grid; grid-template-columns:1fr; gap:10px; }
       .card{ background: var(--card); border-radius: var(--radius); padding:12px; box-shadow: var(--shadow); border:1px solid rgba(0,0,0,0.04); }
       .page-card{ background:#fff; border-radius:16px; padding:12px; box-shadow: 0 10px 28px rgba(14,22,34,0.08); border:1px solid rgba(0,0,0,0.04); display:grid; grid-template-columns:auto 1fr auto; gap:10px; }
@@ -125,17 +156,24 @@ export default function PagesPage() {
       .chip{ padding:6px 10px; border-radius:999px; background:#f8fafc; border:1px solid rgba(0,0,0,.06); font-size:12px; }
       .actions{ display:flex; gap:8px; align-items:center; }
       .icon-btn{ min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; border-radius:12px; border:1px solid rgba(0,0,0,0.06); background:#fff; }
-
       /* Skeletons */
       .skeleton{ background: linear-gradient(90deg, rgba(0,0,0,0.05), rgba(0,0,0,0.09), rgba(0,0,0,0.05)); background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 10px; }
       @keyframes shimmer { 0%{ background-position: 200% 0; } 100%{ background-position: -200% 0; } }
-
       /* Desktop table switch */
       @media(min-width: 980px){ .grid{ grid-template-columns: repeat(2, 1fr); } }
-
+      @media(max-width: 720px){
+        .pages-wrap{ padding: 10px 10px calc(84px + var(--safe-bottom)); }
+        .pages-header{ position:relative; top:auto; flex-direction:column; align-items:stretch; padding:12px; }
+        .pages-header > div{ min-width:0 !important; width:100%; }
+        .search-row{ display:grid; grid-template-columns:1fr; }
+        .page-card{ grid-template-columns:48px 1fr; align-items:start; }
+        .page-card > .actions{ grid-column:1 / -1; justify-content:flex-end; }
+        .page-title{ align-items:flex-start; flex-direction:column; gap:6px; }
+        .fab{ right:12px; bottom:calc(12px + var(--safe-bottom)); }
+        .modal-panel{ max-height:90dvh; }
+      }
       /* FAB */
       .fab{ position: fixed; right: 16px; bottom: calc(18px + var(--safe-bottom)); z-index: 70; }
-
       /* Modal sheet */
       .modal-backdrop{ position:fixed; inset:0; background: rgba(8,6,4,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:120; }
       .modal-panel{ width:100%; max-width:720px; background: linear-gradient(180deg,#fff,#fffdf8); padding:16px; border-radius:18px 18px 0 0; box-shadow: 0 18px 48px rgba(6,6,6,0.45); border:1px solid rgba(200,170,90,0.07); display:block; max-height:86vh; overflow:auto; }
@@ -151,7 +189,6 @@ export default function PagesPage() {
   return (
     <div className="pages-wrap">
       {Styles}
-
       {/* Header */}
       <div className="pages-header" role="region" aria-label="Pages header">
         <div style={{ display: "flex", gap: 12, alignItems: "center", flex:1 }}>
@@ -163,7 +200,6 @@ export default function PagesPage() {
             <div className="subtitle">Manage which pages exist in the application and their descriptions.</div>
           </div>
         </div>
-
         <div style={{ minWidth: 260, flex:1 }}>
           <div className="search-row">
             <input className="search" placeholder="Search pages…" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -171,7 +207,6 @@ export default function PagesPage() {
             <button className="btn btn-muted" onClick={() => load()}>Refresh</button>
           </div>
         </div>
-
         <div className="actions" style={{ flexWrap:'wrap' }}>
           <button className="btn btn-primary" onClick={openAdd}>Add Page</button>
         </div>
@@ -200,7 +235,6 @@ export default function PagesPage() {
                 <div className="icon-wrap" aria-hidden>
                   <IconPage />
                 </div>
-
                 <div>
                   <div className="page-title">
                     <span id={`page-${p.key}`}>{p.title}</span>
@@ -212,14 +246,12 @@ export default function PagesPage() {
                     <button className="chip" onClick={() => { try{ navigator.clipboard.writeText(p.key); } catch{} }}>Copy key</button>
                   </div>
                 </div>
-
                 <div className="actions" style={{ marginLeft: 6 }}>
                   <button className="icon-btn" onClick={() => openEdit(p)} aria-label={`Edit ${p.title}`}>✎</button>
                   <button className="icon-btn btn-danger" onClick={() => del(p.key)} aria-label={`Delete ${p.title}`}>🗑</button>
                 </div>
               </article>
             ))}
-
             {filtered.length === 0 && <div className="card" style={{ color: "#6f5f4f" }}>No pages match your search.</div>}
           </>
         )}
@@ -248,7 +280,6 @@ export default function PagesPage() {
                   </label>
                 </div>
               </div>
-
               <div className="form-row">
                 <div className="form-col" style={{ minWidth: '100%' }}>
                   <label>Description
@@ -256,7 +287,6 @@ export default function PagesPage() {
                   </label>
                 </div>
               </div>
-
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap:'wrap' }}>
                 <button type="button" className="btn btn-muted" onClick={() => setShow(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>

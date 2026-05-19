@@ -1,17 +1,43 @@
-﻿/**
- * _helper.js - deploy-provided normalized API helper
- * Exports `call` and `cleanPayload` for compatibility.
+/**
+ * _helper.js - normalized API helper.
+ * Exports `call` and `cleanPayload` for compatibility with older modules.
  */
 
-const TOKEN_KEY = "mahima_token";
+function getApiBase() {
+  let base = "";
 
-const getApiBase = () => {
-  const base =
-    (typeof window !== "undefined" && window.__API_BASE__) ||
-    process.env.REACT_APP_API_URL ||
-    "";
-  return base.toString().replace(/\/+$/g, "");
-};
+  try {
+    if (typeof window !== "undefined" && window.__API_BASE__) {
+      base = String(window.__API_BASE__).trim();
+    }
+  } catch {}
+
+  try {
+    if (!base) {
+      base =
+        import.meta.env.VITE_API_BASE ||
+        import.meta.env.VITE_API_BASE_URL ||
+        "";
+    }
+  } catch {}
+
+  try {
+    if (!base && typeof window !== "undefined") {
+      const isNative =
+        import.meta.env.MODE === "mobile" ||
+        Boolean(window.Capacitor?.isNativePlatform?.()) ||
+        window.location?.protocol === "capacitor:";
+
+      if (isNative) {
+        base =
+          import.meta.env.VITE_MOBILE_API_BASE ||
+          "https://mahimaministries.in/api";
+      }
+    }
+  } catch {}
+
+  return (base || "/api").toString().replace(/\/+$/g, "");
+}
 
 function buildUrl(pathOrUrl) {
   if (!pathOrUrl) return getApiBase();
@@ -22,18 +48,44 @@ function buildUrl(pathOrUrl) {
   if (/\/?api$/i.test(base) && /^api\//i.test(p)) {
     p = p.replace(/^api\//i, "");
   }
-  if (!p) return base || "";
-  return base.replace(/\/+$/g, "") + "/" + p.replace(/^\/+/, "");
+  return `${base.replace(/\/+$/g, "")}/${p.replace(/^\/+/, "")}`;
 }
 
-// ---- token helpers (no in-memory cache!) ----
-function getToken() {
+function normalizeToken(token) {
+  if (!token || typeof token !== "string") return "";
+  const raw = token.trim();
+  return raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : raw;
+}
+
+function readJsonToken(key) {
   try {
-    return localStorage.getItem(TOKEN_KEY) || "";
+    const raw = localStorage.getItem(key);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return parsed?.token || parsed?.accessToken || parsed?.jwt || parsed?.data?.token || "";
   } catch {
     return "";
   }
 }
+
+function getToken() {
+  try {
+    return normalizeToken(
+      localStorage.getItem("mahima_token") ||
+        localStorage.getItem("authToken") ||
+        localStorage.getItem("auth_token") ||
+        localStorage.getItem("token") ||
+        readJsonToken("mahima:user") ||
+        readJsonToken("mahima_user") ||
+        readJsonToken("user") ||
+        readJsonToken("me") ||
+        ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 function authHeader() {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -46,15 +98,16 @@ export function cleanPayload(obj) {
   for (const k of Object.keys(obj)) {
     const v = obj[k];
     if (v === null || v === undefined) continue;
-    if (typeof v === "object") {
+    if (typeof v === "object" && !(v instanceof FormData)) {
       const cleaned = cleanPayload(v);
       if (cleaned === null) continue;
       if (
         typeof cleaned === "object" &&
         !Array.isArray(cleaned) &&
         Object.keys(cleaned).length === 0
-      )
+      ) {
         continue;
+      }
       result[k] = cleaned;
     } else {
       result[k] = v;
@@ -65,32 +118,26 @@ export function cleanPayload(obj) {
 
 export async function call(pathOrUrl, opts = {}) {
   const url = buildUrl(pathOrUrl);
-
-  // default headers
-  const defaultHeaders = {
-    Accept: "application/json",
-    ...authHeader(), // <-- attach JWT if present
-  };
-
-  // JSON body handling
-  if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
-    opts.headers = opts.headers || {};
-    // Respect existing header casing
-    const hasCT =
-      "Content-Type" in opts.headers || "content-type" in opts.headers;
-    if (!hasCT) {
-      opts.headers["Content-Type"] = "application/json";
-    }
-    opts.body = JSON.stringify(cleanPayload(opts.body));
-  }
-
-  // Compose fetch options (avoid stale cache)
   const fetchOpts = {
     credentials: "same-origin",
     cache: "no-store",
     ...opts,
   };
-  fetchOpts.headers = { ...defaultHeaders, ...(fetchOpts.headers || {}) };
+
+  const headers = {
+    Accept: "application/json",
+    ...authHeader(),
+    ...(fetchOpts.headers || {}),
+  };
+
+  if (fetchOpts.body && typeof fetchOpts.body === "object" && !(fetchOpts.body instanceof FormData)) {
+    if (!headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    fetchOpts.body = JSON.stringify(cleanPayload(fetchOpts.body));
+  }
+
+  fetchOpts.headers = headers;
 
   const res = await fetch(url, fetchOpts);
 

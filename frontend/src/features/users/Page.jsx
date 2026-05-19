@@ -1,43 +1,126 @@
 ﻿// src/features/users/UsersPage.CathedralAdvanced.jsx
-import React, { useEffect, useState } from "react";
-import EnrichUserModal from "../../components/EnrichUserModal";
-import api from "../../api";
-import { API_BASE } from "../../api";
-/* ---------- helpers (unchanged) ---------- */
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  Bell,
+  Camera,
+  BookOpen,
+  CalendarCheck,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Edit3,
+  IdCard,
+  KeyRound,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Phone,
+  RefreshCw,
+  Save,
+  Search,
+  Shield,
+  SlidersHorizontal,
+  Smartphone,
+  Trash2,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
+import api, { API_BASE } from "../../api";
+
+const DEFAULT_LIMIT = 10;
+const SEARCH_DATASET_LIMIT = 5000;
+const SEARCH_DATASET_PAGE_SIZE = 500;
+
+const defaultSearchFilters = {
+  role: "",
+  contact: "any",
+  sex: "",
+  baptized: "any",
+  bornAgain: "any",
+  believer: "any",
+  pastor: "any",
+  hasCode: "any",
+  joinedFrom: "",
+  joinedTo: "",
+  sortBy: "relevance",
+  sortDir: "asc",
+};
+
+const emptyBroadcastChannels = {
+  email: true,
+  whatsapp: true,
+  sms: true,
+};
+
 function isoToDatetimeLocal(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-    d.getDate()
-  )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 }
+
 function datetimeLocalToIso(value) {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
+
 function formatFriendlyDate(iso) {
-  if (!iso) return "";
+  if (!iso) return "-";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString();
+  if (Number.isNaN(d.getTime())) return "-";
+
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
-/* ---------- config & small utils ---------- */
-//const API_BASE = ;
-function normalizeResponse(res) {
-  const isArray = Array.isArray(res);
-  const items = isArray ? res : (res && (res.items || res.data || [])) || [];
-  const meta = {
-    total: !isArray ? res?.total ?? items.length : items.length,
-    page: !isArray ? res?.page ?? 1 : 1,
-    limit: !isArray ? res?.limit ?? items.length : items.length,
-  };
-  return { items, meta };
+function formatDate(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
 }
+
+function normalizeResponse(res) {
+  if (res?.ok === false) {
+    throw new Error(res?.statusText || "Request failed.");
+  }
+
+  const data = res?.data ?? res;
+  const items = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.Items ?? data?.data ?? data?.Data ?? [];
+
+  const list = Array.isArray(items) ? items : [];
+
+  return {
+    items: list,
+    meta: {
+      total: Array.isArray(data) ? list.length : data?.total ?? data?.Total ?? list.length,
+      page: Array.isArray(data) ? 1 : data?.page ?? data?.Page ?? 1,
+      limit: Array.isArray(data) ? list.length : data?.limit ?? data?.Limit ?? list.length,
+    },
+  };
+}
+
+function apiErrorMessage(err, fallback) {
+  const data = err?.response?.data;
+  if (typeof data === "string" && data.trim()) return data;
+  return data?.message || err?.message || fallback;
+}
+
 function defaultForm() {
   return {
     id: null,
@@ -49,257 +132,876 @@ function defaultForm() {
     role: "",
     joinDate: new Date().toISOString(),
     UserCode: "",
-
-    // enrichment fields
-    birthday: null,
+    profilePhotoUrl: "",
+    birthday: "",
     maritalStatus: "",
     sex: "",
-    isBaptized: null,
+    isBaptized: false,
     baptismPlace: "",
-    baptismDate: null,
-    isBornAgain: null,
-    isBeliever: null,
-    age: undefined,
+    baptismDate: "",
+    isBornAgain: false,
+    isBeliever: false,
+    age: "",
     aadharNumber: "",
     homeAddress: "",
     currentAddress: "",
     emergencyContactPhone: "",
-    isPastor: null,
+    isPastor: false,
+    payrollEnabled: false,
   };
 }
+
 const phoneAllowTypingRegex = /^\+?\d*$/;
 const phoneFinalRegex = /^\+\d{10,}$/;
 
-/* ---------- component ---------- */
+const valueOf = (value) => (value == null ? "" : String(value));
+
+const normalizeText = (value) =>
+  valueOf(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const userIdOf = (user) => user?.id ?? user?.Id ?? "";
+
+const displayNameOf = (user) =>
+  valueOf(
+    user?.displayName ??
+      user?.DisplayName ??
+      user?.name ??
+      user?.Name ??
+      user?.username ??
+      user?.userName ??
+      user?.UserName ??
+      "Unnamed user"
+  );
+
+const usernameOf = (user) => valueOf(user?.username ?? user?.userName ?? user?.UserName);
+const emailOf = (user) => valueOf(user?.email ?? user?.Email);
+const phoneOf = (user) => valueOf(user?.phone ?? user?.Phone);
+const userCodeOf = (user) => valueOf(user?.UserCode ?? user?.userCode);
+const profilePhotoUrlOf = (user) =>
+  valueOf(user?.profilePhotoUrl ?? user?.ProfilePhotoUrl ?? user?.avatarUrl ?? user?.AvatarUrl ?? user?.photoUrl ?? user?.PhotoUrl);
+
+const resolveMediaUrl = (url) => {
+  const value = valueOf(url).trim();
+  if (!value) return "";
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:")) return value;
+  const base = (API_BASE || "/api").replace(/\/api\/?$/i, "").replace(/\/+$/, "");
+  return `${base}${value.startsWith("/") ? value : `/${value}`}`;
+};
+
+const initialsOf = (name) =>
+  (name || "?")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+function roleLabelOf(user, roles) {
+  if (user?.RoleName) return user.RoleName;
+  if (user?.roleName) return user.roleName;
+
+  const candidate = user?.Role ?? user?.role ?? user?.RoleId ?? user?.roleId;
+  if (candidate == null || candidate === "") return "member";
+
+  const asNumber = Number(candidate);
+  if (!Number.isNaN(asNumber)) {
+    const found = roles.find((role) => Number(role.id ?? role.Id) === asNumber);
+    return found?.name ?? found?.Name ?? String(candidate);
+  }
+
+  const found = roles.find(
+    (role) => String(role.name ?? role.Name).toLowerCase() === String(candidate).toLowerCase()
+  );
+
+  return found?.name ?? found?.Name ?? String(candidate);
+}
+
+function splitSearchTokens(query) {
+  const tokens = [];
+  valueOf(query).replace(/"([^"]+)"|(\S+)/g, (_, quoted, bare) => {
+    tokens.push(quoted || bare);
+    return "";
+  });
+  return tokens.filter(Boolean);
+}
+
+function boolOf(user, camel, pascal) {
+  return Boolean(user?.[camel] ?? user?.[pascal]);
+}
+
+function searchBlobOf(user, roles) {
+  return normalizeText(
+    [
+      displayNameOf(user),
+      usernameOf(user),
+      emailOf(user),
+      phoneOf(user),
+      userCodeOf(user),
+      userIdOf(user),
+      roleLabelOf(user, roles),
+      user?.sex,
+      user?.Sex,
+      user?.maritalStatus,
+      user?.MaritalStatus,
+      user?.homeAddress,
+      user?.HomeAddress,
+      user?.currentAddress,
+      user?.CurrentAddress,
+      user?.emergencyContactPhone,
+      user?.EmergencyContactPhone,
+      boolOf(user, "payrollEnabled", "PayrollEnabled") ? "payroll payroll enabled" : "",
+      formatFriendlyDate(user?.joinDate ?? user?.JoinDate),
+    ].join(" ")
+  );
+}
+
+function fieldTextForToken(user, roles, key) {
+  const normalizedKey = normalizeText(key);
+
+  if (["name", "display", "displayname"].includes(normalizedKey)) return displayNameOf(user);
+  if (["user", "username"].includes(normalizedKey)) return usernameOf(user);
+  if (normalizedKey === "email") return emailOf(user);
+  if (normalizedKey === "phone") return phoneOf(user);
+  if (normalizedKey === "role") return roleLabelOf(user, roles);
+  if (["code", "mahima", "mahimaid"].includes(normalizedKey)) return userCodeOf(user);
+  if (normalizedKey === "id") return userIdOf(user);
+  if (normalizedKey === "sex") return user?.sex ?? user?.Sex ?? "";
+  if (normalizedKey === "joined") return formatFriendlyDate(user?.joinDate ?? user?.JoinDate);
+  if (normalizedKey === "birthday") return formatFriendlyDate(user?.birthday ?? user?.Birthday);
+  if (normalizedKey === "address") return `${user?.homeAddress ?? ""} ${user?.currentAddress ?? ""}`;
+
+  return searchBlobOf(user, roles);
+}
+
+function tokenMatchesUser(user, token, roles) {
+  const raw = valueOf(token).trim();
+  if (!raw) return true;
+
+  const colonIndex = raw.indexOf(":");
+
+  if (colonIndex > 0) {
+    const key = raw.slice(0, colonIndex);
+    const value = normalizeText(raw.slice(colonIndex + 1));
+
+    if (!value) return true;
+
+    const boolKeys = {
+      pastor: boolOf(user, "isPastor", "IsPastor"),
+      baptized: boolOf(user, "isBaptized", "IsBaptized"),
+      believer: boolOf(user, "isBeliever", "IsBeliever"),
+      bornagain: boolOf(user, "isBornAgain", "IsBornAgain"),
+      payroll: boolOf(user, "payrollEnabled", "PayrollEnabled"),
+      payrollenabled: boolOf(user, "payrollEnabled", "PayrollEnabled"),
+    };
+
+    const normalizedKey = normalizeText(key);
+
+    if (Object.prototype.hasOwnProperty.call(boolKeys, normalizedKey)) {
+      const expectedYes = ["yes", "true", "1", "y"].includes(value);
+      const expectedNo = ["no", "false", "0", "n"].includes(value);
+      if (!expectedYes && !expectedNo) return true;
+      return expectedYes ? boolKeys[normalizedKey] : !boolKeys[normalizedKey];
+    }
+
+    return normalizeText(fieldTextForToken(user, roles, key)).includes(value);
+  }
+
+  return searchBlobOf(user, roles).includes(normalizeText(raw));
+}
+
+function matchesSmartSearch(user, query, roles) {
+  const tokens = splitSearchTokens(query);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => tokenMatchesUser(user, token, roles));
+}
+
+function relevanceScore(user, query, roles) {
+  const tokens = splitSearchTokens(query);
+  if (tokens.length === 0) return 0;
+
+  const name = normalizeText(displayNameOf(user));
+  const username = normalizeText(usernameOf(user));
+  const email = normalizeText(emailOf(user));
+  const phone = normalizeText(phoneOf(user));
+  const role = normalizeText(roleLabelOf(user, roles));
+  const code = normalizeText(userCodeOf(user));
+  const blob = searchBlobOf(user, roles);
+
+  return tokens.reduce((score, rawToken) => {
+    const token = normalizeText(rawToken.includes(":") ? rawToken.split(":").slice(1).join(":") : rawToken);
+    if (!token) return score;
+
+    if (name === token) return score + 180;
+    if (name.startsWith(token)) return score + 140;
+    if (username.startsWith(token)) return score + 115;
+    if (email.startsWith(token)) return score + 100;
+    if (phone.includes(token)) return score + 90;
+    if (code.includes(token)) return score + 80;
+    if (role.includes(token)) return score + 70;
+    if (blob.includes(token)) return score + 35;
+
+    return score;
+  }, 0);
+}
+
+function choiceMatches(choice, value) {
+  if (choice === "any") return true;
+  return choice === "yes" ? Boolean(value) : !Boolean(value);
+}
+
+function dateInRange(value, from, to) {
+  if (!from && !to) return true;
+  if (!value) return false;
+
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return false;
+
+  if (from) {
+    const fromTime = new Date(from).getTime();
+    if (!Number.isNaN(fromTime) && time < fromTime) return false;
+  }
+
+  if (to) {
+    const toTime = new Date(`${to}T23:59:59`).getTime();
+    if (!Number.isNaN(toTime) && time > toTime) return false;
+  }
+
+  return true;
+}
+
+function matchesFilters(user, filters, roles) {
+  if (filters.role) {
+    const role = roles.find((item) => String(item.id ?? item.Id) === String(filters.role));
+    const selectedRoleName = normalizeText(role?.name ?? role?.Name ?? filters.role);
+    const actualRoleName = normalizeText(roleLabelOf(user, roles));
+    const rawRole = normalizeText(user?.Role ?? user?.role ?? user?.RoleId ?? user?.roleId);
+
+    if (actualRoleName !== selectedRoleName && rawRole !== normalizeText(filters.role)) return false;
+  }
+
+  if (filters.contact === "email" && !emailOf(user)) return false;
+  if (filters.contact === "phone" && !phoneOf(user)) return false;
+  if (filters.contact === "missing-email" && emailOf(user)) return false;
+  if (filters.contact === "missing-phone" && phoneOf(user)) return false;
+
+  if (filters.sex && normalizeText(user?.sex ?? user?.Sex) !== normalizeText(filters.sex)) return false;
+
+  if (!choiceMatches(filters.baptized, boolOf(user, "isBaptized", "IsBaptized"))) return false;
+  if (!choiceMatches(filters.bornAgain, boolOf(user, "isBornAgain", "IsBornAgain"))) return false;
+  if (!choiceMatches(filters.believer, boolOf(user, "isBeliever", "IsBeliever"))) return false;
+  if (!choiceMatches(filters.pastor, boolOf(user, "isPastor", "IsPastor"))) return false;
+  if (!choiceMatches(filters.hasCode, Boolean(userCodeOf(user)))) return false;
+
+  return dateInRange(user?.joinDate ?? user?.JoinDate, filters.joinedFrom, filters.joinedTo);
+}
+
+function sortUsers(list, filters, query, roles) {
+  const sorted = [...list];
+
+  const direction = filters.sortDir === "desc" ? -1 : 1;
+
+  if (filters.sortBy === "relevance") {
+    if (query.trim()) {
+      sorted.sort((a, b) => {
+        const score = relevanceScore(b, query, roles) - relevanceScore(a, query, roles);
+        if (score !== 0) return score;
+        return displayNameOf(a).localeCompare(displayNameOf(b));
+      });
+      return sorted;
+    }
+
+    sorted.sort((a, b) => displayNameOf(a).localeCompare(displayNameOf(b)));
+    return sorted;
+  }
+
+  sorted.sort((a, b) => {
+    let left = "";
+    let right = "";
+
+    if (filters.sortBy === "name") {
+      left = displayNameOf(a);
+      right = displayNameOf(b);
+    } else if (filters.sortBy === "username") {
+      left = usernameOf(a);
+      right = usernameOf(b);
+    } else if (filters.sortBy === "role") {
+      left = roleLabelOf(a, roles);
+      right = roleLabelOf(b, roles);
+    } else if (filters.sortBy === "joined") {
+      left = new Date(a?.joinDate ?? a?.JoinDate ?? 0).getTime() || 0;
+      right = new Date(b?.joinDate ?? b?.JoinDate ?? 0).getTime() || 0;
+      return (left - right) * direction;
+    }
+
+    return valueOf(left).localeCompare(valueOf(right)) * direction;
+  });
+
+  return sorted;
+}
+
+function HighlightText({ text, query }) {
+  const value = valueOf(text);
+  const terms = splitSearchTokens(query)
+    .filter((token) => !token.includes(":"))
+    .map(normalizeText)
+    .filter((token) => token.length > 1);
+
+  if (!value || terms.length === 0) return value;
+
+  const regex = new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "ig");
+  const parts = value.split(regex);
+
+  return parts.map((part, index) =>
+    terms.includes(normalizeText(part)) ? (
+      <mark className="users-mark" key={`${part}-${index}`}>
+        {part}
+      </mark>
+    ) : (
+      <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
+    )
+  );
+}
+
+function hasActiveFilters(filters) {
+  return Object.entries(defaultSearchFilters).some(([key, value]) => filters[key] !== value);
+}
+
+function IconButton({
+  icon: Icon,
+  label,
+  onClick,
+  type = "button",
+  disabled = false,
+  loading = false,
+  variant = "neutral",
+}) {
+  return (
+    <button
+      type={type}
+      className={`users-icon-btn users-icon-btn-${variant}`}
+      onClick={onClick}
+      disabled={disabled || loading}
+      aria-label={label}
+      title={label}
+    >
+      {loading ? <Loader2 className="users-spin" size={18} /> : <Icon size={18} />}
+      <span className="users-tooltip">{label}</span>
+    </button>
+  );
+}
+
+function ActionButton({
+  icon: Icon,
+  children,
+  onClick,
+  type = "button",
+  disabled = false,
+  loading = false,
+  variant = "primary",
+}) {
+  return (
+    <button
+      type={type}
+      className={`users-action-btn users-action-btn-${variant}`}
+      onClick={onClick}
+      disabled={disabled || loading}
+    >
+      {loading ? <Loader2 className="users-spin" size={18} /> : <Icon size={18} />}
+      <span>{children}</span>
+    </button>
+  );
+}
+
 export default function UsersPageCathedralAdvanced() {
   const [users, setUsers] = useState([]);
   const [allUsers, setAllUsers] = useState(null);
-  const [meta, setMeta] = useState({ total: 0, page: 1, limit: 10 });
-  const [search, setSearch] = useState(""); 
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchUsers, setSearchUsers] = useState(null);
+  const [meta, setMeta] = useState({ total: 0, page: 1, limit: DEFAULT_LIMIT });
 
-useEffect(() => {
-  const t = setTimeout(() => setDebouncedSearch(search), 300);
-  return () => clearTimeout(t);
-}, [search]);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filters, setFilters] = useState(defaultSearchFilters);
+  const [clientPage, setClientPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [recentSearches, setRecentSearches] = useState([]);
+
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [searchDatasetLoading, setSearchDatasetLoading] = useState(false);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  const [error, setError] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalSuccess, setModalSuccess] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(defaultForm());
-  const [saving, setSaving] = useState(false);
-  const [modalMessage, setModalMessage] = useState(null);
-  const [modalSuccess, setModalSuccess] = useState(false);
-  const [resetting, setResetting] = useState(false);
-
-  const [deletingId, setDeletingId] = useState(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-
-  /* ---------- broadcast modal state ---------- */
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+
+  const [form, setForm] = useState(defaultForm());
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [roles, setRoles] = useState([]);
+
   const [broadcastType, setBroadcastType] = useState("Welcome");
   const [broadcastMessage, setBroadcastMessage] = useState("");
-  const [broadcastChannels, setBroadcastChannels] = useState({
-    email: true,
-    whatsapp: true,
-    sms: true,
-  });
+  const [broadcastChannels, setBroadcastChannels] = useState(emptyBroadcastChannels);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState(null);
   const [modalSearch, setModalSearch] = useState("");
 
-  const [isEnrichOpen, setIsEnrichOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const activeFilterMode = hasActiveFilters(filters);
+  const powerSearchActive = Boolean(debouncedSearch || activeFilterMode);
 
-  /* ---------- roles state ---------- */
-  const [roles, setRoles] = useState([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
-
-  /* ---------- API calls ---------- */
-  const fetchUsers = async (page = 1, limit = 10, searchTerm = "") => {
-  try {
-    setLoading(true);
-    setError(null);
-
-    const resp = await api.get("/users", {
-      params: {
-        search: searchTerm || "",
-        page: page,
-        limit: limit,
-      },
-    });
-
-    const { items, meta: newMeta } = normalizeResponse(resp.data);
-
-    const sorted = (items || []).sort((a, b) => {
-  const nameA = (a.displayName || a.username || "").toLowerCase();
-  const nameB = (b.displayName || b.username || "").toLowerCase();
-  return nameA.localeCompare(nameB);
-});
-setUsers(sorted);
-    setMeta((prev) => ({
-      ...prev,
-      page: newMeta.page ?? page,
-      limit: newMeta.limit ?? limit,
-      total: newMeta.total ?? prev.total,
-    }));
-  } catch (err) {
-    setError(err?.message || String(err));
-    setUsers([]);
-  } finally {
-    setLoading(false);
-  }
-};
-  const fetchAllUsers = async () => {
-    if (allUsers !== null) return;
+  useEffect(() => {
     try {
-      setAllUsers(null);
-      //const q = new URLSearchParams({
-//        search: "",
-  //      page: "1",
-    //    limit: "10000",
-      //});
-      //const resp = await fetch(`${API_BASE}/users`);
-
-//const resp = await fetch(`${API_BASE}/users`);
-const resp = await api.get("/users");  
-      if (!resp.ok) {
-        setAllUsers([]);
-        return;
-      }
-      const data = await resp.json();
-      const { items } = normalizeResponse(data);
-      setAllUsers(items || []);
-      setSelectedIds(new Set((items || []).map((u) => u.id)));
-    } catch (err) {
-      setAllUsers([]);
+      const stored = JSON.parse(localStorage.getItem("mahima_user_recent_searches") || "[]");
+      setRecentSearches(Array.isArray(stored) ? stored.slice(0, 6) : []);
+    } catch {
+      setRecentSearches([]);
     }
-  };
+  }, []);
 
-  const fetchRoles = async () => {
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (!debouncedSearch || debouncedSearch.length < 2) return;
+
+    setRecentSearches((prev) => {
+      const next = [debouncedSearch, ...prev.filter((item) => item !== debouncedSearch)].slice(0, 6);
+      localStorage.setItem("mahima_user_recent_searches", JSON.stringify(next));
+      return next;
+    });
+  }, [debouncedSearch]);
+
+  const fetchUsers = useCallback(async (page = 1, limit = DEFAULT_LIMIT) => {
+    setLoading(true);
+    setError("");
+
     try {
-      setRolesLoading(true);
-      //const resp = await fetch(`${API_BASE}/roles`);
-const resp = await api.get("/roles");      
-if (!resp.ok) {
-        setRoles([]);
-        return;
+      const resp = await api.get("/users", {
+        params: { page, limit },
+      });
+
+      const { items, meta: nextMeta } = normalizeResponse(resp);
+
+      const sorted = [...items].sort((a, b) =>
+        displayNameOf(a).toLowerCase().localeCompare(displayNameOf(b).toLowerCase())
+      );
+
+      setUsers(sorted);
+      setMeta({
+        page: nextMeta.page ?? page,
+        limit,
+        total: nextMeta.total ?? sorted.length,
+      });
+    } catch (err) {
+      console.error(err);
+      setUsers([]);
+      setError(apiErrorMessage(err, "Unable to load users."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchSearchDataset = useCallback(
+    async (force = false) => {
+      if (searchUsers !== null && !force) return searchUsers;
+
+      setSearchDatasetLoading(true);
+
+      try {
+        const collected = [];
+        let page = 1;
+        let total = null;
+
+        while (collected.length < SEARCH_DATASET_LIMIT) {
+          const resp = await api.get("/users", {
+            params: { page, limit: SEARCH_DATASET_PAGE_SIZE },
+          });
+
+          const { items, meta: nextMeta } = normalizeResponse(resp);
+          collected.push(...items);
+          total = nextMeta.total ?? total;
+
+          if (!items.length) break;
+          if (total !== null && collected.length >= total) break;
+          if (items.length < SEARCH_DATASET_PAGE_SIZE) break;
+          page += 1;
+        }
+
+        const byId = new Map();
+        for (const user of collected) {
+          const id = userIdOf(user);
+          if (id) byId.set(id, user);
+        }
+
+        const items = Array.from(byId.values());
+        setSearchUsers(items);
+        return items;
+      } catch (err) {
+        console.error("fetchSearchDataset error:", err);
+        setSearchUsers([]);
+        setError(apiErrorMessage(err, "Unable to load searchable users."));
+        return [];
+      } finally {
+        setSearchDatasetLoading(false);
       }
-      const j = await resp.json();
-      const items = (j && (j.items || j.data || j)) || [];
-      setRoles(items || []);
+    },
+    [searchUsers]
+  );
+
+  const fetchRoles = useCallback(async () => {
+    setRolesLoading(true);
+
+    try {
+      const resp = await api.get("/roles");
+      const { items } = normalizeResponse(resp);
+      setRoles(items);
     } catch (err) {
       console.warn("fetchRoles error:", err);
       setRoles([]);
     } finally {
       setRolesLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchUsers(1, DEFAULT_LIMIT);
+  }, [fetchUsers]);
+
+  useEffect(() => {
+    fetchRoles();
+  }, [fetchRoles]);
+
+  useEffect(() => {
+    setClientPage(1);
+    if (powerSearchActive) fetchSearchDataset();
+  }, [powerSearchActive, debouncedSearch, filters, fetchSearchDataset]);
+
+  const fetchAllUsers = useCallback(async () => {
+    if (allUsers !== null) return;
+
+    try {
+      const items = await fetchSearchDataset(true);
+      const sorted = [...items].sort((a, b) =>
+        displayNameOf(a).toLowerCase().localeCompare(displayNameOf(b).toLowerCase())
+      );
+
+      setAllUsers(sorted);
+      setSelectedIds(new Set(sorted.map(userIdOf).filter(Boolean)));
+    } catch (err) {
+      console.error("fetchAllUsers error:", err);
+      setAllUsers([]);
+    }
+  }, [allUsers, fetchSearchDataset]);
+
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-useEffect(() => {
-  fetchUsers(meta.page, meta.limit, debouncedSearch);
-}, [debouncedSearch]);
+  const uploadProfilePhoto = async (file) => {
+    if (!file) return;
+    if (!file.type?.startsWith("image/")) {
+      setModalMessage("Please choose an image file.");
+      setModalSuccess(false);
+      return;
+    }
 
-useEffect(() => {
-  fetchRoles();
-}, []);
-  /* ---------- actions ---------- */
-  const openAdd = () => {
+    const token = localStorage.getItem("mahima_token") || localStorage.getItem("authToken") || localStorage.getItem("token") || "";
+    const body = new FormData();
+    body.append("file", file);
+
+    try {
+      setPhotoUploading(true);
+      setModalMessage("");
+      const base = (API_BASE || "/api").replace(/\/+$/, "");
+      const res = await fetch(`${base}/uploads`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token.replace(/^Bearer\s+/i, "")}` } : undefined,
+        body,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message || data?.error || "Photo upload failed.");
+      const url = data?.url || data?.Url || data?.absoluteUrl || data?.path || data?.Path;
+      if (!url) throw new Error("Upload succeeded but no file URL was returned.");
+      setField("profilePhotoUrl", url);
+      setModalSuccess(true);
+      setModalMessage("Photo uploaded. Save the user to keep it.");
+    } catch (err) {
+      setModalSuccess(false);
+      setModalMessage(err?.message || "Photo upload failed.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const updateFilter = (key, value) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const resetSearch = () => {
+    setSearch("");
+    setDebouncedSearch("");
+    setFilters(defaultSearchFilters);
+    setClientPage(1);
+  };
+
+  const resolveDefaultRole = useCallback(() => {
     const memberRole = roles.find(
-      (r) => String(r.name).toLowerCase() === "member"
+      (role) => String(role.name ?? role.Name).toLowerCase() === "member"
     );
-    const defaultRoleId = memberRole
-      ? String(memberRole.id)
-      : roles[0]
-      ? String(roles[0].id)
-      : "";
-    setForm({ ...defaultForm(), role: defaultRoleId });
-    setModalMessage(null);
+
+    return String(memberRole?.id ?? memberRole?.Id ?? roles[0]?.id ?? roles[0]?.Id ?? "");
+  }, [roles]);
+
+  const openAdd = () => {
+    setForm({ ...defaultForm(), role: resolveDefaultRole() });
+    setModalMessage("");
     setModalSuccess(false);
     setShowModal(true);
   };
 
-// ONLY THIS FUNCTION IS FIXED — rest of your file unchanged
+  const openEdit = (user) => {
+    const rawRole =
+      user.Role ??
+      user.RoleId ??
+      user.role ??
+      user.roleId ??
+      user.roleName ??
+      user.RoleName ??
+      "";
 
-const openEdit = (u) => {
-  const formatDateTime = (val) => {
-    if (!val) return new Date().toISOString();
-    try {
-      return new Date(val).toISOString();
-    } catch {
-      return new Date().toISOString();
+    let normalizedRoleId = "";
+
+    if (rawRole !== "") {
+      const asNumber = Number(rawRole);
+      if (!Number.isNaN(asNumber) && asNumber > 0) {
+        normalizedRoleId = String(asNumber);
+      } else {
+        const match = roles.find(
+          (role) => String(role.name ?? role.Name).toLowerCase() === String(rawRole).toLowerCase()
+        );
+        normalizedRoleId = match ? String(match.id ?? match.Id) : String(rawRole);
+      }
+    }
+
+    setForm({
+      id: userIdOf(user) || null,
+      UserCode: user.UserCode ?? user.userCode ?? "",
+      profilePhotoUrl: profilePhotoUrlOf(user),
+      displayName: user.displayName ?? user.DisplayName ?? user.name ?? user.Name ?? "",
+      username: user.username ?? user.userName ?? user.UserName ?? "",
+      email: user.email ?? user.Email ?? "",
+      phone: user.phone ?? user.Phone ?? "",
+      password: "",
+      role: normalizedRoleId,
+      joinDate: user.joinDate ? new Date(user.joinDate).toISOString() : new Date().toISOString(),
+      birthday: formatDate(user.birthday ?? user.Birthday),
+      maritalStatus: user.maritalStatus ?? user.MaritalStatus ?? "",
+      sex: user.sex ?? user.Sex ?? "",
+      isBaptized: Boolean(user.isBaptized ?? user.IsBaptized),
+      baptismPlace: user.baptismPlace ?? user.BaptismPlace ?? "",
+      baptismDate: formatDate(user.baptismDate ?? user.BaptismDate),
+      isBornAgain: Boolean(user.isBornAgain ?? user.IsBornAgain),
+      isBeliever: Boolean(user.isBeliever ?? user.IsBeliever),
+      age: user.age ?? user.Age ?? "",
+      aadharNumber: user.aadharNumber ?? user.AadharNumber ?? "",
+      homeAddress: user.homeAddress ?? user.HomeAddress ?? "",
+      currentAddress: user.currentAddress ?? user.CurrentAddress ?? "",
+      emergencyContactPhone: user.emergencyContactPhone ?? user.EmergencyContactPhone ?? "",
+      isPastor: Boolean(user.isPastor ?? user.IsPastor),
+      payrollEnabled: Boolean(user.payrollEnabled ?? user.PayrollEnabled ?? user.isPayrollEnabled ?? user.IsPayrollEnabled),
+    });
+
+    setModalMessage("");
+    setModalSuccess(false);
+    setShowModal(true);
+  };
+
+  const roleIdFromForm = () => {
+    if (form.role == null || form.role === "") return null;
+
+    const asNumber = Number(form.role);
+    if (!Number.isNaN(asNumber) && asNumber > 0) return asNumber;
+
+    const byName = roles.find(
+      (role) => String(role.name ?? role.Name).toLowerCase() === String(form.role).toLowerCase()
+    );
+
+    return byName ? Number(byName.id ?? byName.Id) : null;
+  };
+
+  const refreshCurrentView = async () => {
+    if (powerSearchActive) {
+      await fetchSearchDataset(true);
+    } else {
+      await fetchUsers(meta.page, meta.limit);
     }
   };
 
-  const formatDate = (val) => {
-    if (!val) return null;
+  const saveUser = async (event) => {
+    event?.preventDefault?.();
+
+    const username = form.username.trim();
+
+    if (!username) {
+      setModalMessage("Username is required.");
+      setModalSuccess(false);
+      return;
+    }
+
+    if (!form.id && !form.password) {
+      setModalMessage("Password is required for new users.");
+      setModalSuccess(false);
+      return;
+    }
+
+    if (form.phone && !phoneFinalRegex.test(form.phone)) {
+      if (!window.confirm("Phone should start with + and have at least 10 digits. Continue?")) return;
+    }
+
+    setSaving(true);
+    setModalMessage("");
+    setModalSuccess(false);
+
     try {
-      return new Date(val).toISOString().split("T")[0];
-    } catch {
-      return null;
+      const roleId = roleIdFromForm();
+
+      const payload = {
+        DisplayName: form.displayName.trim() || null,
+        displayName: form.displayName.trim() || null,
+        Username: username,
+        Password: form.password || null,
+        Email: form.email.trim() || null,
+        Phone: form.phone.trim() || null,
+        ProfilePhotoUrl: form.profilePhotoUrl || null,
+        profilePhotoUrl: form.profilePhotoUrl || null,
+        AvatarUrl: form.profilePhotoUrl || null,
+        JoinDate: form.joinDate ? new Date(form.joinDate).toISOString() : null,
+        Birthday: form.birthday || null,
+        MaritalStatus: form.maritalStatus || null,
+        Sex: form.sex || null,
+        IsBaptized: form.isBaptized ?? null,
+        BaptismPlace: form.baptismPlace || null,
+        BaptismDate: form.baptismDate || null,
+        IsBornAgain: form.isBornAgain ?? null,
+        IsBeliever: form.isBeliever ?? null,
+        Age: form.age === "" ? null : Number(form.age),
+        AadharNumber: form.aadharNumber || null,
+        HomeAddress: form.homeAddress || null,
+        CurrentAddress: form.currentAddress || null,
+        EmergencyContactPhone: form.emergencyContactPhone || null,
+        IsPastor: form.isPastor ?? null,
+        PayrollEnabled: form.payrollEnabled ?? false,
+        ...(form.id ? { Id: form.id } : {}),
+      };
+
+      if (roleId != null) {
+        payload.Role = roleId;
+        payload.RoleId = roleId;
+
+        const role = roles.find((item) => Number(item.id ?? item.Id) === Number(roleId));
+        if (role) payload.RoleName = role.name ?? role.Name;
+      } else if (form.role) {
+        payload.RoleName = form.role;
+      }
+
+      if (form.id) {
+        await api.put(`/users/${form.id}`, payload);
+      } else {
+        await api.post("/users", payload);
+      }
+
+      setShowModal(false);
+      setSearchUsers(null);
+      setAllUsers(null);
+      setClientPage(1);
+      await fetchUsers(form.id ? meta.page : 1, meta.limit);
+      if (powerSearchActive) await fetchSearchDataset(true);
+    } catch (err) {
+      console.error("saveUser error:", err);
+      setModalMessage(apiErrorMessage(err, "Save failed."));
+      setModalSuccess(false);
+    } finally {
+      setSaving(false);
     }
   };
 
-  let rawRole = null;
-  if (u.Role != null) rawRole = u.Role;
-  else if (u.RoleId != null) rawRole = u.RoleId;
-  else if (u.role != null) rawRole = u.role;
-  else if (u.roleId != null) rawRole = u.roleId;
-  else if (u.roleName != null) rawRole = u.roleName;
-  else if (u.RoleName != null) rawRole = u.RoleName;
+  const confirmDelete = async (id) => {
+    if (!id || !window.confirm("Delete this user?")) return;
 
-  let normalizedRoleId = "";
-  if (rawRole != null) {
-    if (typeof rawRole === "number" || /^[0-9]+$/.test(String(rawRole))) {
-      normalizedRoleId = String(rawRole);
-    } else if (typeof rawRole === "string") {
-      const match = roles.find(
-        (r) => String(r.name).toLowerCase() === rawRole.toLowerCase()
-      );
-      normalizedRoleId = match ? String(match.id) : rawRole;
+    setDeletingId(id);
+
+    try {
+      const result = await api.delete(`/users/${id}`);
+      if (result?.ok === false) {
+        throw new Error(result.error || result.statusText || "Delete failed");
+      }
+
+      setSearchUsers((prev) => (Array.isArray(prev) ? prev.filter((user) => userIdOf(user) !== id) : prev));
+      setAllUsers((prev) => (Array.isArray(prev) ? prev.filter((user) => userIdOf(user) !== id) : prev));
+      setClientPage(1);
+
+      await fetchUsers(meta.page, meta.limit);
+    } catch (err) {
+      alert("Delete failed: " + (err?.response?.data?.message || err?.message || String(err)));
+    } finally {
+      setDeletingId(null);
     }
-  }
+  };
 
-  setForm({
-    id: u.id ?? null,
-    UserCode: u.UserCode ?? u.userCode ?? "",
-    displayName: u.displayName ?? u.displayname ?? u.name ?? "",
-    username: u.username ?? u.userName ?? "",
-    email: u.email ?? "",
-    phone: u.phone ?? "",
-    role: normalizedRoleId,
+  const resetPasswordForFormUser = async () => {
+    setModalMessage("");
+    setModalSuccess(false);
 
-    // ✅ FIXED DATE
-    joinDate: formatDateTime(u.joinDate),
+    if (!form.id) {
+      setModalMessage("User id not available.");
+      return;
+    }
 
-    // ✅ ENRICHMENT FIELDS (FULL FIX)
-    birthday: formatDate(u.birthday ?? u.Birthday),
-    maritalStatus: u.maritalStatus ?? u.MaritalStatus ?? "",
-    sex: u.sex ?? u.Sex ?? "",
-    isBaptized: !!(u.isBaptized ?? u.IsBaptized),
-    baptismPlace: u.baptismPlace ?? u.BaptismPlace ?? "",
-    baptismDate: formatDate(u.baptismDate ?? u.BaptismDate),
-    isBornAgain: !!(u.isBornAgain ?? u.IsBornAgain),
-    isBeliever: !!(u.isBeliever ?? u.IsBeliever),
-    age: u.age ?? u.Age ?? undefined,
-    aadharNumber: u.aadharNumber ?? u.AadharNumber ?? "",
-    homeAddress: u.homeAddress ?? u.HomeAddress ?? "",
-    currentAddress: u.currentAddress ?? u.CurrentAddress ?? "",
-    emergencyContactPhone:
-      u.emergencyContactPhone ?? u.EmergencyContactPhone ?? "",
-    isPastor: !!(u.isPastor ?? u.IsPastor),
-  });
+    const username = form.username.trim();
 
-  setModalMessage(null);
-  setModalSuccess(false);
-  setShowModal(true);
-};
+    if (!username) {
+      setModalMessage("Username is required.");
+      return;
+    }
+
+    const newPassword = `${username}123`;
+
+    if (!window.confirm(`Reset password for "${username}" to "${newPassword}"?`)) return;
+
+    setResetting(true);
+
+    try {
+      await api.post(`/users/${form.id}/reset-password`, { newPassword });
+
+      setModalMessage(`Password reset to "${newPassword}".`);
+      setModalSuccess(true);
+    } catch (err) {
+      console.error("resetPassword error:", err);
+      setModalMessage(err?.response?.data?.message || err?.message || "Reset failed.");
+      setModalSuccess(false);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const openBroadcast = async (type) => {
     setBroadcastType(type);
     setBroadcastMessage("");
-    setBroadcastChannels({ email: true, whatsapp: true, sms: true });
+    setBroadcastChannels(emptyBroadcastChannels);
     setSendResults(null);
     setModalSearch("");
     setBroadcastOpen(true);
@@ -308,1680 +1010,1519 @@ const openEdit = (u) => {
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
-      const copy = new Set(prev);
-      if (copy.has(id)) copy.delete(id);
-      else copy.add(id);
-      return copy;
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
-  const selectAllVisible = () => {
+  const selectAllRecipients = () => {
     if (!allUsers) return;
-    setSelectedIds(new Set(allUsers.map((u) => u.id)));
+    setSelectedIds(new Set(allUsers.map(userIdOf).filter(Boolean)));
   };
+
   const clearSelection = () => setSelectedIds(new Set());
 
-  const saveUser = async (e) => {
-    e?.preventDefault?.();
-
-    const usernameTrim = (form.username ?? "").trim();
-   if (!usernameTrim) {
-  alert("Username is required.");
-  return;
-}
-
-if (!form.id && !form.password) {
-  alert("Password is required for new user.");
-  return;
-}
-    if (form.phone && !phoneFinalRegex.test(form.phone)) {
-      if (
-        !window.confirm(
-          "Phone looks invalid (should start with + and at least 10 digits). Continue?"
-        )
-      )
-        return;
-    }
-
-    setSaving(true);
-    setModalMessage(null);
-    setModalSuccess(false);
-
-    try {
-      let roleIdNumber = null;
-      if (form.role != null && form.role !== "") {
-        const asNumber = Number(form.role);
-        if (!Number.isNaN(asNumber) && asNumber > 0) {
-          roleIdNumber = asNumber;
-        } else {
-          const byName = roles.find(
-            (r) =>
-              String(r.name).toLowerCase() === String(form.role).toLowerCase()
-          );
-          if (byName) roleIdNumber = byName.id;
-        }
-      }
-
- const payload = {
-  DisplayName: (form.displayName ?? "").trim() || null,
-  Username: usernameTrim,
-  Password: form.password || null,
-  Email: (form.email ?? "").trim() || null,
-  Phone: (form.phone ?? "").trim() || null,
-  JoinDate: form.joinDate ? new Date(form.joinDate).toISOString() : null,
-  ...(form.id ? { Id: form.id } : {}),
-};
-
-// 🔥 ADD THIS LINE
-payload.displayName = payload.DisplayName;
-      if (roleIdNumber != null) {
-        payload.Role = roleIdNumber;
-        payload.RoleId = roleIdNumber;
-        const roleObj = roles.find(
-          (r) => Number(r.id) === Number(roleIdNumber)
-        );
-        if (roleObj) payload.RoleName = roleObj.name;
-      } else if (form.role && typeof form.role === "string") {
-        payload.RoleName = form.role;
-      }
-
-      // mirror to camelCase for frontend compatibility
-      payload.displayName = payload.DisplayName;
-      payload.username = payload.Username;
-      payload.password = payload.Password;
-      payload.email = payload.Email;
-      payload.phone = payload.Phone;
-      payload.joinDate = payload.JoinDate;
-
-      // keep UserCode in the payload (even if backend ignores updates)
-      payload.UserCode = form.UserCode ?? null;
-      payload.userCode = payload.UserCode;
-
-      if (payload.Role != null) {
-        payload.role = payload.Role;
-        payload.roleId = payload.RoleId;
-      } else if (payload.RoleName) {
-        payload.roleName = payload.RoleName;
-      }
-
-      const url = `${API_BASE}/users${form.id ? `/${form.id}` : ""}`;
-      const resp = await fetch(url, {
-        method: form.id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!resp.ok) {
-        const contentType = resp.headers.get("content-type") || "";
-        let bodyText = await resp.text().catch(() => "");
-        if (contentType.includes("application/json")) {
-          try {
-            const parsed = JSON.parse(bodyText);
-            if (parsed && (parsed.message || parsed.error || parsed.title))
-              bodyText = parsed.message || parsed.error || parsed.title;
-          } catch {
-            /* ignore */
-          }
-        }
-        throw new Error(bodyText || `HTTP ${resp.status}`);
-      }
-
-      setShowModal(false);
-      await fetchUsers(1, meta.limit, search);
-    } catch (err) {
-      console.error("saveUser error (final):", err);
-      alert("Save failed: " + (err?.message || String(err)));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const confirmDelete = (id) => {
-    if (!id) return;
-    if (!window.confirm("Delete this user?")) return;
-    doDelete(id);
-  };
-  const doDelete = async (id) => {
-    try {
-      setDeletingId(id);
-      setDeleteLoading(true);
-      const resp = await fetch(`${API_BASE}/users/${id}`, {
-        method: "DELETE",
-      });
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        throw new Error(`HTTP ${resp.status} - ${txt || ""}`);
-      }
-      await fetchUsers(meta.page, meta.limit, search);
-    } catch (err) {
-      alert("Delete failed: " + (err?.message || String(err)));
-    } finally {
-      setDeletingId(null);
-      setDeleteLoading(false);
-    }
-  };
-
-  const setField = (k, v) =>
-    setForm((prev) => ({
-      ...prev,
-      [k]: v,
-    }));
-
-  async function resetPasswordForFormUser() {
-    setModalMessage(null);
-    setModalSuccess(false);
-
-    if (!form?.id) {
-      setModalMessage("User id not available.");
-      return;
-    }
-    const username = (form?.username || "").trim();
-    if (!username) {
-      setModalMessage("Username required to compute default password.");
-      return;
-    }
-
-    if (
-      !window.confirm(
-        `Reset password for "${username}" to "${username}123"?`
-      )
-    )
-      return;
-
-    setResetting(true);
-    try {
-      const token =
-        localStorage.getItem("mahima_token") ||
-        localStorage.getItem("token") ||
-        null;
-      const newPassword = `${username}123`;
-      const url = `${API_BASE}/users/${form.id}/reset-password`;
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ newPassword }),
-      });
-
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
-
-      setModalMessage(`Password reset to "${newPassword}".`);
-      setModalSuccess(true);
-      setTimeout(() => {
-        setModalMessage(null);
-        setModalSuccess(false);
-      }, 1800);
-    } catch (err) {
-      console.error("resetPassword error:", err);
-      setModalMessage(String(err?.message || err) || "Reset failed");
-      setModalSuccess(false);
-    } finally {
-      setResetting(false);
-    }
-  }
-
   const sendBroadcast = async () => {
-    if (!broadcastMessage || broadcastMessage.trim().length === 0) {
+    if (!broadcastMessage.trim()) {
       alert("Please enter a message to send.");
       return;
     }
-    if (selectedIds.size === 0) {
-      if (
-        !window.confirm(
-          "No recipients selected — do you want to continue?"
-        )
-      )
-        return;
-    }
+
+    if (selectedIds.size === 0 && !window.confirm("No recipients selected. Continue?")) return;
 
     setSending(true);
     setSendResults(null);
+
     try {
       const payload = {
         type: broadcastType,
-        message: broadcastMessage,
+        message: broadcastMessage.trim(),
         userIds: Array.from(selectedIds),
         channels: {
-          email: !!broadcastChannels.email,
-          whatsapp: !!broadcastChannels.whatsapp,
-          sms: !!broadcastChannels.sms,
+          email: Boolean(broadcastChannels.email),
+          whatsapp: Boolean(broadcastChannels.whatsapp),
+          sms: Boolean(broadcastChannels.sms),
         },
       };
 
-      const resp = await fetch(`${API_BASE}/messages/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        throw new Error(`HTTP ${resp.status} - ${txt || "error"}`);
-      }
-
-      const data = await resp.json();
-      setSendResults(data);
+      const resp = await api.post("/messages/send", payload);
+      setSendResults(resp?.data ?? { success: true });
     } catch (err) {
-      setSendResults({ success: false, error: String(err) });
+      setSendResults({
+        success: false,
+        error: err?.response?.data?.message || err?.message || "Send failed.",
+      });
     } finally {
       setSending(false);
     }
   };
 
-  /* ---------- Enrich handlers ---------- */
-  const openEnrich = (user) => {
-    setSelectedUser(user);
-    setIsEnrichOpen(true);
-  };
+  const filteredSearchUsers = useMemo(() => {
+    const source = powerSearchActive ? searchUsers ?? [] : users;
 
-  const closeEnrich = () => {
-    setIsEnrichOpen(false);
-    setSelectedUser(null);
-  };
+    const filtered = source.filter(
+      (user) => matchesSmartSearch(user, debouncedSearch, roles) && matchesFilters(user, filters, roles)
+    );
 
-  /* ---------- small helpers ---------- */
-  const start = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1;
-  const end = Math.min(meta.total, meta.page * meta.limit);
+    return sortUsers(filtered, filters, debouncedSearch, roles);
+  }, [powerSearchActive, searchUsers, users, debouncedSearch, filters, roles]);
 
-  /* ---------- embedded styles ---------- */
-  const EmbeddedStyles = (
-    <style>{`
-      :root{
-        --bg: linear-gradient(180deg,#fffdfa, #fbf3e8);
-        --muted: #4a3a2f;
-        --gold: #d1a62a;
-        --deep: #12223a;
-        --accent: #2f5bd8;
-        --card-shadow: 0 8px 30px rgba(12,16,24,0.06);
-        --radius: 14px;
-        --tap: 14px;
-        --safe-top: env(safe-area-inset-top);
-        --safe-bottom: env(safe-area-inset-bottom);
-      }
+  const visibleUsers = useMemo(() => {
+    if (!powerSearchActive) return users;
 
-      @media (prefers-color-scheme: dark){
-        :root{ --bg: linear-gradient(180deg,#0e1320,#0b0f19); --muted:#b9b5ad; --deep:#edf1f7; --accent:#7aa2ff; }
-        .card, .user-card, .modal-panel, .hero, .topbar{ background: rgba(20,24,36,0.85); color: var(--deep); border-color: rgba(255,255,255,0.06); }
-        .user-card{ box-shadow: 0 10px 28px rgba(0,0,0,0.45); }
-        .avatar{ background: linear-gradient(180deg,#1c2236,#131a2c); color:#e7e9f1; border-color: rgba(255,255,255,0.06); }
-      }
+    const startIndex = (clientPage - 1) * meta.limit;
+    return filteredSearchUsers.slice(startIndex, startIndex + meta.limit);
+  }, [powerSearchActive, users, filteredSearchUsers, clientPage, meta.limit]);
 
-      .cathedral-advanced { min-height:100vh; padding: 10px 14px calc(64px + var(--safe-bottom)); background: var(--bg) fixed; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--deep); }
+  const filteredRecipients = useMemo(() => {
+    if (!allUsers) return null;
 
-      .topbar { position: sticky; top:0; z-index: 60; backdrop-filter: blur(10px); background: rgba(255,255,255,0.75); border-bottom: 1px solid rgba(0,0,0,0.04); display:flex; gap:10px; align-items:center; padding: max(8px, var(--safe-top)) 12px 8px; border-radius: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.05); }
-      .logo { height:36px; width:auto; display:block; border-radius:10px; }
-      .header-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    const query = modalSearch.trim().toLowerCase();
+    if (!query) return allUsers;
 
-      .search-wrap { position: sticky; top:58px; z-index: 50; padding: 8px 4px; }
-      .search-row { display:flex; gap:8px; }
-      .search-input { padding:14px 12px; border-radius:12px; border:1px solid rgba(0,0,0,0.06); width:100%; font-size:15px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
-      .btn { border:none; border-radius:12px; padding:12px 14px; cursor:pointer; font-weight:700; font-size:14px; display:inline-flex; align-items:center; gap:8px; }
-      .btn-primary { background: linear-gradient(90deg,var(--gold), #f4de93); color:#2b1f0f; box-shadow: 0 8px 20px rgba(178,136,7,0.18); }
-      .btn-muted { background:#fff; color:#2d3b48; border:1px solid rgba(0,0,0,0.06); }
-      .btn-danger { background: linear-gradient(180deg,#e74c3c,#c0392b); color: #fff; border:none; padding:10px 12px; border-radius:10px; }
+    return allUsers.filter((user) => {
+      const text = [
+        displayNameOf(user),
+        usernameOf(user),
+        emailOf(user),
+        phoneOf(user),
+        roleLabelOf(user, roles),
+      ]
+        .join(" ")
+        .toLowerCase();
 
-      .hero { margin-top: 12px; margin-bottom: 10px; background: linear-gradient(180deg,#fffef9,#fffaf0); border-radius: var(--radius); padding:14px; display:flex; align-items:flex-start; gap:10px; box-shadow: var(--card-shadow); border: 1px solid rgba(200,170,90,0.06); }
-      .hero .title { font-size:18px; font-weight:800; }
-      .hero .subtitle { font-size:13px; color:#6f5f4f; margin-top:4px; }
+      return text.includes(query);
+    });
+  }, [allUsers, modalSearch, roles]);
 
-      .card { background: rgba(255,255,255,0.96); border-radius: 16px; padding: 12px; box-shadow: var(--card-shadow); border:1px solid rgba(0,0,0,0.03); }
+  const activeChips = useMemo(() => {
+    const chips = [];
 
-      .users-grid { display:grid; grid-template-columns: 1fr; gap:10px; margin-top:6px; }
-      .user-card { background:white; border-radius:16px; padding:12px; box-shadow:0 10px 28px rgba(14,22,34,0.08); transition: transform .18s ease, box-shadow .18s ease; display:flex; gap:10px; align-items:flex-start; }
-      .user-card:active { transform: scale(0.99); }
-      .avatar { width:56px; height:56px; border-radius:14px; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#fff6e3,#fff1d6); border:1px solid rgba(0,0,0,0.04); color:#112b44; font-weight:800; font-size:18px; }
-      .user-main { flex:1; }
-      .user-name { font-weight:900; font-size:16px; color:#112b44; margin-bottom:4px; letter-spacing:0.2px; }
-      .user-meta { color:#6b5a46; font-size:13px; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .role-badge { display:inline-block; padding:6px 10px; background:linear-gradient(180deg,#fff7e6,#fff0d6); border-radius:999px; color:#8a6a00; font-weight:800; font-size:12px; border:1px solid rgba(200,170,90,0.12); }
-      .meta-small { font-size:12px; color:#6f5f4f; }
+    if (debouncedSearch) chips.push(`Search: ${debouncedSearch}`);
 
-      .chip { padding:6px 10px; border-radius:999px; background:#f8fafc; border:1px solid rgba(0,0,0,.06); font-size:12px; }
+    if (filters.role) {
+      const role = roles.find((item) => String(item.id ?? item.Id) === String(filters.role));
+      chips.push(`Role: ${role?.name ?? role?.Name ?? filters.role}`);
+    }
 
-      .actions-row { display:flex; gap:8px; }
-      .icon-btn { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; border-radius:12px; border:1px solid rgba(0,0,0,0.06); background:#fff; }
+    if (filters.contact !== "any") chips.push(`Contact: ${filters.contact.replace("-", " ")}`);
+    if (filters.sex) chips.push(`Sex: ${filters.sex}`);
+    if (filters.baptized !== "any") chips.push(`Baptized: ${filters.baptized}`);
+    if (filters.bornAgain !== "any") chips.push(`Born again: ${filters.bornAgain}`);
+    if (filters.believer !== "any") chips.push(`Believer: ${filters.believer}`);
+    if (filters.pastor !== "any") chips.push(`Pastor: ${filters.pastor}`);
+    if (filters.hasCode !== "any") chips.push(`Mahima ID: ${filters.hasCode}`);
+    if (filters.joinedFrom) chips.push(`From: ${filters.joinedFrom}`);
+    if (filters.joinedTo) chips.push(`To: ${filters.joinedTo}`);
+    if (filters.sortBy !== "relevance") chips.push(`Sort: ${filters.sortBy}`);
 
-      .pagination { display:flex; justify-content:space-between; align-items:center; margin-top: 8px; }
+    return chips;
+  }, [debouncedSearch, filters, roles]);
 
-      .modal-backdrop { position:fixed; inset:0; background: rgba(8,6,4,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:120; }
-      .modal-panel { width:100%; max-width:720px; background: linear-gradient(180deg,#fff,#fffdf8); padding:16px; border-radius:18px 18px 0 0; box-shadow: 0 18px 48px rgba(6,6,6,0.45); border:1px solid rgba(200,170,90,0.07); display:flex; gap:16px; max-height:86vh; overflow:auto; }
-      @media (min-width: 860px){ .modal-backdrop{ align-items:center; } .modal-panel{ border-radius: 18px; } }
+  const totalVisible = powerSearchActive ? filteredSearchUsers.length : meta.total;
+  const currentPage = powerSearchActive ? clientPage : meta.page;
+  const start = totalVisible === 0 ? 0 : (currentPage - 1) * meta.limit + 1;
+  const end = Math.min(totalVisible, currentPage * meta.limit);
+  const listLoading = loading || (powerSearchActive && searchDatasetLoading && searchUsers === null);
 
-      .form-row { display:flex; gap:10px; flex-wrap:wrap; }
-      .form-col { flex:1 1 220px; min-width: 220px; }
-      .form-col input, .form-col select, .form-col textarea { width:100%; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.08); background:#fff; font-size:14px; }
-      label { display:block; font-size:12px; color:#6b5a46; font-weight:700; }
-
-      .modal-left { flex:1; display:flex; flex-direction:column; gap:8px; }
-      .modal-right { width:100%; max-width:340px; flex:0 0 340px; border-left:1px solid rgba(0,0,0,0.06); padding-left:12px; display:flex; flex-direction:column; gap:12px; }
-      @media (max-width: 900px){ .modal-panel{ flex-direction:column; } .modal-right{ width:100%; max-width:none; border-left:none; padding-left:0; } }
-
-      .textarea { width:100%; min-height:120px; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.06); font-size:14px; resize:vertical; background:transparent; }
-      .recipient-row { display:flex; align-items:center; gap:12px; padding:10px 6px; border-bottom:1px dashed rgba(0,0,0,0.05); }
-      .recipient-row .avatar { width:44px; height:44px; border-radius:12px; font-size:14px; }
-
-      .fab { position: fixed; right: 16px; bottom: calc(18px + var(--safe-bottom)); z-index: 70; }
-
-      .skeleton { background: linear-gradient(90deg, rgba(0,0,0,0.05), rgba(0,0,0,0.09), rgba(0,0,0,0.05)); background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 10px; }
-      @keyframes shimmer { 0%{ background-position: 200% 0; } 100%{ background-position: -200% 0; } }
-    `}</style>
-  );
-
-  /* ---------- icons ---------- */
-  const IconEmail = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 7.5v9A2.5 2.5 0 0 0 5.5 19h13a2.5 2.5 0 0 0 2.5-2.5v-9"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M21 7.5l-9 6-9-6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-  const IconWhatsApp = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M21 12.3A8.7 8.7 0 1 0 3.7 19l-1.2 3 3.1-.9A8.7 8.7 0 0 0 21 12.3z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M17 14.5c-.4 1-.9 1.1-2 1.2-1 .1-2.2-.3-3.7-1.7-1.4-1.4-1.8-2.6-1.7-3.6.1-1 .2-1.6 1.2-2 1-.5 1.4-.4 1.9-.2.5.2 1 0 1.5.1.6.1 1.1.6 1.6 1.1.5.5.8.9 1 1.4.2.6 0 1.1-.9 2z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-  const IconSms = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="14"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-      <path
-        d="M7 8h10M7 12h6"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-  const IconUsers = () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M17 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-      <circle
-        cx="12"
-        cy="7"
-        r="4"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-    </svg>
-  );
-  const IconTrash = () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M9 4h6m-7 3h8l-.6 11a1.5 1.5 0 0 1-1.5 1.4H9.9A1.5 1.5 0 0 1 8.4 18L7.9 7z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M10 7V4.5A1.5 1.5 0 0 1 11.5 3h1A1.5 1.5 0 0 1 14 4.5V7"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-
-  /* ---------- render ---------- */
   return (
-    <div className="cathedral-advanced">
-      {EmbeddedStyles}
+    <div className="users-page">
+      <style>{`
+        .users-page {
+          min-height: 100vh;
+          padding: 14px;
+          padding-bottom: calc(24px + env(safe-area-inset-bottom));
+          background: #f9f6ef;
+          color: #332817;
+        }
 
-      {/* Top bar */}
-      <div className="topbar" role="banner">
+        .users-shell {
+          display: grid;
+          gap: 14px;
+        }
 
-        <div style={{ fontWeight: 900, letterSpacing: 0.3 }}>Users</div>
-        <div className="header-actions">
-          <button
-            className="btn"
-            style={{
-              background: "#2f6fcf",
-              color: "white",
-              fontWeight: 800,
-            }}
-            title="Welcome"
-            onClick={() => openBroadcast("Welcome")}
-            aria-label="Send Welcome broadcast"
-          >
-            <IconUsers />
-            Welcome
-          </button>
-          <button
-            className="btn"
-            style={{ background: "#2e8b57", color: "white" }}
-            title="Daily Word"
-            onClick={() => openBroadcast("Daily Word")}
-            aria-label="Send Daily Word"
-          >
-            📖 Daily Word
-          </button>
-          <button
-            className="btn"
-            style={{ background: "#3b82f6", color: "white" }}
-            title="Meeting Attend"
-            onClick={() => openBroadcast("Meeting Attend")}
-            aria-label="Send Meeting Attend"
-          >
-            📅 Meeting
-          </button>
-        </div>
-      </div>
+        .users-header {
+          display: grid;
+          gap: 14px;
+        }
 
-      {/* Search */}
-      <div className="search-wrap" role="search">
-        <div className="search-row">
-          <input
-            className="search-input"
-            aria-label="Search users"
-            placeholder="Search by name, email, username…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") fetchUsers(1, meta.limit, search);
-            }}
-          />
-          <button
-            className="btn btn-muted"
-            onClick={() => fetchUsers(1, meta.limit, debouncedSearch)}
-          >
-            Search
-          </button>
-          <button
-            className="btn btn-muted"
-            onClick={() => {
-              setSearch("");
-              fetchUsers(1, meta.limit, "");
-            }}
-          >
-            Clear
-          </button>
-        </div>
-        <div
-          style={{
-            marginTop: 6,
-            color: "#6f5f4f",
-            fontSize: 13,
-          }}
-        >
-          Showing {users.length === 0 ? 0 : `${start}–${end}`} of {meta.total}
-        </div>
-      </div>
+        .users-header-actions {
+          display: grid;
+          gap: 10px;
+        }
 
-      {/* Hero */}
-      <div className="hero" role="region" aria-label="Users header">
-        <div style={{ flex: 1 }}>
-          <div className="title">Mahima Ministry Directory</div>
-          <div className="subtitle">
-            Keep contact details current for timely notifications.
+        .users-add-top {
+          min-width: 0;
+        }
+
+        .users-title {
+          margin: 0;
+          color: #6b4f1d;
+          font-size: clamp(28px, 9vw, 38px);
+          line-height: 1.05;
+          font-weight: 900;
+        }
+
+        .users-subtitle {
+          color: #8a7a5c;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+
+        .users-broadcast-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .users-search-stack {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          display: grid;
+          gap: 8px;
+          padding: 10px 0;
+          background: #f9f6ef;
+        }
+
+        .users-search-bar {
+          display: grid;
+          grid-template-columns: 1fr 48px 48px;
+          gap: 10px;
+        }
+
+        .users-search-wrap {
+          position: relative;
+          min-width: 0;
+        }
+
+        .users-search-wrap svg {
+          position: absolute;
+          left: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #8a7a5c;
+          pointer-events: none;
+        }
+
+        .users-input,
+        .users-select,
+        .users-textarea {
+          width: 100%;
+          border: 1px solid #ddd2bd;
+          border-radius: 14px;
+          background: #fff;
+          color: #332817;
+          font-size: 16px;
+          transition: border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .users-input,
+        .users-select {
+          height: 46px;
+          padding: 0 12px;
+        }
+
+        .users-search-input {
+          padding-left: 40px;
+        }
+
+        .users-textarea {
+          min-height: 96px;
+          padding: 12px;
+          resize: vertical;
+          line-height: 1.4;
+        }
+
+        .users-input:focus,
+        .users-select:focus,
+        .users-textarea:focus {
+          outline: none;
+          border-color: #b89b58;
+          box-shadow: 0 0 0 4px rgba(184, 155, 88, 0.18);
+        }
+
+        .users-chip-row {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 2px;
+          scrollbar-width: none;
+        }
+
+        .users-chip-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .users-chip {
+          border: 1px solid #eadfca;
+          border-radius: 999px;
+          background: #fff;
+          color: #6b4f1d;
+          padding: 7px 10px;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+
+        .users-chip-active {
+          background: #f8f2e6;
+        }
+
+        .users-summary {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .users-stat {
+          min-height: 58px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid #eee2cf;
+          border-radius: 14px;
+          background: #fff;
+          color: #6b4f1d;
+          padding: 12px;
+          font-weight: 900;
+          box-shadow: 0 8px 24px rgba(80, 60, 28, 0.06);
+        }
+
+        .users-alert {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 12px;
+          border-radius: 12px;
+          background: #fff3f3;
+          color: #9b1c1c;
+          border: 1px solid #ffd1d1;
+          line-height: 1.4;
+        }
+
+        .users-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .user-card {
+          display: grid;
+          gap: 14px;
+          padding: 14px;
+          border-radius: 14px;
+          border: 1px solid #eee2cf;
+          background: #fff;
+          box-shadow: 0 8px 24px rgba(80, 60, 28, 0.08);
+        }
+
+        .user-card-main {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 0;
+        }
+
+        .user-avatar {
+          width: 50px;
+          height: 50px;
+          border-radius: 14px;
+          background: linear-gradient(135deg, #efe4ca, #d7be83);
+          color: #6b4f1d;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 900;
+          flex-shrink: 0;
+          overflow: hidden;
+        }
+
+        .user-avatar-img {
+          width: 100%;
+          height: 100%;
+          display: block;
+          object-fit: cover;
+        }
+
+        .user-photo-picker {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 12px;
+          margin-bottom: 14px;
+          border: 1px solid rgba(130, 102, 48, 0.18);
+          border-radius: 16px;
+          background: #fffaf0;
+        }
+
+        .user-photo-preview {
+          width: 72px;
+          height: 72px;
+          border-radius: 18px;
+          overflow: hidden;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #efe4ca, #d7be83);
+          color: #6b4f1d;
+          font-weight: 900;
+          flex-shrink: 0;
+        }
+
+        .user-photo-actions {
+          min-width: 0;
+          display: grid;
+          gap: 8px;
+        }
+
+        .user-name {
+          color: #332817;
+          font-weight: 900;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .user-meta {
+          margin-top: 4px;
+          color: #777;
+          font-size: 12px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 70vw;
+        }
+
+        .users-mark {
+          background: #fff1a8;
+          color: inherit;
+          border-radius: 5px;
+          padding: 0 2px;
+        }
+
+        .user-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+        }
+
+        .user-badge {
+          min-height: 32px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 9px;
+          border-radius: 9px;
+          background: #f8f2e6;
+          color: #6b4f1d;
+          border: 1px solid #eadfca;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .user-actions {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .users-empty {
+          color: #76664b;
+          background: #fff;
+          border: 1px dashed #d8c9ad;
+          border-radius: 12px;
+          padding: 18px;
+          line-height: 1.45;
+        }
+
+        .users-pagination {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .users-page-count {
+          grid-column: 1 / -1;
+          color: #8a7a5c;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .users-icon-btn,
+        .users-action-btn {
+          font-family: inherit;
+          cursor: pointer;
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, color 160ms ease;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .users-icon-btn {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 48px;
+          border: 1px solid;
+          border-radius: 14px;
+        }
+
+        .users-icon-btn-neutral {
+          background: #fff;
+          color: #6b4f1d;
+          border-color: #e6dcc8;
+        }
+
+        .users-icon-btn-soft {
+          background: #f8f2e6;
+          color: #6b4f1d;
+          border-color: #eadfca;
+        }
+
+        .users-icon-btn-primary {
+          background: #6b4f1d;
+          color: #fff;
+          border-color: #6b4f1d;
+        }
+
+        .users-icon-btn-danger {
+          background: #fff5f5;
+          color: #a83232;
+          border-color: #f3c3c3;
+        }
+
+        .users-icon-btn:hover:not(:disabled),
+        .users-action-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 22px rgba(80, 60, 28, 0.14);
+        }
+
+        .users-icon-btn-primary:hover:not(:disabled),
+        .users-action-btn-primary:hover:not(:disabled) {
+          background: #5a4217;
+        }
+
+        .users-icon-btn-danger:hover:not(:disabled) {
+          background: #a83232;
+          color: #fff;
+          border-color: #a83232;
+        }
+
+        .users-icon-btn:disabled,
+        .users-action-btn:disabled {
+          opacity: 0.58;
+          cursor: not-allowed;
+        }
+
+        .users-tooltip {
+          display: none;
+        }
+
+        .users-action-btn {
+          width: 100%;
+          min-height: 48px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          border-radius: 14px;
+          padding: 0 14px;
+          font-weight: 900;
+          border: 1px solid;
+          white-space: nowrap;
+        }
+
+        .users-action-btn-primary {
+          background: #6b4f1d;
+          color: #fff;
+          border-color: #6b4f1d;
+        }
+
+        .users-action-btn-secondary {
+          background: #fff;
+          color: #6b4f1d;
+          border-color: #e1d6c0;
+        }
+
+        .users-action-btn-danger {
+          background: #fff5f5;
+          color: #a83232;
+          border-color: #f3c3c3;
+        }
+
+        .users-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 50;
+          background: rgba(38, 30, 18, 0.48);
+          display: flex;
+          align-items: flex-end;
+          justify-content: center;
+        }
+
+        .users-modal {
+          width: 100%;
+          max-height: 92vh;
+          overflow: hidden;
+          background: #fff;
+          border: 1px solid #efe2cb;
+          border-radius: 18px 18px 0 0;
+          box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.22);
+          display: flex;
+          flex-direction: column;
+        }
+
+        .users-modal-header,
+        .users-modal-footer {
+          padding: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border-bottom: 1px solid #f0e5d4;
+        }
+
+        .users-modal-footer {
+          border-top: 1px solid #f0e5d4;
+          border-bottom: 0;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          padding-bottom: max(14px, env(safe-area-inset-bottom));
+        }
+
+        .users-modal-title {
+          margin: 0;
+          color: #332817;
+          font-size: 20px;
+          font-weight: 900;
+        }
+
+        .users-modal-body {
+          padding: 14px;
+          overflow: auto;
+        }
+
+        .users-form-grid,
+        .users-filter-grid {
+          display: grid;
+          gap: 12px;
+        }
+
+        .users-field label,
+        .users-section-label {
+          display: block;
+          margin-bottom: 6px;
+          color: #8a7a5c;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .users-section {
+          display: grid;
+          gap: 12px;
+          padding-top: 12px;
+          margin-top: 4px;
+          border-top: 1px solid #f0e5d4;
+        }
+
+        .users-check-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .users-check {
+          min-height: 42px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 10px;
+          border-radius: 12px;
+          background: #f8f2e6;
+          color: #6b4f1d;
+          border: 1px solid #eadfca;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .recipient-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .recipient-row {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 10px;
+          align-items: center;
+          padding: 12px;
+          border-radius: 14px;
+          background: #fffdfa;
+          border: 1px solid #eee2cf;
+        }
+
+        .channel-grid {
+          display: grid;
+          gap: 10px;
+        }
+
+        .users-spin {
+          animation: users-spin 0.8s linear infinite;
+        }
+
+        @keyframes users-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .users-skeleton {
+          background: linear-gradient(90deg, rgba(0,0,0,0.05), rgba(0,0,0,0.09), rgba(0,0,0,0.05));
+          background-size: 200% 100%;
+          animation: users-shimmer 1.2s infinite;
+          border-radius: 10px;
+        }
+
+        @keyframes users-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        @media (min-width: 760px) {
+          .users-page {
+            padding: 24px;
+            padding-bottom: 24px;
+          }
+
+          .users-header {
+            grid-template-columns: 1fr auto;
+            align-items: center;
+          }
+
+          .users-header-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+          }
+
+          .users-broadcast-grid {
+            display: flex;
+          }
+
+          .users-summary {
+            grid-template-columns: repeat(2, max-content);
+          }
+
+          .users-list {
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 18px;
+          }
+
+          .user-meta {
+            max-width: 100%;
+          }
+
+          .users-pagination {
+            grid-template-columns: 1fr auto auto;
+          }
+
+          .users-page-count {
+            grid-column: auto;
+          }
+
+          .users-modal-backdrop {
+            align-items: center;
+            padding: 16px;
+          }
+
+          .users-modal {
+            width: min(880px, 100%);
+            max-height: 90vh;
+            border-radius: 16px;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+          }
+
+          .users-modal-header,
+          .users-modal-footer {
+            padding: 18px;
+          }
+
+          .users-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+          }
+
+          .users-modal-body {
+            padding: 18px;
+          }
+
+          .users-form-grid,
+          .users-filter-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .users-field-full {
+            grid-column: 1 / -1;
+          }
+
+          .users-action-btn {
+            width: auto;
+          }
+
+          .users-icon-btn {
+            width: 42px;
+            height: 42px;
+          }
+
+          .users-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #332817;
+            color: #fff;
+            font-size: 11px;
+            line-height: 1;
+            padding: 7px 9px;
+            border-radius: 8px;
+            opacity: 0;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: opacity 140ms ease, transform 140ms ease;
+            z-index: 20;
+            display: block;
+          }
+
+          .users-icon-btn:hover .users-tooltip {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+          }
+        }
+      `}</style>
+
+      <div className="users-shell">
+        <div className="users-header">
+          <div>
+            <h1 className="users-title">Users</h1>
+            <div className="users-subtitle">Manage members, contact details, roles, and ministry messages.</div>
+          </div>
+
+          <div className="users-header-actions">
+            <div className="users-broadcast-grid">
+              <IconButton icon={Bell} label="Welcome broadcast" onClick={() => openBroadcast("Welcome")} variant="primary" />
+              <IconButton icon={BookOpen} label="Daily Word broadcast" onClick={() => openBroadcast("Daily Word")} variant="soft" />
+              <IconButton icon={CalendarCheck} label="Meeting broadcast" onClick={() => openBroadcast("Meeting Attend")} variant="neutral" />
+            </div>
+
+            <div className="users-add-top">
+              <ActionButton icon={UserPlus} onClick={openAdd}>
+                Add User
+              </ActionButton>
+            </div>
           </div>
         </div>
-        <div className="chip">Page {meta.page}</div>
-      </div>
 
-      {/* Main card */}
-      <div className="card" role="main" aria-label="User list">
-        {loading ? (
-          <div style={{ display: "grid", gap: 12 }}>
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="user-card" aria-hidden>
-                <div
-                  className="avatar skeleton"
-                  style={{ width: 56, height: 56 }}
-                />
-                <div
-                  style={{
-                    flex: 1,
-                    display: "grid",
-                    gap: 8,
-                  }}
-                >
-                  <div
-                    className="skeleton"
-                    style={{ height: 16, width: "40%" }}
-                  />
-                  <div
-                    className="skeleton"
-                    style={{ height: 12, width: "70%" }}
-                  />
-                  <div
-                    className="skeleton"
-                    style={{ height: 12, width: "55%" }}
-                  />
+        <div className="users-search-stack" role="search">
+          <div className="users-search-bar">
+            <div className="users-search-wrap">
+              <Search size={18} />
+              <input
+                className="users-input users-search-input"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name, email, phone, role, code..."
+                aria-label="Search users"
+              />
+            </div>
+
+            <IconButton
+              icon={SlidersHorizontal}
+              label="Search filters"
+              onClick={() => setFiltersOpen(true)}
+              variant={activeFilterMode ? "primary" : "neutral"}
+            />
+
+            <IconButton
+              icon={RefreshCw}
+              label="Refresh users"
+              onClick={refreshCurrentView}
+              loading={loading || searchDatasetLoading}
+              variant="soft"
+            />
+          </div>
+
+          {!debouncedSearch && recentSearches.length > 0 && (
+            <div className="users-chip-row">
+              {recentSearches.map((item) => (
+                <button className="users-chip" key={item} type="button" onClick={() => setSearch(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activeChips.length > 0 && (
+            <div className="users-chip-row">
+              {activeChips.map((chip) => (
+                <span className="users-chip users-chip-active" key={chip}>
+                  {chip}
+                </span>
+              ))}
+              <button className="users-chip" type="button" onClick={resetSearch}>
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="users-summary">
+          <div className="users-stat">
+            <Users size={18} />
+            Users: {totalVisible}
+          </div>
+          <div className="users-stat">
+            <Shield size={18} />
+            Roles: {rolesLoading ? "..." : roles.length}
+          </div>
+        </div>
+
+        {error && (
+          <div className="users-alert">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {listLoading ? (
+          <div className="users-list">
+            {[...Array(6)].map((_, index) => (
+              <div className="user-card" key={index}>
+                <div className="user-card-main">
+                  <div className="user-avatar users-skeleton" />
+                  <div style={{ flex: 1, display: "grid", gap: 8 }}>
+                    <div className="users-skeleton" style={{ height: 16, width: "55%" }} />
+                    <div className="users-skeleton" style={{ height: 12, width: "80%" }} />
+                    <div className="users-skeleton" style={{ height: 12, width: "65%" }} />
+                  </div>
                 </div>
-                <div
-                  className="skeleton"
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                  }}
-                />
               </div>
             ))}
           </div>
-        ) : error ? (
-          <div
-            style={{
-              padding: 16,
-              color: "#b91c1c",
-              fontWeight: 700,
-            }}
-          >
-            {error}
-          </div>
-        ) : users.length === 0 ? (
-          <div style={{ padding: 16, color: "#6f5f4f" }}>
-            No users found.
-          </div>
+        ) : visibleUsers.length === 0 ? (
+          <div className="users-empty">No users found.</div>
         ) : (
-          <>
-            <div className="users-grid" role="list" aria-label="users grid">
-              {users.map((u) => {
-                const initials =
-                  (
-                    u.displayName ||
-                    u.name ||
-                    u.username ||
-                    ""
-                  )
-                    .split(" ")
-                    .map((s) => s[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase() || "?";
-                const displayName = u.displayName ?? u.name ?? "(no name)";
-                const username = u.username ?? u.userName ?? "";
+          <div className="users-list" role="list">
+            {visibleUsers.map((user) => {
+              const id = userIdOf(user);
+              const name = displayNameOf(user);
+              const username = usernameOf(user);
+              const email = emailOf(user);
+              const phone = phoneOf(user);
+              const roleLabel = roleLabelOf(user, roles);
+              const photoUrl = resolveMediaUrl(profilePhotoUrlOf(user));
+              const deleting = deletingId === id;
 
-                let roleLabel = "";
-                if (u.RoleName) roleLabel = u.RoleName;
-                else if (u.roleName) roleLabel = u.roleName;
-                if (!roleLabel) {
-                  const candidate =
-                    u.Role ?? u.role ?? u.RoleId ?? u.roleId;
-                  if (candidate != null) {
-                    const asNumber = Number(candidate);
-                    if (!Number.isNaN(asNumber)) {
-                      const found = roles.find(
-                        (r) => Number(r.id) === asNumber
-                      );
-                      roleLabel = found ? found.name : String(candidate);
-                    } else {
-                      const found = roles.find(
-                        (r) =>
-                          String(r.name).toLowerCase() ===
-                          String(candidate).toLowerCase()
-                      );
-                      roleLabel = found ? found.name : String(candidate);
-                    }
-                  }
-                }
-                if (!roleLabel) roleLabel = "member";
-
-                return (
-                  <article
-                    key={u.id}
-                    className="user-card"
-                    role="listitem"
-                    aria-labelledby={`user-${u.id}`}
-                  >
-                    <div className="avatar" aria-hidden>
-                      {initials}
+              return (
+                <article className="user-card" key={id} role="listitem">
+                  <div className="user-card-main">
+                    <div className="user-avatar">
+                      {photoUrl ? (
+                        <img className="user-avatar-img" src={photoUrl} alt="" />
+                      ) : (
+                        initialsOf(name)
+                      )}
                     </div>
-                    <div className="user-main">
-                      <div className="user-name" id={`user-${u.id}`}>
-                        {displayName}
+
+                    <div style={{ minWidth: 0 }}>
+                      <div className="user-name" title={name}>
+                        <HighlightText text={name} query={debouncedSearch} />
                       </div>
                       <div className="user-meta">
-                        {username} •{" "}
-                        {u.email ? (
-                          <a
-                            href={`mailto:${u.email}`}
-                            style={{
-                              color: "var(--accent)",
-                              textDecoration: "none",
-                            }}
-                          >
-                            {u.email}
-                          </a>
-                        ) : (
-                          "—"
+                        <HighlightText text={username || "No username"} query={debouncedSearch} />
+                        {email ? " - " : ""}
+                        {email ? <HighlightText text={email} query={debouncedSearch} /> : ""}
+                      </div>
+
+                      <div className="user-badges">
+                        <span className="user-badge">
+                          <HighlightText text={String(roleLabel || "member").toUpperCase()} query={debouncedSearch} />
+                        </span>
+                        {phone && (
+                          <span className="user-badge">
+                            <Phone size={14} />
+                            <HighlightText text={phone} query={debouncedSearch} />
+                          </span>
                         )}
-                        {u.UserCode && (
-                          <>
-                            {" "}
-                            • Mahima ID:{" "}
-                            <strong>{u.UserCode}</strong>
-                          </>
+                        <span className="user-badge">Joined: {formatFriendlyDate(user.joinDate)}</span>
+                        {userCodeOf(user) && (
+                          <span className="user-badge">
+                            <IdCard size={14} />
+                            <HighlightText text={userCodeOf(user)} query={debouncedSearch} />
+                          </span>
                         )}
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "center",
-                          marginTop: 6,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div className="role-badge">
-                          {(roleLabel || "member").toUpperCase()}
-                        </div>
-                        <div className="meta-small">
-                          📞 {u.phone ?? "—"}
-                        </div>
-                        <div className="meta-small">
-                          ⏱ {formatFriendlyDate(u.joinDate)}
-                        </div>
-                      </div>
                     </div>
+                  </div>
 
-                    <div className="actions-row">
-                      <button
-                        className="icon-btn"
-                        onClick={() => openEdit(u)}
-                        title={`Edit ${displayName}`}
-                        aria-label={`Edit ${displayName}`}
-                      >
-                        ✎
-                      </button>
-
-                      <button
-                        onClick={() => openEnrich(u)}
-                        className="rounded-full bg-purple-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-purple-600"
-                      >
-                        Enrich
-                      </button>
-
-                      <button
-                        className="icon-btn btn-danger"
-                        onClick={() => confirmDelete(u.id)}
-                        disabled={deleteLoading && deletingId === u.id}
-                        title={`Delete ${displayName}`}
-                        aria-label={`Delete ${displayName}`}
-                      >
-                        {deleteLoading && deletingId === u.id ? "…" : <IconTrash />}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-
-            {/* pagination */}
-            <div className="pagination">
-              <div style={{ color: "#6f5f4f" }}>Page {meta.page}</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="btn btn-muted"
-                  onClick={() => {
-                    const p = Math.max(1, meta.page - 1);
-                    setMeta((prev) => ({ ...prev, page: p }));
-                    fetchUsers(p, meta.limit, search);
-                  }}
-                  disabled={meta.page <= 1}
-                >
-                  Prev
-                </button>
-                <button
-                  className="btn btn-muted"
-                  onClick={() => {
-                    const p = meta.page + 1;
-                    setMeta((prev) => ({ ...prev, page: p }));
-                    fetchUsers(p, meta.limit, search);
-                  }}
-                  disabled={end >= meta.total}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
+                  <div className="user-actions">
+                    <IconButton icon={Edit3} label="Edit user" onClick={() => openEdit(user)} variant="neutral" />
+                    <IconButton
+                      icon={Trash2}
+                      label="Delete user"
+                      onClick={() => confirmDelete(id)}
+                      loading={deleting}
+                      disabled={Boolean(deletingId && deletingId !== id)}
+                      variant="danger"
+                    />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         )}
+
+        <div className="users-pagination">
+          <div className="users-page-count">
+            Showing {visibleUsers.length === 0 ? 0 : `${start}-${end}`} of {totalVisible}
+          </div>
+
+          <ActionButton
+            icon={ChevronLeft}
+            onClick={() => {
+              if (powerSearchActive) {
+                setClientPage((page) => Math.max(1, page - 1));
+              } else {
+                fetchUsers(Math.max(1, meta.page - 1), meta.limit);
+              }
+            }}
+            disabled={currentPage <= 1 || listLoading}
+            variant="secondary"
+          >
+            Prev
+          </ActionButton>
+
+          <ActionButton
+            icon={ChevronRight}
+            onClick={() => {
+              if (powerSearchActive) {
+                setClientPage((page) => page + 1);
+              } else {
+                fetchUsers(meta.page + 1, meta.limit);
+              }
+            }}
+            disabled={end >= totalVisible || listLoading}
+            variant="secondary"
+          >
+            Next
+          </ActionButton>
+        </div>
       </div>
 
-      {/* Floating Add button */}
-      <div className="fab">
-        <button
-          className="btn btn-primary"
-          onClick={openAdd}
-          aria-label="Add user"
-        >
-          ＋ Add User
-        </button>
-      </div>
-
-      {/* Add/Edit modal */}
-      {showModal && (
+      {filtersOpen && (
         <div
-          className="modal-backdrop"
+          className="users-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={form.id ? "Edit user" : "Add user"}
-          onClick={(e) => {
-            if (e.target.classList.contains("modal-backdrop"))
-              setShowModal(false);
+          onClick={(event) => {
+            if (event.target.classList.contains("users-modal-backdrop")) setFiltersOpen(false);
           }}
         >
-          <div className="modal-panel">
-            <div style={{ flex: 1 }}>
-              <h3
-                style={{
-                  marginTop: 0,
-                  color: "#2f2b27",
-                }}
-              >
-                {form.id ? "Edit User" : "Add User"}
-              </h3>
+          <div className="users-modal" style={{ maxWidth: 720 }}>
+            <div className="users-modal-header">
+              <h2 className="users-modal-title">Search Filters</h2>
+              <IconButton icon={X} label="Close filters" onClick={() => setFiltersOpen(false)} variant="neutral" />
+            </div>
 
-              <form onSubmit={saveUser} style={{ display: "grid", gap: 12 }}>
-                <div className="form-row">
-                  <div className="form-col">
-                    <label>
-                      Display Name
-                      <input
-                        value={form.displayName}
-                        onChange={(e) =>
-                          setField("displayName", e.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="form-col">
-                    <label>
-                      Username *
-                      <input
-                        value={form.username}
-                        onChange={(e) =>
-                          setField("username", e.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
-			<div className="form-row">
-  <div className="form-col">
-    <label>
-      Password *
-      <div style={{ position: "relative" }}>
-        <input
-          value={form.password || ""}
-          onChange={(e) => setField("password", e.target.value)}
-          placeholder="Enter or generate password"
-        />
+            <div className="users-modal-body">
+              <div className="users-filter-grid">
+                <div className="users-field">
+                  <label>Role</label>
+                  <select className="users-select" value={filters.role} onChange={(event) => updateFilter("role", event.target.value)}>
+                    <option value="">Any role</option>
+                    {roles.map((role) => (
+                      <option key={role.id ?? role.Id ?? role.name} value={String(role.id ?? role.Id)}>
+                        {role.name ?? role.Name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (!form.username) {
-              alert("Enter Username first");
-              return;
-            }
-            setField("password", form.username + "123");
-          }}
-          style={{
-            position: "absolute",
-            right: 6,
-            top: 6,
-            padding: "5px 10px",
-            fontSize: 12,
-            borderRadius: 6,
-            border: "none",
-            background: "#2563eb",
-            color: "#fff",
-            cursor: "pointer"
+                <div className="users-field">
+                  <label>Contact</label>
+                  <select className="users-select" value={filters.contact} onChange={(event) => updateFilter("contact", event.target.value)}>
+                    <option value="any">Any contact</option>
+                    <option value="email">Has email</option>
+                    <option value="phone">Has phone</option>
+                    <option value="missing-email">Missing email</option>
+                    <option value="missing-phone">Missing phone</option>
+                  </select>
+                </div>
+
+                <div className="users-field">
+                  <label>Sex</label>
+                  <select className="users-select" value={filters.sex} onChange={(event) => updateFilter("sex", event.target.value)}>
+                    <option value="">Any</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+
+                <div className="users-field">
+                  <label>Mahima ID</label>
+                  <select className="users-select" value={filters.hasCode} onChange={(event) => updateFilter("hasCode", event.target.value)}>
+                    <option value="any">Any</option>
+                    <option value="yes">Has ID</option>
+                    <option value="no">Missing ID</option>
+                  </select>
+                </div>
+
+                {[
+                  ["pastor", "Pastor"],
+                  ["baptized", "Baptized"],
+                  ["bornAgain", "Born Again"],
+                  ["believer", "Believer"],
+                ].map(([key, label]) => (
+                  <div className="users-field" key={key}>
+                    <label>{label}</label>
+                    <select className="users-select" value={filters[key]} onChange={(event) => updateFilter(key, event.target.value)}>
+                      <option value="any">Any</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+                ))}
+
+                <div className="users-field">
+                  <label>Joined From</label>
+                  <input className="users-input" type="date" value={filters.joinedFrom} onChange={(event) => updateFilter("joinedFrom", event.target.value)} />
+                </div>
+
+                <div className="users-field">
+                  <label>Joined To</label>
+                  <input className="users-input" type="date" value={filters.joinedTo} onChange={(event) => updateFilter("joinedTo", event.target.value)} />
+                </div>
+
+                <div className="users-field">
+                  <label>Sort By</label>
+                  <select className="users-select" value={filters.sortBy} onChange={(event) => updateFilter("sortBy", event.target.value)}>
+                    <option value="relevance">Relevance</option>
+                    <option value="name">Name</option>
+                    <option value="username">Username</option>
+                    <option value="role">Role</option>
+                    <option value="joined">Join date</option>
+                  </select>
+                </div>
+
+                <div className="users-field">
+                  <label>Sort Direction</label>
+                  <select className="users-select" value={filters.sortDir} onChange={(event) => updateFilter("sortDir", event.target.value)}>
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="users-modal-footer">
+              <ActionButton icon={X} onClick={resetSearch} variant="secondary">
+                Clear
+              </ActionButton>
+              <ActionButton icon={Check} onClick={() => setFiltersOpen(false)}>
+                Done
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModal && (
+        <div
+          className="users-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target.classList.contains("users-modal-backdrop")) setShowModal(false);
           }}
         >
-          Generate
-        </button>
-      </div>
-    </label>
-  </div>
-</div>
+          <form className="users-modal" onSubmit={saveUser}>
+            <div className="users-modal-header">
+              <h2 className="users-modal-title">{form.id ? "Edit User" : "Add User"}</h2>
+              <IconButton icon={X} label="Close" onClick={() => setShowModal(false)} disabled={saving} variant="neutral" />
+            </div>
+
+            <div className="users-modal-body">
+              <div className="user-photo-picker">
+                <div className="user-photo-preview">
+                  {form.profilePhotoUrl ? (
+                    <img className="user-avatar-img" src={resolveMediaUrl(form.profilePhotoUrl)} alt="" />
+                  ) : (
+                    initialsOf(form.displayName || form.username)
+                  )}
                 </div>
-
-                {form.id && (
-                  <>
-                    <div className="form-row">
-                      <div className="form-col">
-                        <label>
-                          User Id
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 8,
-                              alignItems: "center",
-                              marginTop: 6,
-                            }}
-                          >
-                            <input
-                              value={form.id}
-                              readOnly
-                              style={{ background: "#fafafa" }}
-                            />
-                            <button
-                              type="button"
-                              className="btn btn-muted"
-                              onClick={() => {
-                                try {
-                                  navigator.clipboard.writeText(
-                                    String(form.id)
-                                  );
-                                  alert("Copied user id to clipboard");
-                                } catch {
-                                  alert(form.id);
-                                }
-                              }}
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="form-row">
-                      <div className="form-col">
-                        <label>
-                          Mahima ID (User Code)
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 8,
-                              alignItems: "center",
-                              marginTop: 6,
-                            }}
-                          >
-                            <input
-                              value={form.UserCode || ""}
-                              readOnly
-                              style={{ background: "#fafafa" }}
-                            />
-                            <button
-                              type="button"
-                              className="btn btn-muted"
-                              onClick={() => {
-                                const code = String(form.UserCode || "");
-                                if (!code) {
-                                  alert("No user code assigned yet.");
-                                  return;
-                                }
-                                try {
-                                  navigator.clipboard.writeText(code);
-                                  alert("Copied Mahima ID to clipboard");
-                                } catch {
-                                  alert(code);
-                                }
-                              }}
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <div className="form-row">
-                  <div className="form-col">
-                    <label>
-                      Email
+                <div className="user-photo-actions">
+                  <div className="users-section-label" style={{ margin: 0 }}>User Photo</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <label className="users-button users-button-soft" style={{ cursor: photoUploading ? "wait" : "pointer" }}>
+                      <Camera size={15} />
+                      {photoUploading ? "Uploading..." : "Upload photo"}
                       <input
-                        value={form.email}
-                        onChange={(e) =>
-                          setField("email", e.target.value)
-                        }
+                        type="file"
+                        accept="image/*"
+                        disabled={photoUploading || saving}
+                        onChange={(event) => uploadProfilePhoto(event.target.files?.[0])}
+                        style={{ display: "none" }}
                       />
                     </label>
-                  </div>
-                  <div className="form-col">
-                    <label>
-                      Phone
-                      <input
-                        placeholder="+911234567890"
-                        value={form.phone}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (phoneAllowTypingRegex.test(v))
-                            setField("phone", v);
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-col">
-                    <label>
-                      Role
-                      <select
-                        value={form.role}
-                        onChange={(e) => setField("role", e.target.value)}
-                      >
-                        {roles && roles.length > 0 ? (
-                          roles.map((r) => (
-                            <option key={r.id ?? r.name} value={String(r.id)}>
-                              {r.name}
-                            </option>
-                          ))
-                        ) : (
-                          <option value="">(no roles loaded)</option>
-                        )}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="form-col">
-                    <label>
-                      Join Date
-                      <input
-                        type="datetime-local"
-                        value={isoToDatetimeLocal(form.joinDate)}
-                        onChange={(e) =>
-                          setField(
-                            "joinDate",
-                            datetimeLocalToIso(e.target.value)
-                          )
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                {/* Enrichment fields preview */}
-                <div
-                  style={{
-                    marginTop: 4,
-                    paddingTop: 8,
-                    borderTop: "1px solid rgba(0,0,0,0.06)",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 800,
-                      color: "#6f5f4f",
-                      marginBottom: 6,
-                    }}
-                  >
-                    Spiritual & personal details (view only – use “Enrich”
-                    button to update)
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-col">
-                      <label>
-                        Birthday
-                        <input value={form.birthday || ""} readOnly />
-                      </label>
-                    </div>
-                    <div className="form-col">
-                      <label>
-                        Marital Status
-                        <input
-                          value={form.maritalStatus || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-col">
-                      <label>
-                        Sex
-                        <input value={form.sex || ""} readOnly />
-                      </label>
-                    </div>
-                    <div className="form-col">
-                      <label>
-                        Age
-                        <input
-                          value={form.age != null ? form.age : ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-col">
-                      <label>
-                        Aadhar Number
-                        <input
-                          value={form.aadharNumber || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                    <div className="form-col">
-                      <label>
-                        Emergency Contact Phone
-                        <input
-                          value={form.emergencyContactPhone || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-col">
-                      <label>
-                        Baptism Date
-                        <input
-                          value={form.baptismDate || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                    <div className="form-col">
-                      <label>
-                        Baptism Place
-                        <input
-                          value={form.baptismPlace || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-col">
-                      <label>
-                        Home Address
-                        <textarea
-                          rows={2}
-                          value={form.homeAddress || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                    <div className="form-col">
-                      <label>
-                        Current Address
-                        <textarea
-                          rows={2}
-                          value={form.currentAddress || ""}
-                          readOnly
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 12,
-                      marginTop: 8,
-                      fontSize: 12,
-                      color: "#4b5563",
-                    }}
-                  >
-                    <label style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!form.isBaptized}
-                        disabled
-                      />
-                      Is Baptized
-                    </label>
-                    <label style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!form.isBornAgain}
-                        disabled
-                      />
-                      Is Born Again
-                    </label>
-                    <label style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!form.isBeliever}
-                        disabled
-                      />
-                      Is Believer
-                    </label>
-                    <label style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!form.isPastor}
-                        disabled
-                      />
-                      Is Pastor
-                    </label>
-                  </div>
-                </div>
-
-                {modalMessage && (
-                  <div
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      background: modalSuccess
-                        ? "rgba(34,197,94,0.12)"
-                        : "rgba(220,38,38,0.08)",
-                      color: modalSuccess ? "#166534" : "#991b1b",
-                      fontWeight: 800,
-                    }}
-                  >
-                    {modalMessage}
-                  </div>
-                )}
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="btn btn-muted"
-                      onClick={() => {
-                        setShowModal(false);
-                        setModalMessage(null);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    {form.id && (
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={resetPasswordForFormUser}
-                        disabled={resetting}
-                        title="Reset password to username + 123"
-                        style={{
-                          background:
-                            "linear-gradient(90deg,#ffdde0,#ffd6da)",
-                          color: "#7a1f1f",
-                        }}
-                      >
-                        {resetting
-                          ? "Resetting…"
-                          : "Reset password (username+123)"}{" "}
-                        🔐
+                    {form.profilePhotoUrl && (
+                      <button type="button" className="users-button users-button-ghost" onClick={() => setField("profilePhotoUrl", "")} disabled={photoUploading || saving}>
+                        Remove
                       </button>
                     )}
                   </div>
-                  <div>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={saving}
-                    >
-                      {saving ? "Saving…" : "Save"}
-                    </button>
+                </div>
+              </div>
+
+              <div className="users-form-grid">
+                <div className="users-field">
+                  <label>Display Name</label>
+                  <input className="users-input" value={form.displayName} onChange={(event) => setField("displayName", event.target.value)} />
+                </div>
+
+                <div className="users-field">
+                  <label>Username</label>
+                  <input className="users-input" value={form.username} onChange={(event) => setField("username", event.target.value)} />
+                </div>
+
+                <div className="users-field">
+                  <label>Password</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 48px", gap: 10 }}>
+                    <input
+                      className="users-input"
+                      value={form.password}
+                      onChange={(event) => setField("password", event.target.value)}
+                      placeholder={form.id ? "Leave blank to keep current" : "Required"}
+                    />
+                    <IconButton
+                      icon={KeyRound}
+                      label="Generate password"
+                      onClick={() => {
+                        if (!form.username.trim()) {
+                          setModalMessage("Enter username first.");
+                          setModalSuccess(false);
+                          return;
+                        }
+                        setField("password", `${form.username.trim()}123`);
+                      }}
+                      variant="soft"
+                    />
                   </div>
                 </div>
-              </form>
+
+                <div className="users-field">
+                  <label>Role</label>
+                  <select className="users-select" value={form.role} onChange={(event) => setField("role", event.target.value)}>
+                    {roles.length > 0 ? (
+                      roles.map((role) => (
+                        <option key={role.id ?? role.Id ?? role.name} value={String(role.id ?? role.Id)}>
+                          {role.name ?? role.Name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No roles loaded</option>
+                    )}
+                  </select>
+                </div>
+
+                <div className="users-field">
+                  <label>Email</label>
+                  <input className="users-input" value={form.email} onChange={(event) => setField("email", event.target.value)} />
+                </div>
+
+                <div className="users-field">
+                  <label>Phone</label>
+                  <input
+                    className="users-input"
+                    value={form.phone}
+                    placeholder="+911234567890"
+                    onChange={(event) => {
+                      if (phoneAllowTypingRegex.test(event.target.value)) setField("phone", event.target.value);
+                    }}
+                  />
+                </div>
+
+                <div className="users-field">
+                  <label>Join Date</label>
+                  <input
+                    className="users-input"
+                    type="datetime-local"
+                    value={isoToDatetimeLocal(form.joinDate)}
+                    onChange={(event) => setField("joinDate", datetimeLocalToIso(event.target.value))}
+                  />
+                </div>
+
+                {form.id && (
+                  <div className="users-field">
+                    <label>Mahima ID</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 48px", gap: 10 }}>
+                      <input className="users-input" value={form.UserCode || ""} readOnly />
+                      <IconButton
+                        icon={Copy}
+                        label="Copy Mahima ID"
+                        onClick={() => navigator.clipboard?.writeText(String(form.UserCode || ""))}
+                        variant="soft"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="users-section">
+                <div className="users-section-label">Profile Details</div>
+
+                <div className="users-form-grid">
+                  <div className="users-field">
+                    <label>Birthday</label>
+                    <input className="users-input" type="date" value={form.birthday} onChange={(event) => setField("birthday", event.target.value)} />
+                  </div>
+
+                  <div className="users-field">
+                    <label>Marital Status</label>
+                    <select className="users-select" value={form.maritalStatus} onChange={(event) => setField("maritalStatus", event.target.value)}>
+                      <option value="">Select</option>
+                      <option value="Single">Single</option>
+                      <option value="Married">Married</option>
+                      <option value="Divorced">Divorced</option>
+                      <option value="Widowed">Widowed</option>
+                    </select>
+                  </div>
+
+                  <div className="users-field">
+                    <label>Sex</label>
+                    <select className="users-select" value={form.sex} onChange={(event) => setField("sex", event.target.value)}>
+                      <option value="">Select</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+
+                  <div className="users-field">
+                    <label>Age</label>
+                    <input className="users-input" type="number" min="0" value={form.age} onChange={(event) => setField("age", event.target.value)} />
+                  </div>
+
+                  <div className="users-field">
+                    <label>Aadhar Number</label>
+                    <input className="users-input" value={form.aadharNumber} maxLength={12} onChange={(event) => setField("aadharNumber", event.target.value)} />
+                  </div>
+
+                  <div className="users-field">
+                    <label>Emergency Phone</label>
+                    <input className="users-input" value={form.emergencyContactPhone} onChange={(event) => setField("emergencyContactPhone", event.target.value)} />
+                  </div>
+
+                  <div className="users-field">
+                    <label>Baptism Date</label>
+                    <input className="users-input" type="date" value={form.baptismDate} onChange={(event) => setField("baptismDate", event.target.value)} />
+                  </div>
+
+                  <div className="users-field">
+                    <label>Baptism Place</label>
+                    <input className="users-input" value={form.baptismPlace} onChange={(event) => setField("baptismPlace", event.target.value)} />
+                  </div>
+
+                  <div className="users-field users-field-full">
+                    <label>Home Address</label>
+                    <textarea className="users-textarea" value={form.homeAddress} onChange={(event) => setField("homeAddress", event.target.value)} />
+                  </div>
+
+                  <div className="users-field users-field-full">
+                    <label>Current Address</label>
+                    <textarea className="users-textarea" value={form.currentAddress} onChange={(event) => setField("currentAddress", event.target.value)} />
+                  </div>
+                </div>
+
+                <div className="users-check-grid">
+                  {[
+                    ["isBaptized", "Is Baptized"],
+                    ["isBornAgain", "Is Born Again"],
+                    ["isBeliever", "Is Believer"],
+                    ["isPastor", "Is Pastor"],
+                    ["payrollEnabled", "Payroll Enabled"],
+                  ].map(([key, label]) => (
+                    <label className="users-check" key={key}>
+                      <input type="checkbox" checked={Boolean(form[key])} onChange={(event) => setField(key, event.target.checked)} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {modalMessage && (
+                <div
+                  className="users-alert"
+                  style={{
+                    marginTop: 12,
+                    background: modalSuccess ? "rgba(34,197,94,0.12)" : "#fff3f3",
+                    color: modalSuccess ? "#166534" : "#9b1c1c",
+                    borderColor: modalSuccess ? "rgba(34,197,94,0.25)" : "#ffd1d1",
+                  }}
+                >
+                  {modalSuccess ? <Check size={18} /> : <AlertCircle size={18} />}
+                  <span>{modalMessage}</span>
+                </div>
+              )}
             </div>
-          </div>
+
+            <div className="users-modal-footer">
+              {form.id ? (
+                <ActionButton icon={KeyRound} onClick={resetPasswordForFormUser} loading={resetting} variant="secondary">
+                  Reset
+                </ActionButton>
+              ) : (
+                <ActionButton icon={X} onClick={() => setShowModal(false)} disabled={saving} variant="secondary">
+                  Cancel
+                </ActionButton>
+              )}
+
+              <ActionButton icon={Save} type="submit" loading={saving}>
+                Save
+              </ActionButton>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* Broadcast modal */}
       {broadcastOpen && (
         <div
-          className="modal-backdrop"
+          className="users-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={`Send ${broadcastType} Message`}
-          onClick={(e) => {
-            if (e.target.classList.contains("modal-backdrop"))
-              setBroadcastOpen(false);
+          onClick={(event) => {
+            if (event.target.classList.contains("users-modal-backdrop")) setBroadcastOpen(false);
           }}
         >
-          <div className="modal-panel" style={{ maxWidth: "980px" }}>
-            <div className="modal-left">
-              <h3 style={{ marginTop: 0 }}>
-                {`Send "${broadcastType}" Message`}
-              </h3>
+          <div className="users-modal">
+            <div className="users-modal-header">
+              <h2 className="users-modal-title">{broadcastType}</h2>
+              <IconButton icon={X} label="Close" onClick={() => setBroadcastOpen(false)} disabled={sending} variant="neutral" />
+            </div>
 
+            <div className="users-modal-body">
+              <div className="users-section-label">Message</div>
               <textarea
-                className="textarea"
-                placeholder={`Enter the ${broadcastType} message to send to selected users...`}
+                className="users-textarea"
                 value={broadcastMessage}
-                onChange={(e) => setBroadcastMessage(e.target.value)}
+                onChange={(event) => setBroadcastMessage(event.target.value)}
+                placeholder={`Enter ${broadcastType} message...`}
               />
 
-              <div style={{ fontSize: 13, color: "#6f5f4f" }}>
-                Tip: You can include short personal details like name in the
-                message if you like.
+              <div className="users-section">
+                <div className="users-section-label">Channels</div>
+                <div className="channel-grid">
+                  {[
+                    ["email", "Email", Mail],
+                    ["whatsapp", "WhatsApp", MessageCircle],
+                    ["sms", "SMS", Smartphone],
+                  ].map(([key, label, Icon]) => (
+                    <label className="users-check" key={key}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(broadcastChannels[key])}
+                        onChange={(event) =>
+                          setBroadcastChannels((prev) => ({
+                            ...prev,
+                            [key]: event.target.checked,
+                          }))
+                        }
+                      />
+                      <Icon size={16} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginTop: 8,
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="btn btn-muted"
-                    onClick={() => {
-                      selectAllVisible();
-                    }}
-                  >
-                    Select All
-                  </button>
-                  <button
-                    className="btn btn-muted"
-                    onClick={() => {
-                      clearSelection();
-                    }}
-                  >
-                    Clear Selection
-                  </button>
-                </div>
-                <div style={{ textAlign: "right", flex: 1 }}>
+              <div className="users-section">
+                <div className="users-section-label">Recipients: {selectedIds.size} selected</div>
+
+                <div className="users-search-wrap">
+                  <Search size={18} />
                   <input
-                    className="search-input"
-                    placeholder="Filter recipients..."
+                    className="users-input users-search-input"
                     value={modalSearch}
-                    onChange={(e) => setModalSearch(e.target.value)}
+                    onChange={(event) => setModalSearch(event.target.value)}
+                    placeholder="Filter recipients..."
                   />
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#6f5f4f",
-                      marginTop: 6,
-                    }}
-                  >
-                    {selectedIds.size} selected
-                  </div>
                 </div>
-              </div>
 
-              <div
-                style={{
-                  marginTop: 8,
-                  borderRadius: 12,
-                  overflow: "auto",
-                  border: "1px solid rgba(0,0,0,0.06)",
-                  maxHeight: "44vh",
-                }}
-              >
-                {allUsers === null ? (
-                  <div
-                    style={{
-                      padding: 16,
-                      color: "#6f5f4f",
-                    }}
-                  >
-                    Loading recipients…
-                  </div>
-                ) : allUsers.length === 0 ? (
-                  <div
-                    style={{
-                      padding: 16,
-                      color: "#6f5f4f",
-                    }}
-                  >
-                    No recipients found.
-                  </div>
-                ) : (
-                  allUsers
-                    .filter((u) => {
-                      if (!modalSearch) return true;
-                      const s = modalSearch.toLowerCase();
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <ActionButton icon={Users} onClick={selectAllRecipients} variant="secondary">
+                    Select All
+                  </ActionButton>
+                  <ActionButton icon={X} onClick={clearSelection} variant="secondary">
+                    Clear
+                  </ActionButton>
+                </div>
+
+                <div className="recipient-list">
+                  {filteredRecipients === null ? (
+                    <div className="users-empty">Loading recipients...</div>
+                  ) : filteredRecipients.length === 0 ? (
+                    <div className="users-empty">No recipients found.</div>
+                  ) : (
+                    filteredRecipients.map((user) => {
+                      const id = userIdOf(user);
+                      const name = displayNameOf(user);
+
                       return (
-                        (
-                          u.displayName ||
-                          u.username ||
-                          u.email ||
-                          u.phone ||
-                          ""
-                        )
-                          .toLowerCase()
-                          .includes(s)
+                        <label className="recipient-row" key={id}>
+                          <input type="checkbox" checked={selectedIds.has(id)} onChange={() => toggleSelect(id)} />
+                          <div style={{ minWidth: 0 }}>
+                            <div className="user-name">{name}</div>
+                            <div className="user-meta">{emailOf(user) || phoneOf(user) || usernameOf(user) || "No contact"}</div>
+                          </div>
+                          <span className="user-badge">{roleLabelOf(user, roles).toUpperCase()}</span>
+                        </label>
                       );
                     })
-                    .map((u) => {
-                      const initials =
-                        (
-                          u.displayName ||
-                          u.name ||
-                          u.username ||
-                          ""
-                        )
-                          .split(" ")
-                          .map((s) => s[0])
-                          .join("")
-                          .slice(0, 2)
-                          .toUpperCase() || "?";
-                      return (
-                        <div key={u.id} className="recipient-row">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(u.id)}
-                            onChange={() => toggleSelect(u.id)}
-                          />
-                          <div
-                            className="avatar"
-                            aria-hidden
-                            style={{
-                              width: 44,
-                              height: 44,
-                            }}
-                          >
-                            {initials}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                fontSize: 14,
-                              }}
-                            >
-                              {u.displayName || u.username || "(no name)"}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 13,
-                                color: "#6b5a46",
-                              }}
-                            >
-                              {u.email ?? "—"} &nbsp;
-                              <span
-                                style={{
-                                  color: "#6f5f4f",
-                                }}
-                              >
-                                {u.phone ?? ""}
-                              </span>
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              textAlign: "right",
-                              minWidth: 90,
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: "#6f5f4f",
-                              }}
-                            >
-                              {(u.role ?? "member").toUpperCase()}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
+                  )}
+                </div>
+
+                {sendResults && (
+                  <div
+                    className="users-alert"
+                    style={{
+                      background: sendResults.success ? "rgba(34,197,94,0.12)" : "#fff3f3",
+                      color: sendResults.success ? "#166534" : "#9b1c1c",
+                      borderColor: sendResults.success ? "rgba(34,197,94,0.25)" : "#ffd1d1",
+                    }}
+                  >
+                    {sendResults.success ? <Check size={18} /> : <AlertCircle size={18} />}
+                    <span>
+                      {sendResults.success
+                        ? `Message sent${sendResults.attempted ? ` to ${sendResults.attempted} recipients` : ""}.`
+                        : sendResults.error || "Send failed."}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
 
-            <div className="modal-right">
-              <div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 800,
-                    color: "#2f2b27",
-                  }}
-                >
-                  Delivery Channels
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    padding: 8,
-                  }}
-                >
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 8,
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      borderRadius: 12,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={broadcastChannels.email}
-                      onChange={(e) =>
-                        setBroadcastChannels((prev) => ({
-                          ...prev,
-                          email: e.target.checked,
-                        }))
-                      }
-                    />{" "}
-                    <IconEmail />{" "}
-                    <span
-                      style={{
-                        fontWeight: 700,
-                      }}
-                    >
-                      Email
-                    </span>
-                  </label>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 8,
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      borderRadius: 12,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={broadcastChannels.whatsapp}
-                      onChange={(e) =>
-                        setBroadcastChannels((prev) => ({
-                          ...prev,
-                          whatsapp: e.target.checked,
-                        }))
-                      }
-                    />{" "}
-                    <IconWhatsApp />{" "}
-                    <span
-                      style={{
-                        fontWeight: 700,
-                      }}
-                    >
-                      WhatsApp
-                    </span>
-                  </label>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 8,
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      borderRadius: 12,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={broadcastChannels.sms}
-                      onChange={(e) =>
-                        setBroadcastChannels((prev) => ({
-                          ...prev,
-                          sms: e.target.checked,
-                        }))
-                      }
-                    />{" "}
-                    <IconSms />{" "}
-                    <span
-                      style={{
-                        fontWeight: 700,
-                      }}
-                    >
-                      SMS
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 8 }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#6f5f4f",
-                  }}
-                >
-                  Recipients:
-                </div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    marginBottom: 8,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                    }}
-                  >
-                    <button
-                      className="btn btn-muted"
-                      onClick={() => selectAllVisible()}
-                    >
-                      Select all
-                    </button>
-                    <button
-                      className="btn btn-muted"
-                      onClick={() => clearSelection()}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 8,
-                      color: "#6f5f4f",
-                    }}
-                  >
-                    {selectedIds.size} recipients selected
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: "auto",
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <button
-                  className="btn btn-muted"
-                  onClick={() => {
-                    setBroadcastOpen(false);
-                  }}
-                >
-                  Cancel
-                </button>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => sendBroadcast()}
-                    disabled={sending}
-                  >
-                    {sending ? "Sending…" : "Send"}
-                  </button>
-                </div>
-              </div>
-
-              {sendResults && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    fontSize: 13,
-                  }}
-                >
-                  {sendResults.success ? (
-                    <div style={{ color: "green" }}>
-                      Sent to {sendResults.attempted} recipients. Check details
-                      in logs.
-                    </div>
-                  ) : (
-                    <div style={{ color: "darkred" }}>
-                      Send failed: {sendResults.error || "Unknown error"}
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="users-modal-footer">
+              <ActionButton icon={X} onClick={() => setBroadcastOpen(false)} disabled={sending} variant="secondary">
+                Cancel
+              </ActionButton>
+              <ActionButton icon={Bell} onClick={sendBroadcast} loading={sending}>
+                Send
+              </ActionButton>
             </div>
           </div>
         </div>
       )}
-
-      {/* Enrich user modal */}
-      <EnrichUserModal
-        user={selectedUser}
-        isOpen={isEnrichOpen}
-        onClose={closeEnrich}
-        onSaved={() => fetchUsers(meta.page, meta.limit, search)}
-      />
     </div>
   );
 }

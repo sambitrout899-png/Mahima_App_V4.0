@@ -1,1095 +1,1396 @@
 // src/pages/PayrollPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+//
+// Mahima Ministry — state-of-the-art Payroll module.
+//
+// Backend contract (unchanged):
+//   GET    /api/payroll/settings
+//   POST   /api/payroll/settings                  (upsert)
+//   GET    /api/payroll/summary?userId&from&to
+//   GET    /api/payroll/runs?userId
+//   POST   /api/payroll/runs                       (snapshot)
+//   DELETE /api/payroll/runs/{id}
+//   GET    /api/payroll/runs/{id}/slip             (PDF blob)
+//   GET    /api/payroll/slip?userId&from&to        (PDF blob)
+//   GET    /api/attendance?userId&from&to
+//   GET    /api/expenses?month=YYYY-MM&category=PAYROLL
+//
+// Calculation formula (matches backend):
+//   Days         = count(attendance.status == "present")
+//   HourlyAmount = Days * DailyRate
+//   Gross        = Fixed + HourlyAmount + Allowances
+//   Deductions   = Fines (from settings) + PayrollAdvances (from expenses)
+//   Net          = max(0, Gross - Deductions)
+//
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import dayjs from "dayjs";
 import {
-  FileText,
-  Download,
-  Calendar as CalendarIcon,
-  User as UserIcon,
-  Settings as SettingsIcon,
-  Loader2,
-  History as HistoryIcon,
-  Trash2,
+  FileText, Download, Calendar as CalendarIcon, Search,
+  Loader2, History as HistoryIcon, Trash2, CheckCircle2,
+  AlertCircle, X, Eye, IndianRupee, Settings as SettingsIcon,
+  TrendingUp, TrendingDown, ArrowRight, Info,
+  RefreshCw, Calculator, Users as UsersIcon, FileDown,
+  Sparkles, Wallet, MinusCircle, PlusCircle, BadgeCheck,
+  Save, ChevronRight, Building2, ClipboardList,
 } from "lucide-react";
 import api from "../api";
 
-// Helper: current month range
-function getCurrentMonthRange() {
-  const now = dayjs();
-  const from = now.startOf("month").format("YYYY-MM-DD");
-  const to = now.endOf("month").format("YYYY-MM-DD");
-  return { from, to };
-}
-
-// Read current user (for header + slip filename)
-function useCurrentUser() {
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    try {
-      const raw =
-        localStorage.getItem("mahima:user") ||
-        localStorage.getItem("currentUser") ||
-        null;
-      if (raw) setUser(JSON.parse(raw));
-    } catch (e) {
-      console.warn("Cannot parse current user from localStorage", e);
-    }
-  }, []);
-
-  return { user };
-}
-
+/* ============================================================================
+ *  Helpers
+ * ========================================================================= */
 const INITIAL_SUMMARY = {
-  userId: "",
-  displayName: "",
-  from: "",
-  to: "",
-  totalHours: 0,
-  hourlyRate: 0,
-  fixedAmount: 0,
-  hourlyAmount: 0,
-  allowances: 0,
-  deductions: 0,
-  grossAmount: 0,
-  netAmount: 0,
+  userId: "", displayName: "", from: "", to: "",
+  totalHours: 0, hourlyRate: 0, fixedAmount: 0, hourlyAmount: 0,
+  allowances: 0, deductions: 0, grossAmount: 0, netAmount: 0,
+  payrollAdvance: 0, fines: 0,
+};
+const INITIAL_SETTINGS = {
+  userId: "", hourlyRate: 0, monthlyFixedAmount: 0,
+  allowances: 0, deductions: 0, isActive: true,
 };
 
-export default function PayrollPage() {
-  const { from: initialFrom, to: initialTo } = getCurrentMonthRange();
-  const { user: currentUser } = useCurrentUser();
+const RUPEE = String.fromCharCode(0x20b9);
+const formatINR = (value) => {
+  const num = Number(value);
+  const formatted = Number.isFinite(num)
+    ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+    : "0.00";
+  return `${RUPEE} ${formatted}`;
+};
+const formatINRCompact = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return `${RUPEE} 0`;
+  return `${RUPEE} ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(num)}`;
+};
+const safeNum = (v, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const arrayFrom = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+};
+const monthRange = (anchor = dayjs()) => ({
+  from: anchor.startOf("month").format("YYYY-MM-DD"),
+  to:   anchor.endOf("month").format("YYYY-MM-DD"),
+});
 
+const errMsg = (err, fallback = "Something went wrong.") =>
+  err?.response?.data?.message ||
+  (typeof err?.response?.data === "string" ? err.response.data : null) ||
+  err?.message || fallback;
+
+/* role detection */
+const STAFF_ROLE_FIELDS = ["role","Role","userRole","UserRole","userType","UserType","accountType","AccountType","type","Type"];
+const STAFF_ROLE_LIST_FIELDS = ["roles","Roles","authorities","Authorities","permissions"];
+const collectRoleStrings = (u) => {
+  if (!u) return [];
+  const out = [];
+  for (const k of STAFF_ROLE_FIELDS) {
+    const v = u[k];
+    if (typeof v === "string" && v.trim()) out.push(v);
+    else if (v && typeof v === "object")
+      out.push(v.name || v.Name || v.role || v.Role || "");
+  }
+  for (const k of STAFF_ROLE_LIST_FIELDS) {
+    const arr = u[k];
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      if (typeof item === "string") out.push(item);
+      else if (item && typeof item === "object")
+        out.push(item.name || item.Name || item.role || item.Role || "");
+    }
+  }
+  return out.filter(Boolean).map((s) => String(s).trim().toLowerCase());
+};
+
+const isPayrollEnabledUser = (u) =>
+  Boolean(u?.payrollEnabled ?? u?.PayrollEnabled ?? u?.isPayrollEnabled ?? u?.IsPayrollEnabled);
+
+const useCurrentUser = () => {
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("mahima_user") ||
+                  localStorage.getItem("mahima:user") ||
+                  localStorage.getItem("currentUser");
+      if (raw) setUser(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+  return user;
+};
+
+const initials = (name) =>
+  (name || "?").split(/\s+/).filter(Boolean).slice(0,2).map(s => s[0]?.toUpperCase()).join("") || "?";
+
+const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+const downloadCsv = (filename, rows) => {
+  if (!rows?.length) return;
+  const escape = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const headers = Object.keys(rows[0]);
+  const csv = headers.join(",") + "\n" + rows.map(r => headers.map(h => escape(r[h])).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  downloadBlob(blob, filename);
+};
+
+/* ============================================================================
+ *  Toast & Confirm
+ * ========================================================================= */
+const useToasts = () => {
+  const [toasts, setToasts] = useState([]);
+  const idRef = useRef(0);
+  const push = useCallback((type, message, ttl = 3500) => {
+    const id = ++idRef.current;
+    setToasts((p) => [...p, { id, type, message }]);
+    if (ttl > 0) setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), ttl);
+    return id;
+  }, []);
+  const dismiss = useCallback((id) => setToasts((p) => p.filter((t) => t.id !== id)), []);
+  return {
+    toasts,
+    success: (m, ttl) => push("success", m, ttl),
+    error:   (m, ttl) => push("error",   m, ttl ?? 5000),
+    info:    (m, ttl) => push("info",    m, ttl),
+    dismiss,
+  };
+};
+
+const ToastStack = ({ toasts, onDismiss }) => (
+  <div className="fixed top-20 right-4 z-[200] flex flex-col gap-2 w-[min(92vw,360px)]">
+    {toasts.map((t) => (
+      <div key={t.id}
+        className={`flex items-start gap-2 rounded-2xl border px-3.5 py-2.5 shadow-xl backdrop-blur bg-white/95 text-sm animate-[slideIn_200ms_ease-out] ${
+          t.type === "success" ? "border-emerald-200 text-emerald-900"
+          : t.type === "error" ? "border-rose-200 text-rose-900"
+          : "border-slate-200 text-slate-800"}`}
+        role="status">
+        {t.type === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-500 shrink-0" />
+         : t.type === "error" ? <AlertCircle  className="w-4 h-4 mt-0.5 text-rose-500    shrink-0" />
+         :                      <Info         className="w-4 h-4 mt-0.5 text-slate-500   shrink-0" />}
+        <div className="flex-1 leading-snug">{t.message}</div>
+        <button onClick={() => onDismiss(t.id)} className="text-slate-400 hover:text-slate-700">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    ))}
+  </div>
+);
+
+const ConfirmModal = ({ open, title, body, onConfirm, onCancel, danger }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[180] bg-slate-900/45 backdrop-blur-sm flex items-end sm:items-center justify-center p-3" onClick={onCancel}>
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5 border border-slate-200" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{body}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button onClick={onConfirm}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${danger ? "bg-rose-600 hover:bg-rose-700" : "bg-indigo-600 hover:bg-indigo-700"}`}>
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================================
+ *  Main page
+ * ========================================================================= */
+export default function PayrollPage() {
+  const { from: initialFrom, to: initialTo } = monthRange();
+  const currentUser = useCurrentUser();
+  const toast = useToasts();
+
+  /* ------------ state -------------------------------------------- */
   const [fromDate, setFromDate] = useState(initialFrom);
-  const [toDate, setToDate] = useState(initialTo);
+  const [toDate, setToDate]     = useState(initialTo);
+
   const [staffList, setStaffList] = useState([]);
+  const [staffSearch, setStaffSearch] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [summary, setSummary] = useState(INITIAL_SUMMARY);
-  const [settings, setSettings] = useState({
-    userId: "",
-    hourlyRate: 0,
-    monthlyFixedAmount: 0,
-    allowances: 0,
-    deductions: 0,
-    isActive: true,
-  });
+
+  const [summary, setSummary]   = useState(INITIAL_SUMMARY);
+  const [settings, setSettings] = useState(INITIAL_SETTINGS);
+  const [allSettings, setAllSettings] = useState([]);   // for bulk run
 
   const [loadingSummary, setLoadingSummary] = useState(false);
-  const [loadingSlip, setLoadingSlip] = useState(false);
+  const [loadingSlip, setLoadingSlip]       = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [error, setError] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
 
-  // DB-backed payroll history for selected staff
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState([]);             // selected user
+  const [allRuns, setAllRuns] = useState([]);             // every staff
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
   const [deletingRunId, setDeletingRunId] = useState(null);
   const [currentRunId, setCurrentRunId] = useState(null);
 
-  // Load all staff (role = Staff)
+  const [confirm, setConfirm] = useState(null);
+  const [showBulk, setShowBulk] = useState(false);
+
+  const [tab, setTab] = useState("calculate"); // calculate | setup | history
+
+  /* ------------ derived ------------------------------------------ */
+  const selectedStaff = useMemo(
+    () => (staffList || []).find((u) => (u.id || u.userId) === selectedUserId) || null,
+    [staffList, selectedUserId]
+  );
+  const filteredStaff = useMemo(() => {
+    const q = staffSearch.trim().toLowerCase();
+    if (!q) return staffList;
+    return staffList.filter((u) => {
+      const hay = [u.displayName, u.fullName, u.username, u.email, u.id, u.userId]
+        .filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }, [staffList, staffSearch]);
+
+  /* ------------ load payroll-enabled staff ---------------- */
+  const [staffFilterFellBack, setStaffFilterFellBack] = useState(false);
   useEffect(() => {
     let cancelled = false;
-
-    const loadStaff = async () => {
+    (async () => {
       try {
-        const res = await api.get("/users", { params: { role: "Staff" } });
-
-        if (!cancelled) {
-          const data = res?.data;
-          let list = [];
-
-          if (Array.isArray(data)) list = data;
-          else if (Array.isArray(data?.data)) list = data.data;
-          else if (Array.isArray(data?.items)) list = data.items;
-
-          setStaffList(list);
-        }
+        const usersRes = await api.get("/users", { params: { payrollEnabled: true, limit: 5000 } });
+        if (cancelled) return;
+        const all = arrayFrom(usersRes?.data);
+        setStaffList(all.filter(isPayrollEnabledUser));
+        setStaffFilterFellBack(false);
       } catch (err) {
-        console.warn("Failed to load staff list", err);
+        console.warn("Failed to load staff", err);
         if (!cancelled) setStaffList([]);
       }
-    };
-
-    loadStaff();
-    return () => {
-      cancelled = true;
-    };
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  // When staff changes: load payroll settings and history
+  /* ------------ load global settings + global runs (for KPIs) ---- */
+  const reloadGlobalRuns = useCallback(async () => {
+    try {
+      const res = await api.get("/payroll/runs");
+      setAllRuns(arrayFrom(res?.data));
+    } catch {
+      setAllRuns([]);
+    }
+  }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get("/payroll/settings");
+        setAllSettings(arrayFrom(res?.data));
+      } catch { setAllSettings([]); }
+    })();
+    reloadGlobalRuns();
+  }, [reloadGlobalRuns]);
+
+  /* ------------ when selection changes --------------------------- */
   useEffect(() => {
     if (!selectedUserId) {
-      setSettings({
-        userId: "",
-        hourlyRate: 0,
-        monthlyFixedAmount: 0,
-        allowances: 0,
-        deductions: 0,
-        isActive: true,
-      });
+      setSettings({ ...INITIAL_SETTINGS });
       setHistory([]);
       setSummary(INITIAL_SUMMARY);
       setCurrentRunId(null);
       return;
     }
-
     let cancelled = false;
-
-    const loadSettings = async () => {
+    (async () => {
       try {
-        const res = await api.get("/payroll/settings");
-        const all = Array.isArray(res.data)
-          ? res.data
-          : Array.isArray(res.data?.data)
-          ? res.data.data
-          : [];
-
-        const s = all.find((x) => x.userId === selectedUserId);
+        const sFound = allSettings.find((x) => x.userId === selectedUserId);
         if (!cancelled) {
-          if (s) {
-            setSettings({
-              userId: s.userId,
-              hourlyRate: s.hourlyRate ?? 0,
-              monthlyFixedAmount: s.monthlyFixedAmount ?? 0,
-              allowances: s.allowances ?? 0,
-              deductions: s.deductions ?? 0,
-              isActive: s.isActive !== false,
-            });
-          } else {
-            setSettings({
-              userId: selectedUserId,
-              hourlyRate: 0,
-              monthlyFixedAmount: 0,
-              allowances: 0,
-              deductions: 0,
-              isActive: true,
-            });
-          }
+          setSettings(sFound
+            ? {
+                userId: sFound.userId,
+                hourlyRate: safeNum(sFound.hourlyRate),
+                monthlyFixedAmount: safeNum(sFound.monthlyFixedAmount),
+                allowances: safeNum(sFound.allowances),
+                deductions: safeNum(sFound.deductions),
+                isActive: sFound.isActive !== false,
+              }
+            : { ...INITIAL_SETTINGS, userId: selectedUserId });
         }
-      } catch (err) {
-        // 401/403 => not authorized to manage settings – backend will still enforce
-        if (err?.response?.status === 401 || err?.response?.status === 403) {
-          console.warn("Not authorized to load payroll settings.", err);
-          return;
-        }
-        console.error("Failed to load payroll settings", err);
-      }
-    };
-
-    const loadHistory = async () => {
+      } catch { /* ignore */ }
       setLoadingHistory(true);
       try {
-        const res = await api.get("/payroll/runs", {
-          params: { userId: selectedUserId },
-        });
-        const data = res?.data;
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
-        if (!cancelled) setHistory(list);
-      } catch (err) {
-        if (err?.response?.status === 404) {
-          console.warn("Payroll runs endpoint not found yet, history disabled.");
-          if (!cancelled) setHistory([]);
-        } else {
-          console.error("Failed to load payroll history", err);
-          if (!cancelled) setHistory([]);
-        }
-      } finally {
-        if (!cancelled) setLoadingHistory(false);
-      }
-    };
+        const res = await api.get("/payroll/runs", { params: { userId: selectedUserId } });
+        if (!cancelled) setHistory(arrayFrom(res?.data));
+      } catch { if (!cancelled) setHistory([]); }
+      finally  { if (!cancelled) setLoadingHistory(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedUserId, allSettings]);
 
-    loadSettings();
-    loadHistory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedUserId]);
-
-  const effectiveUserId = useMemo(
-    () => selectedUserId || "",
-    [selectedUserId]
-  );
-
-  const reloadHistory = async (userId) => {
-    if (!userId) return;
+  const reloadHistory = async () => {
+    if (!selectedUserId) return;
     setLoadingHistory(true);
     try {
-      const res = await api.get("/payroll/runs", { params: { userId } });
-      const data = res?.data;
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.data)
-        ? data.data
-        : [];
-      setHistory(list);
-    } catch (err) {
-      if (err?.response?.status === 404) {
-        console.warn("Payroll runs endpoint not found.");
-        setHistory([]);
-      } else {
-        console.error("Failed to reload history", err);
-      }
-    } finally {
-      setLoadingHistory(false);
-    }
+      const res = await api.get("/payroll/runs", { params: { userId: selectedUserId } });
+      setHistory(arrayFrom(res?.data));
+    } catch { /* ignore */ }
+    finally  { setLoadingHistory(false); }
   };
 
-  /**
-   * Calculate payroll on frontend (attendance + expenses + settings)
-   * then persist the final summary into staff_payroll_runs.
-   */
-  const handleCalculate = async () => {
-    setError("");
-    setSuccessMsg("");
+  /* ------------ validation --------------------------------------- */
+  const validatePeriod = () => {
+    if (!fromDate || !toDate) { toast.error("Pick a from and to date."); return false; }
+    const a = dayjs(fromDate), b = dayjs(toDate);
+    if (!a.isValid() || !b.isValid()) { toast.error("Invalid dates."); return false; }
+    if (a.isAfter(b)) { toast.error("'From' cannot be after 'To'."); return false; }
+    if (b.diff(a, "day") > 92) { toast.error("Period can't exceed 92 days."); return false; }
+    return true;
+  };
 
-    if (!effectiveUserId) {
-      setError("Please select a staff member for payroll summary.");
-      return;
+  /* ------------ core calculate ----------------------------------- */
+  const calculateFor = useCallback(async (userId, overrideSettings = null) => {
+    const monthKey = dayjs(fromDate).format("YYYY-MM");
+    const params = { from: fromDate, to: toDate, userId };
+    const [payrollRes, attendanceRes, expensesRes] = await Promise.all([
+      api.get("/payroll/summary",   { params }).catch(() => ({ data: {} })),
+      api.get("/attendance",        { params }).catch(() => ({ data: [] })),
+      api.get("/expenses",          { params: { month: monthKey, category: "PAYROLL" } }).catch(() => ({ data: [] })),
+    ]);
+
+    const data = payrollRes?.data || {};
+    const attendanceList = arrayFrom(attendanceRes?.data);
+    const presentDays = attendanceList.filter((r) => {
+      const s = (r.status ?? r.Status ?? "").toString().trim().toLowerCase();
+      return s === "present" || s === "p";
+    }).length;
+    const totalHours = presentDays; // Days, named hours for backend compat
+
+    const s = overrideSettings || (allSettings.find(x => x.userId === userId)) || {};
+    const hourlyRate  = safeNum(s.hourlyRate)         || safeNum(data.hourlyRate ?? data.HourlyRate);
+    const fixedAmount = safeNum(data.fixedAmount ?? data.monthlyFixedAmount) || safeNum(s.monthlyFixedAmount);
+    const allowances  = safeNum(data.allowances  ?? data.Allowances) || safeNum(s.allowances);
+    const fines       = safeNum(s.deductions);
+
+    /* Payroll advances from expenses */
+    const expensesList = arrayFrom(expensesRes?.data);
+    const staff = staffList.find((u) => (u.id || u.userId) === userId);
+    const matchKeys = [staff?.displayName, staff?.fullName, staff?.username, staff?.email,
+                       String(staff?.id ?? staff?.userId ?? userId)]
+      .filter(Boolean).map((k) => k.toString().trim().toLowerCase());
+    const payrollAdvance = expensesList
+      .filter((e) => {
+        const person = (e.payrollPerson ?? e.PayrollPerson ?? "").toString().trim().toLowerCase();
+        const month  = (e.payrollMonth  ?? e.PayrollMonth  ?? "").toString().trim();
+        if (!person) return false;
+        if (month && month !== monthKey) return false;
+        return matchKeys.includes(person);
+      })
+      .reduce((sum, e) => sum + safeNum(e.amount ?? e.Amount), 0);
+
+    /* CORRECT formula */
+    const hourlyAmount   = totalHours * hourlyRate;
+    const grossAmount    = fixedAmount + hourlyAmount + allowances;
+    const totalDeductions = Math.max(0, fines + payrollAdvance);
+    const netAmount      = Math.max(0, grossAmount - totalDeductions);
+    const displayName    = data.displayName || staff?.displayName || staff?.fullName ||
+                           staff?.username  || staff?.email || userId;
+    return {
+      userId, displayName, from: data.from || fromDate, to: data.to || toDate,
+      totalHours, hourlyRate, fixedAmount, hourlyAmount, allowances,
+      deductions: totalDeductions, grossAmount, netAmount, payrollAdvance, fines,
+    };
+  }, [fromDate, toDate, allSettings, staffList]);
+
+  const persistRun = useCallback(async (s) => {
+    try {
+      const res = await api.post("/payroll/runs", {
+        userId: s.userId, displayName: s.displayName,
+        from: s.from, to: s.to,
+        totalHours: s.totalHours, hourlyRate: s.hourlyRate,
+        fixedAmount: s.fixedAmount, hourlyAmount: s.hourlyAmount,
+        allowances: s.allowances, deductions: s.deductions,
+        grossAmount: s.grossAmount, netAmount: s.netAmount,
+      });
+      const created = res?.data || {};
+      return created.id ?? created.Id ?? null;
+    } catch (err) {
+      console.error("Persist run failed", err);
+      return null;
     }
+  }, []);
 
+  const handleCalculate = async () => {
+    if (!selectedUserId) { toast.error("Select a staff member first."); return; }
+    if (!validatePeriod()) return;
     setLoadingSummary(true);
     try {
-      const params = {
-        from: fromDate,
-        to: toDate,
-        userId: effectiveUserId,
-      };
-
-      const monthKey = dayjs(fromDate).format("YYYY-MM");
-
-      const [payrollRes, attendanceRes, expensesRes] = await Promise.all([
-        api.get("/payroll/summary", { params }),
-        api.get("/attendance", {
-          params: {
-            from: fromDate,
-            to: toDate,
-            userId: effectiveUserId,
-          },
-        }),
-        api.get("/expenses", {
-          params: { month: monthKey, category: "PAYROLL" },
-        }),
-      ]);
-
-      const data = payrollRes.data || {};
-
-      // ---- ATTENDANCE: count present days ----
-      const rawAttendance = attendanceRes?.data || [];
-      const attendanceList = Array.isArray(rawAttendance)
-        ? rawAttendance
-        : Array.isArray(rawAttendance?.data)
-        ? rawAttendance.data
-        : [];
-
-      const attendancePresentDays = attendanceList.filter((r) => {
-        const s = (r.status ?? r.Status ?? "")
-          .toString()
-          .trim()
-          .toLowerCase();
-        return s === "present" || s === "p";
-      }).length;
-
-      const totalHours = attendancePresentDays * 9;
-
-      // ---- HOURLY RATE ----
-      const hourlyRate =
-        Number(settings.hourlyRate) ||
-        Number(data.hourlyRate ?? data.HourlyRate ?? 0);
-
-      // ---- FIXED + ALLOWANCES ----
-      const fixedAmount =
-        Number(data.fixedAmount ?? data.monthlyFixedAmount) ||
-        Number(settings.monthlyFixedAmount) ||
-        0;
-
-      const allowances =
-        Number(data.allowances ?? data.Allowances) ||
-        Number(settings.allowances) ||
-        0;
-
-      // ---- PAYROLL ADVANCE FROM EXPENSES ----
-      const expensesRaw = expensesRes?.data || [];
-      const expensesList = Array.isArray(expensesRaw)
-        ? expensesRaw
-        : Array.isArray(expensesRaw?.data)
-        ? expensesRaw.data
-        : [];
-
-      const staff = (Array.isArray(staffList) ? staffList : []).find(
-        (u) => (u.id || u.userId) === effectiveUserId
-      );
-
-      const staffId = String(
-        staff?.id ?? staff?.userId ?? effectiveUserId ?? ""
-      )
-        .trim()
-        .toLowerCase();
-      const staffUsername = (staff?.username || "").trim().toLowerCase();
-      const staffEmail = (staff?.email || "").trim().toLowerCase();
-      const staffDisplay = (
-        staff?.displayName ||
-        staff?.fullName ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-      const payrollAdvance = expensesList
-        .filter((e) => {
-          const person = (
-            e.payrollPerson ??
-            e.PayrollPerson ??
-            ""
-          )
-            .toString()
-            .trim()
-            .toLowerCase();
-          const month = (e.payrollMonth ?? e.PayrollMonth ?? "")
-            .toString()
-            .trim();
-
-          const monthMatches = !month || month === monthKey;
-          if (!person || !monthMatches) return false;
-
-          return (
-            person === staffDisplay ||
-            person === staffUsername ||
-            person === staffEmail ||
-            person === staffId
-          );
-        })
-        .reduce((sum, e) => sum + Number(e.amount ?? e.Amount ?? 0), 0);
-
-      const fines = Number(settings.deductions || 0);
-
-      const grossAmount = totalHours * hourlyRate;
-      let deductions = fines + payrollAdvance;
-      if (deductions < 0) deductions = 0;
-
-      let netAmount = grossAmount - deductions;
-      if (netAmount < 0) netAmount = 0;
-
-      const hourlyAmount = totalHours * hourlyRate;
-
-      const fromVal = data.from || fromDate;
-      const toVal = data.to || toDate;
-      const userIdVal = data.userId || effectiveUserId;
-      const displayNameVal =
-        data.displayName ||
-        staff?.displayName ||
-        staff?.fullName ||
-        staff?.username ||
-        staff?.email ||
-        userIdVal;
-
-      const newSummary = {
-        ...INITIAL_SUMMARY,
-        ...data,
-        from: fromVal,
-        to: toVal,
-        userId: userIdVal,
-        displayName: displayNameVal,
-        totalHours,
-        hourlyRate,
-        fixedAmount,
-        hourlyAmount,
-        allowances,
-        deductions,
-        grossAmount,
-        netAmount,
-      };
-
-      setSummary(newSummary);
-
-      // ---- SAVE RUN SNAPSHOT INTO DB ----
-      try {
-        const runPayload = {
-          userId: newSummary.userId,
-          displayName: newSummary.displayName,
-          from: newSummary.from,
-          to: newSummary.to,
-          totalHours: newSummary.totalHours,
-          hourlyRate: newSummary.hourlyRate,
-          fixedAmount: newSummary.fixedAmount,
-          hourlyAmount: newSummary.hourlyAmount,
-          allowances: newSummary.allowances,
-          deductions: newSummary.deductions,
-          grossAmount: newSummary.grossAmount,
-          netAmount: newSummary.netAmount,
-        };
-
-        const runRes = await api.post("/payroll/runs", runPayload);
-        const created = runRes?.data || {};
-        const runId = created.id ?? created.Id ?? null;
-        setCurrentRunId(runId);
-
-        await reloadHistory(effectiveUserId);
-      } catch (saveErr) {
-        if (saveErr?.response?.status === 404) {
-          console.warn("POST /payroll/runs not found – history disabled.");
-        } else {
-          console.error("Failed to save payroll run", saveErr);
-        }
+      const result = await calculateFor(selectedUserId, settings);
+      setSummary(result);
+      const id = await persistRun(result);
+      if (id != null) {
+        setCurrentRunId(id);
+        await reloadHistory();
+        await reloadGlobalRuns();
+      } else {
+        toast.info("Calculated, but couldn't store run history.");
       }
-
-      setSuccessMsg("Payroll summary updated from attendance and costs.");
+      toast.success("Payroll calculated.");
     } catch (err) {
       console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data ||
-          "Failed to calculate payroll."
-      );
+      toast.error(errMsg(err, "Failed to calculate payroll."));
     } finally {
       setLoadingSummary(false);
     }
   };
 
-  // Generate payslip PDF based on current period using legacy /payroll/slip
+  /* ------------ download current slip ---------------------------- */
   const handleDownloadSlip = async () => {
-    setError("");
-    setSuccessMsg("");
-
-    if (!effectiveUserId) {
-      setError("Please select a staff member to download salary slip.");
-      return;
-    }
-
+    if (!selectedUserId) { toast.error("Select a staff member first."); return; }
+    if (!validatePeriod()) return;
     setLoadingSlip(true);
     try {
       const res = await api.get("/payroll/slip", {
-        params: {
-          userId: effectiveUserId,
-          from: fromDate,
-          to: toDate,
-        },
+        params: { userId: selectedUserId, from: fromDate, to: toDate },
         responseType: "blob",
       });
-
       const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      const name =
-        summary.displayName ||
-        summary.userId ||
-        currentUser?.displayName ||
-        "salary";
-
-      link.href = url;
-      link.setAttribute(
-        "download",
-        `SalarySlip_${name}_${dayjs(fromDate).format("YYYYMM")}.pdf`
-      );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      setSuccessMsg("Salary slip downloaded.");
+      const name = summary.displayName || selectedStaff?.displayName || selectedStaff?.username || "salary";
+      downloadBlob(blob, `SalarySlip_${name}_${dayjs(fromDate).format("YYYYMM")}.pdf`);
+      toast.success("Salary slip downloaded.");
     } catch (err) {
       console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data ||
-          "Failed to download salary slip."
-      );
-    } finally {
-      setLoadingSlip(false);
-    }
+      toast.error(errMsg(err, "Failed to download salary slip."));
+    } finally { setLoadingSlip(false); }
   };
 
-  // Generate payslip PDF for a specific historical run (if /runs exists)
-  const handleDownloadSlipForHistory = async (record) => {
-    setError("");
-    setSuccessMsg("");
-    if (!record) return;
-
-    const runId = record.id || record.Id;
+  const handleDownloadHistorySlip = async (record) => {
+    const runId = record?.id || record?.Id;
     if (!runId) return;
-
     setDownloadingHistoryId(runId);
     try {
-      const res = await api.get(`/payroll/runs/${runId}/slip`, {
-        responseType: "blob",
-      });
-
+      const res = await api.get(`/payroll/runs/${runId}/slip`, { responseType: "blob" });
       const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      const name =
-        record.displayName ||
-        record.DisplayName ||
-        record.userId ||
-        record.UserId ||
-        currentUser?.displayName ||
-        "salary";
-
+      const name = record.displayName || record.DisplayName || selectedStaff?.displayName || "salary";
       const fromVal = record.from || record.From;
-
-      link.href = url;
-      link.setAttribute(
-        "download",
-        `SalarySlip_${name}_${dayjs(fromVal).format("YYYYMM")}.pdf`
-      );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      setSuccessMsg("Salary slip downloaded for selected payroll run.");
+      downloadBlob(blob, `SalarySlip_${name}_${dayjs(fromVal).format("YYYYMM")}.pdf`);
+      toast.success("Slip downloaded.");
     } catch (err) {
       console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data ||
-          "Failed to download salary slip for the selected run."
-      );
-    } finally {
-      setDownloadingHistoryId(null);
-    }
+      toast.error(errMsg(err, "Failed to download slip."));
+    } finally { setDownloadingHistoryId(null); }
   };
 
-  // Delete a payroll run
-  const handleDeleteRun = async (record) => {
+  /* ------------ delete run --------------------------------------- */
+  const handleDeleteRun = (record) => {
     const runId = record.id || record.Id;
     if (!runId) return;
-
-    setError("");
-    setSuccessMsg("");
-    setDeletingRunId(runId);
-
-    try {
-      await api.delete(`/payroll/runs/${runId}`);
-      await reloadHistory(effectiveUserId);
-
-      if (currentRunId === runId) setCurrentRunId(null);
-
-      setSuccessMsg("Payroll run deleted.");
-    } catch (err) {
-      console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data ||
-          "Failed to delete payroll run."
-      );
-    } finally {
-      setDeletingRunId(null);
-    }
+    setConfirm({
+      title: "Delete payroll run?",
+      body: "This permanently removes the saved payroll record. This cannot be undone.",
+      danger: true,
+      onConfirm: async () => {
+        setConfirm(null);
+        setDeletingRunId(runId);
+        try {
+          await api.delete(`/payroll/runs/${runId}`);
+          await reloadHistory();
+          await reloadGlobalRuns();
+          if (currentRunId === runId) setCurrentRunId(null);
+          toast.success("Payroll run deleted.");
+        } catch (err) {
+          console.error(err);
+          toast.error(errMsg(err, "Failed to delete payroll run."));
+        } finally { setDeletingRunId(null); }
+      },
+    });
   };
 
-  // Save payroll setup for selected staff
+  /* ------------ settings save ----------------------------------- */
   const handleSaveSettings = async () => {
-    if (!settings.userId) {
-      setError("Select a staff member before saving payroll setup.");
-      return;
+    if (!settings.userId) { toast.error("Select a staff member first."); return; }
+    if (settings.hourlyRate < 0 || settings.monthlyFixedAmount < 0 || settings.allowances < 0 || settings.deductions < 0) {
+      toast.error("Amounts cannot be negative."); return;
     }
-
-    setError("");
-    setSuccessMsg("");
     setSavingSettings(true);
-
     try {
-      const payload = {
+      await api.post("/payroll/settings", {
         userId: settings.userId,
-        hourlyRate: Number(settings.hourlyRate) || 0,
-        monthlyFixedAmount: Number(settings.monthlyFixedAmount) || 0,
-        allowances: Number(settings.allowances) || 0,
-        deductions: Number(settings.deductions) || 0,
+        hourlyRate: safeNum(settings.hourlyRate),
+        monthlyFixedAmount: safeNum(settings.monthlyFixedAmount),
+        allowances: safeNum(settings.allowances),
+        deductions: safeNum(settings.deductions),
         isActive: !!settings.isActive,
-      };
-
-      await api.post("/payroll/settings", payload);
-      setSuccessMsg("Payroll settings saved for this staff member.");
+      });
+      // refresh the cached settings list
+      const res = await api.get("/payroll/settings").catch(() => ({ data: [] }));
+      setAllSettings(arrayFrom(res?.data));
+      toast.success("Payroll setup saved.");
     } catch (err) {
       console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data ||
-          "Failed to save payroll settings."
-      );
-    } finally {
-      setSavingSettings(false);
-    }
+      toast.error(errMsg(err, "Failed to save payroll setup."));
+    } finally { setSavingSettings(false); }
   };
 
-  const handleSettingsChange = (field, value) => {
-    setSettings((prev) => ({
-      ...prev,
-      [field]: value,
+  /* ------------ presets ----------------------------------------- */
+  const presets = [
+    { id: "thisMonth",     label: "This month",      get: () => monthRange(dayjs()) },
+    { id: "lastMonth",     label: "Last month",      get: () => monthRange(dayjs().subtract(1, "month")) },
+    { id: "twoMonths",     label: "Two months ago",  get: () => monthRange(dayjs().subtract(2, "month")) },
+  ];
+  const [activePreset, setActivePreset] = useState("thisMonth");
+  const setPreset = (id) => {
+    const p = presets.find(x => x.id === id);
+    if (!p) return;
+    const r = p.get();
+    setFromDate(r.from);
+    setToDate(r.to);
+    setActivePreset(id);
+  };
+
+  /* ------------ live preview (without saving) ------------------- */
+  const preview = useMemo(() => {
+    const rate  = safeNum(settings.hourlyRate);
+    const fixed = safeNum(settings.monthlyFixedAmount);
+    const allow = safeNum(settings.allowances);
+    const deduct = safeNum(settings.deductions);
+    const days = safeNum(summary.totalHours, 0); // last known
+    const hourlyAmount = days * rate;
+    const gross = fixed + hourlyAmount + allow;
+    const advances = safeNum(summary.payrollAdvance, 0);
+    const totalDed = Math.max(0, deduct + advances);
+    return {
+      days, rate, fixed, allow, deduct, advances,
+      hourlyAmount, gross, totalDed,
+      net: Math.max(0, gross - totalDed),
+    };
+  }, [settings, summary.totalHours, summary.payrollAdvance]);
+
+  /* ------------ KPIs across all staff for the current month ----- */
+  const monthKey = dayjs(fromDate).format("YYYY-MM");
+  const monthRuns = useMemo(() =>
+    allRuns.filter(r => dayjs(r.from || r.From).format("YYYY-MM") === monthKey),
+    [allRuns, monthKey]
+  );
+  const prevMonthKey = dayjs(fromDate).subtract(1, "month").format("YYYY-MM");
+  const prevMonthRuns = useMemo(() =>
+    allRuns.filter(r => dayjs(r.from || r.From).format("YYYY-MM") === prevMonthKey),
+    [allRuns, prevMonthKey]
+  );
+  const kpis = useMemo(() => {
+    const sum = (arr, k) => arr.reduce((s, r) => s + safeNum(r[k] ?? r[k[0].toUpperCase()+k.slice(1)]), 0);
+    const grossTotal = sum(monthRuns, "grossAmount");
+    const netTotal   = sum(monthRuns, "netAmount");
+    const prevNet    = sum(prevMonthRuns, "netAmount");
+    const delta      = prevNet > 0 ? Math.round(((netTotal - prevNet) / prevNet) * 100) : null;
+    const peopleSet  = new Set(monthRuns.map(r => r.userId || r.UserId));
+    return {
+      grossTotal, netTotal, runs: monthRuns.length,
+      people: peopleSet.size, prevNet, delta,
+      avgNet: monthRuns.length ? netTotal / monthRuns.length : 0,
+    };
+  }, [monthRuns, prevMonthRuns]);
+
+  /* ------------ export CSV -------------------------------------- */
+  const exportHistoryCsv = () => {
+    const rows = (tab === "history" ? allRuns : history).map(r => ({
+      Date: dayjs(r.from || r.From).format("YYYY-MM-DD"),
+      To:   dayjs(r.to   || r.To).format("YYYY-MM-DD"),
+      Staff: r.displayName || r.DisplayName || r.userId || r.UserId,
+      Days: r.totalHours ?? r.TotalHours,
+      "Daily Rate": r.hourlyRate ?? r.HourlyRate,
+      Fixed: r.fixedAmount ?? r.FixedAmount,
+      Allowances: r.allowances ?? r.Allowances,
+      Deductions: r.deductions ?? r.Deductions,
+      Gross: r.grossAmount ?? r.GrossAmount,
+      Net: r.netAmount ?? r.NetAmount,
     }));
+    if (!rows.length) { toast.info("Nothing to export."); return; }
+    downloadCsv(`payroll_${monthKey}.csv`, rows);
   };
 
-  const roleLabel = useMemo(() => {
-    if (!currentUser) return "";
-    const primary =
-      currentUser.role ||
-      currentUser.Role ||
-      (Array.isArray(currentUser.roles) && currentUser.roles[0]) ||
-      (Array.isArray(currentUser.authorities) &&
-        currentUser.authorities[0]) ||
-      "";
-    return primary ? String(primary).toUpperCase() : "";
-  }, [currentUser]);
-
-  const showSummary = !!summary && !!summary.from;
-
+  /* =====================================================================
+   *  UI
+   * ================================================================== */
   return (
-    <div className="min-h-screen bg-gradient-to-b from-rose-50 to-orange-50 px-3 sm:px-6 py-4 sm:py-6">
-      {/* Header */}
-      <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold text-slate-800">
-            Payroll
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500">
-            Step 1: Configure staff payroll setup. Step 2: Calculate salary
-            from attendance and generate payslips.
-          </p>
-        </div>
-        {currentUser && (
-          <div className="flex items-center gap-2 rounded-2xl bg-white/70 px-3 py-2 shadow-sm border border-rose-50">
-            <div className="h-8 w-8 rounded-full flex items-center justify-center bg-rose-100 text-rose-700 text-sm font-semibold">
-              {(currentUser.displayName || currentUser.username || "A")
-                .charAt(0)
-                .toUpperCase()}
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-indigo-50/40">
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
+      <ConfirmModal open={!!confirm} {...(confirm || {})} onCancel={() => setConfirm(null)} />
+
+      <div className="max-w-7xl mx-auto px-3 sm:px-5 py-6 space-y-5 pb-20">
+        {/* ============ HERO ============ */}
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 text-white shadow-xl">
+          <div className="pointer-events-none absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 -left-10 w-72 h-72 rounded-full bg-fuchsia-300/20 blur-3xl" />
+          <div className="relative p-5 sm:p-7">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur">
+                  <Wallet className="w-3.5 h-3.5" /> Payroll · {dayjs(fromDate).format("MMM YYYY")}
+                </div>
+                <h1 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight">Payroll &amp; Salary Slips</h1>
+                <p className="mt-1 text-sm text-indigo-100">
+                  Compute, save and download — accurate to the rupee, audited every step.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <HeroKpi icon={IndianRupee} label="Net payable" value={formatINRCompact(kpis.netTotal)} delta={kpis.delta} />
+                <HeroKpi icon={IndianRupee} label="Gross"        value={formatINRCompact(kpis.grossTotal)} />
+                <HeroKpi icon={UsersIcon}   label="People paid"  value={kpis.people} />
+                <HeroKpi icon={ClipboardList} label="Runs"       value={kpis.runs} />
+              </div>
             </div>
-            <div className="leading-tight">
-              <div className="text-xs font-medium text-slate-700">
-                {currentUser.displayName || currentUser.username || "User"}
-              </div>
-              <div className="text-[11px] uppercase tracking-wide text-rose-500">
-                {roleLabel}
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
-
-      {/* Filters & actions */}
-      <section className="mb-4 sm:mb-6 rounded-2xl bg-white/80 border border-rose-50 shadow-sm p-3 sm:p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <CalendarIcon className="w-4 h-4 text-rose-500" />
-          <h2 className="text-sm font-semibold text-slate-800">
-            Payroll period
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <div className="col-span-1 flex flex-col gap-1">
-            <label className="text-[11px] text-slate-500">From</label>
-            <input
-              type="date"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </div>
-          <div className="col-span-1 flex flex-col gap-1">
-            <label className="text-[11px] text-slate-500">To</label>
-            <input
-              type="date"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </div>
-
-          {/* Staff selector */}
-          <div className="col-span-2 sm:col-span-1 flex flex-col gap-1">
-            <label className="text-[11px] text-slate-500 flex items-center gap-1">
-              <UserIcon className="w-3 h-3 text-rose-500" />
-              Staff
-            </label>
-            <select
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400"
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-            >
-              <option value="">Choose staff</option>
-              {(Array.isArray(staffList) ? staffList : []).map((u) => (
-                <option key={u.id || u.userId} value={u.id || u.userId}>
-                  {u.displayName ||
-                    u.fullName ||
-                    u.username ||
-                    u.email ||
-                    u.id}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-2 pt-1">
-          <button
-            onClick={handleCalculate}
-            disabled={loadingSummary}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-500 text-white text-xs sm:text-sm px-4 py-2 font-medium shadow-sm hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loadingSummary ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Calculating…
-              </>
-            ) : (
-              <>
-                <FileText className="w-4 h-4" />
-                Calculate payroll
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={handleDownloadSlip}
-            disabled={loadingSlip}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white text-rose-600 text-xs sm:text-sm px-4 py-2 font-medium shadow-sm border border-rose-100 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loadingSlip ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Generating slip…
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4" />
-                Download salary slip (PDF)
-              </>
-            )}
-          </button>
-        </div>
-
-        {(error || successMsg) && (
-          <div className="pt-1 text-xs">
-            {error && (
-              <div className="text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-1">
-                {error}
-              </div>
-            )}
-            {successMsg && (
-              <div className="text-emerald-600 bg-emerald-50 border-emerald-100 rounded-xl px-3 py-2">
-                {successMsg}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Summary cards */}
-      {showSummary && (
-        <section className="mb-4 sm:mb-6 space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <SummaryCard
-              label="Net Pay"
-              value={`₹ ${summary.netAmount?.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`}
-              accent="from-orange-400 to-rose-500"
-            />
-            <SummaryCard
-              label="Gross"
-              value={`₹ ${summary.grossAmount?.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`}
-            />
-            <SummaryCard
-              label="Total Hours"
-              value={summary.totalHours?.toFixed(2)}
-            />
-            <SummaryCard
-              label="Hourly Rate"
-              value={`₹ ${summary.hourlyRate?.toFixed(2)}`}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <SummaryCard
-              label="Fixed Amount"
-              value={`₹ ${summary.fixedAmount?.toFixed(2)}`}
-              subtle
-            />
-            <SummaryCard
-              label="Allowances"
-              value={`₹ ${summary.allowances?.toFixed(2)}`}
-              subtle
-            />
-            <SummaryCard
-              label="Deductions (Fines + Adv)"
-              value={`₹ ${summary.deductions?.toFixed(2)}`}
-              subtle
-            />
           </div>
         </section>
-      )}
 
-      {/* Staff payroll setup */}
-      <section className="mb-6 rounded-2xl bg-white/80 border border-rose-50 shadow-sm p-3 sm:p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <SettingsIcon className="w-4 h-4 text-rose-500" />
-          <h2 className="text-sm font-semibold text-slate-800">
-            Staff payroll setup
-          </h2>
-        </div>
-        <p className="text-[11px] text-slate-500">
-          Create and maintain payroll setup records for every staff member.
-          These values are used when calculating salary from attendance.
-        </p>
-
-        {!selectedUserId && (
-          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-            Select a staff member in the filters above to view or edit their
-            payroll setup.
-          </div>
-        )}
-
-        {selectedUserId && (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <InputField
-                label="Hourly rate (₹)"
-                value={settings.hourlyRate}
-                onChange={(v) =>
-                  handleSettingsChange("hourlyRate", v.replace(",", ""))
-                }
-                type="number"
-              />
-              <InputField
-                label="Fixed monthly (₹)"
-                value={settings.monthlyFixedAmount}
-                onChange={(v) =>
-                  handleSettingsChange(
-                    "monthlyFixedAmount",
-                    v.replace(",", "")
-                  )
-                }
-                type="number"
-              />
-              <InputField
-                label="Allowances (₹)"
-                value={settings.allowances}
-                onChange={(v) =>
-                  handleSettingsChange("allowances", v.replace(",", ""))
-                }
-                type="number"
-              />
-              <InputField
-                label="Fines (₹)"
-                value={settings.deductions}
-                onChange={(v) =>
-                  handleSettingsChange("deductions", v.replace(",", ""))
-                }
-                type="number"
-              />
-              <div className="flex flex-col justify-end">
-                <label className="text-[11px] text-slate-500 mb-1">
-                  Active
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleSettingsChange("isActive", !settings.isActive)
-                  }
-                  className={`inline-flex items-center justify-center px-3 py-2 rounded-xl text-xs font-medium border transition ${
-                    settings.isActive
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : "bg-slate-50 border-slate-200 text-slate-500"
-                  }`}
-                >
-                  {settings.isActive ? "Active" : "Inactive"}
-                </button>
+        {/* ============ TOOLBAR (period + actions) ============ */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div>
+                <Label>From</Label>
+                <input type="date" value={fromDate}
+                  onChange={(e) => { setFromDate(e.target.value); setActivePreset(""); }}
+                  className="input" />
+              </div>
+              <div>
+                <Label>To</Label>
+                <input type="date" value={toDate}
+                  onChange={(e) => { setToDate(e.target.value); setActivePreset(""); }}
+                  className="input" />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <Label>Quick range</Label>
+                <div className="flex gap-1 mt-1">
+                  {presets.map(p => (
+                    <button key={p.id}
+                      onClick={() => setPreset(p.id)}
+                      className={`flex-1 px-2 py-2 rounded-xl border text-[11px] font-semibold transition truncate ${
+                        activePreset === p.id
+                          ? "bg-indigo-600 text-white border-indigo-600"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <button
-              onClick={handleSaveSettings}
-              disabled={savingSettings}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-500 text-white text-xs sm:text-sm px-4 py-2 font-medium shadow-sm hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {savingSettings ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                <>
-                  <SettingsIcon className="w-4 h-4" />
-                  Save settings
-                </>
+            <div className="flex gap-2 lg:self-end">
+              <button onClick={() => setShowBulk(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white px-3.5 py-2 text-sm font-semibold transition shadow-sm">
+                <Sparkles className="w-4 h-4" /> Bulk run
+              </button>
+              <button onClick={exportHistoryCsv}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 px-3.5 py-2 text-sm font-semibold transition">
+                <FileDown className="w-4 h-4" /> CSV
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* ============ MAIN GRID ============ */}
+        <section className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+          {/* ----- staff picker ----- */}
+          <aside className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[640px]">
+            <div className="px-4 py-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Building2 className="w-4 h-4 text-slate-500" />
+                <h2 className="text-sm font-semibold text-slate-800">Staff</h2>
+                <span className="ml-auto text-[11px] text-slate-500">
+                  {filteredStaff.length} of {staffList.length}
+                </span>
+              </div>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)}
+                  placeholder="Search by name, email..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+                />
+              </div>
+              {staffFilterFellBack && (
+                <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                  Payroll filter was unavailable. Please mark staff as Payroll Enabled in Users.
+                </p>
               )}
-            </button>
-          </>
-        )}
-      </section>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {filteredStaff.length === 0 && (
+                <div className="py-8 text-center text-sm text-slate-400">No matching staff.</div>
+              )}
+              {filteredStaff.map((u) => {
+                const id = u.id || u.userId;
+                const name = u.displayName || u.fullName || u.username || u.email || id;
+                const active = id === selectedUserId;
+                const setupOk = !!allSettings.find(s => s.userId === id && s.isActive !== false);
+                return (
+                  <button key={id} onClick={() => setSelectedUserId(id)}
+                    className={`w-full mb-1 rounded-xl px-3 py-2.5 flex items-center gap-2.5 text-left transition ${
+                      active ? "bg-indigo-50 border border-indigo-200" : "hover:bg-slate-50 border border-transparent"
+                    }`}>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${
+                      active ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white" : "bg-slate-100 text-slate-700"
+                    }`}>
+                      {initials(name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800 truncate">{name}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{u.email || id}</div>
+                    </div>
+                    {setupOk && <BadgeCheck className="w-4 h-4 text-emerald-500 shrink-0" title="Payroll configured" />}
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
 
-      {/* Payroll history */}
-      <section className="mb-8 rounded-2xl bg-white/80 border border-rose-50 shadow-sm p-3 sm:p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <HistoryIcon className="w-4 h-4 text-rose-500" />
-          <h2 className="text-sm font-semibold text-slate-800">
-            Payroll history
-          </h2>
+          {/* ----- right pane ----- */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* tabs */}
+            <div className="flex items-center gap-1 px-2 sm:px-3 py-2 border-b border-slate-100 overflow-x-auto">
+              {[
+                { id: "calculate", label: "Calculate", icon: Calculator },
+                { id: "setup",     label: "Setup",     icon: SettingsIcon },
+                { id: "history",   label: "History",   icon: HistoryIcon },
+              ].map(t => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition ${
+                      active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+                    }`}>
+                    <Icon className="w-4 h-4" /> {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="p-4 sm:p-5">
+              {!selectedUserId && tab !== "history" && (
+                <EmptyHero />
+              )}
+
+              {selectedUserId && tab === "calculate" && (
+                <CalculateTab
+                  staff={selectedStaff}
+                  summary={summary}
+                  preview={preview}
+                  fromDate={fromDate}
+                  toDate={toDate}
+                  loadingSummary={loadingSummary}
+                  loadingSlip={loadingSlip}
+                  onCalculate={handleCalculate}
+                  onDownload={handleDownloadSlip}
+                  onOpenSetup={() => setTab("setup")}
+                  prevMonthRuns={prevMonthRuns}
+                />
+              )}
+
+              {selectedUserId && tab === "setup" && (
+                <SetupTab
+                  staff={selectedStaff}
+                  settings={settings}
+                  setSettings={setSettings}
+                  savingSettings={savingSettings}
+                  onSave={handleSaveSettings}
+                  preview={preview}
+                />
+              )}
+
+              {tab === "history" && (
+                <HistoryTab
+                  history={selectedUserId ? history : allRuns}
+                  loadingHistory={loadingHistory}
+                  downloadingHistoryId={downloadingHistoryId}
+                  deletingRunId={deletingRunId}
+                  currentRunId={currentRunId}
+                  onDownload={handleDownloadHistorySlip}
+                  onDelete={handleDeleteRun}
+                  scope={selectedUserId ? "user" : "global"}
+                />
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Bulk run modal */}
+      {showBulk && (
+        <BulkRunModal
+          onClose={() => setShowBulk(false)}
+          staff={staffList}
+          allSettings={allSettings}
+          fromDate={fromDate}
+          toDate={toDate}
+          calculateFor={calculateFor}
+          persistRun={persistRun}
+          onDone={() => { reloadGlobalRuns(); }}
+          toast={toast}
+        />
+      )}
+
+      <style>{`
+        .input {
+          width: 100%; padding: 9px 12px; border-radius: 12px;
+          border: 1px solid #e2e8f0; font-size: 14px; background: #fff;
+          outline: none; transition: border 120ms;
+        }
+        .input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.18); }
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateX(20px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ============================================================================
+ *  Sub-components
+ * ========================================================================= */
+function Label({ children }) {
+  return <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">{children}</label>;
+}
+
+function HeroKpi({ icon: Icon, label, value, delta }) {
+  return (
+    <div className="rounded-2xl bg-white/15 backdrop-blur border border-white/10 px-3 py-2">
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-indigo-100">
+        <Icon className="w-3 h-3" /> {label}
+      </div>
+      <div className="mt-1 text-lg font-bold tabular-nums leading-tight">{value}</div>
+      {delta != null && (
+        <div className={`text-[10px] mt-0.5 font-semibold ${delta >= 0 ? "text-emerald-200" : "text-rose-200"}`}>
+          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}% vs prev
         </div>
-        <p className="text-[11px] text-slate-500">
-          Each payroll calculation is stored as a record. You can re-download
-          the salary slip or delete records when needed. If history is empty,
-          your backend might not have <code>/payroll/runs</code> enabled
-          yet.
-        </p>
-
-        {!selectedUserId && (
-          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-            Select a staff member to view their payroll history.
-          </div>
-        )}
-
-        {selectedUserId && loadingHistory && (
-          <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 flex items-center gap-2">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Loading history…
-          </div>
-        )}
-
-        {selectedUserId && !loadingHistory && history.length === 0 && (
-          <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
-            No payroll runs found yet for this staff, or the runs API is not
-            enabled. Calculate payroll to create a record (if the backend
-            supports it).
-          </div>
-        )}
-
-        {selectedUserId && !loadingHistory && history.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="bg-rose-50 text-[11px] text-slate-600">
-                  <th className="px-3 py-2 text-left">Period</th>
-                  <th className="px-3 py-2 text-right">Net (₹)</th>
-                  <th className="px-3 py-2 text-right">Gross (₹)</th>
-                  <th className="px-3 py-2 text-right">Deductions (₹)</th>
-                  <th className="px-3 py-2 text-right">Hours</th>
-                  <th className="px-3 py-2 text-center">Slip</th>
-                  <th className="px-3 py-2 text-center">Delete</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((r) => {
-                  const runId = r.id || r.Id;
-                  const fromVal = r.from || r.From;
-                  const toVal = r.to || r.To;
-                  const net = r.netAmount ?? r.NetAmount ?? 0;
-                  const gross = r.grossAmount ?? r.GrossAmount ?? 0;
-                  const ded = r.deductions ?? r.Deductions ?? 0;
-                  const hours = r.totalHours ?? r.TotalHours ?? 0;
-
-                  return (
-                    <tr
-                      key={runId}
-                      className="border-b border-slate-100 last:border-0"
-                    >
-                      <td className="px-3 py-2">
-                        {dayjs(fromVal).format("DD MMM YYYY")} –{" "}
-                        {dayjs(toVal).format("DD MMM YYYY")}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {net.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {gross.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {ded.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {Number(hours).toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={() => handleDownloadSlipForHistory(r)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-100 bg-white px-2 py-1 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                          disabled={downloadingHistoryId === runId}
-                        >
-                          {downloadingHistoryId === runId ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Download className="w-3 h-3" />
-                          )}
-                          Slip
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={() => handleDeleteRun(r)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                          disabled={deletingRunId === runId}
-                        >
-                          {deletingRunId === runId ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3 h-3" />
-                          )}
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* Bottom padding for mobile */}
-      <div className="h-6" />
+      )}
     </div>
   );
 }
 
-/* --- Small reusable components --- */
-
-function SummaryCard({ label, value, accent, subtle }) {
-  const gradient = accent || "from-slate-50 to-rose-50";
-  const borderColor = subtle ? "border-slate-100" : "border-rose-100";
-  const textColor = subtle ? "text-slate-700" : "text-slate-800";
-
+function EmptyHero() {
   return (
-    <div
-      className={`rounded-2xl bg-gradient-to-br ${gradient} border ${borderColor} shadow-sm px-3 py-3 flex flex-col justify-between`}
-    >
-      <span className="text-[11px] text-slate-500">{label}</span>
-      <span className={`mt-1 text-base sm:text-lg font-semibold ${textColor}`}>
-        {value ?? "-"}
-      </span>
+    <div className="py-12 text-center">
+      <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center">
+        <Wallet className="w-6 h-6" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-slate-800">Pick a staff member to begin</h3>
+      <p className="mt-1 text-sm text-slate-500 max-w-sm mx-auto">
+        Select someone from the left, then Calculate, Save, or download a slip. Or run payroll for everyone at once via the <strong>Bulk run</strong> button above.
+      </p>
     </div>
   );
 }
 
-function InputField({ label, value, onChange, type = "text" }) {
+function CalculateTab({
+  staff, summary, preview, fromDate, toDate,
+  loadingSummary, loadingSlip,
+  onCalculate, onDownload, onOpenSetup, prevMonthRuns,
+}) {
+  const setupComplete = preview.rate > 0 || preview.fixed > 0;
+  const prevRun = prevMonthRuns.find(r => (r.userId || r.UserId) === (staff?.id || staff?.userId));
+  const prevNet = safeNum(prevRun?.netAmount ?? prevRun?.NetAmount);
+  const currentNet = summary.netAmount || preview.net;
+  const delta = prevNet > 0 ? Math.round(((currentNet - prevNet) / prevNet) * 100) : null;
+
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[11px] text-slate-500">{label}</label>
-      <input
-        type={type}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400"
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-      />
+    <div className="space-y-4">
+      {/* Staff header */}
+      <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white text-base font-bold flex items-center justify-center">
+          {initials(staff?.displayName || staff?.fullName || staff?.username)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-semibold text-slate-900 truncate">
+            {staff?.displayName || staff?.fullName || staff?.username || staff?.email}
+          </div>
+          <div className="text-[12px] text-slate-500 truncate">
+            {staff?.email} · Period {dayjs(fromDate).format("DD MMM")} – {dayjs(toDate).format("DD MMM YYYY")}
+          </div>
+        </div>
+        {!setupComplete && (
+          <button onClick={onOpenSetup}
+            className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">
+            <AlertCircle className="w-3 h-3" /> Setup needed
+          </button>
+        )}
+      </div>
+
+      {/* Big net card */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="sm:col-span-2 rounded-3xl bg-gradient-to-br from-slate-900 to-indigo-900 text-white p-5">
+          <div className="text-[11px] uppercase tracking-wider text-indigo-200">Net pay</div>
+          <div className="mt-2 text-4xl sm:text-5xl font-bold tabular-nums tracking-tight">
+            {formatINR(summary.netAmount || preview.net)}
+          </div>
+          <div className="mt-3 flex items-center gap-3 text-[12px] text-indigo-100/85 flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <CalendarIcon className="w-3 h-3" />
+              {summary.totalHours || preview.days} days present
+            </span>
+            <span className="text-indigo-300/40">·</span>
+            <span>Daily rate {formatINR(preview.rate)}</span>
+            {delta != null && (
+              <>
+                <span className="text-indigo-300/40">·</span>
+                <span className={`inline-flex items-center gap-1 ${delta >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                  {delta >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  {Math.abs(delta)}% vs prev month
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 p-5 flex flex-col gap-3 bg-white">
+          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Gross / Deductions</div>
+          <div className="flex items-center gap-2 justify-between">
+            <span className="text-sm text-slate-700">Gross</span>
+            <span className="text-base font-bold text-slate-900 tabular-nums">{formatINR(summary.grossAmount || preview.gross)}</span>
+          </div>
+          <div className="flex items-center gap-2 justify-between">
+            <span className="text-sm text-slate-700">Deductions</span>
+            <span className="text-base font-bold text-rose-600 tabular-nums">− {formatINR(summary.deductions || preview.totalDed)}</span>
+          </div>
+          <div className="border-t border-slate-100 pt-3 flex items-center gap-2 justify-between">
+            <span className="text-sm text-slate-700 font-medium">Net</span>
+            <span className="text-base font-bold text-emerald-700 tabular-nums">{formatINR(summary.netAmount || preview.net)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Breakdown */}
+      <div className="rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+          <Calculator className="w-4 h-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-800">Breakdown</h3>
+        </div>
+        <div className="divide-y divide-slate-100">
+          <BreakdownRow icon={PlusCircle} accent="emerald" label="Fixed monthly"  value={formatINR(summary.fixedAmount || preview.fixed)} />
+          <BreakdownRow icon={PlusCircle} accent="emerald"
+            label="Daily compensation"
+            sub={`${summary.totalHours || preview.days} days × ${formatINR(preview.rate)}`}
+            value={formatINR(summary.hourlyAmount || preview.hourlyAmount)} />
+          <BreakdownRow icon={PlusCircle} accent="emerald" label="Allowances"     value={formatINR(summary.allowances || preview.allow)} />
+          <BreakdownRow icon={ArrowRight} accent="slate" label="Gross"            value={formatINR(summary.grossAmount || preview.gross)} bold />
+          <BreakdownRow icon={MinusCircle} accent="rose" label="Fines"           value={formatINR(summary.fines || preview.deduct)} />
+          <BreakdownRow icon={MinusCircle} accent="rose" label="Payroll advances" value={formatINR(summary.payrollAdvance || preview.advances)} />
+          <BreakdownRow icon={ChevronRight} accent="indigo" label="Net pay"      value={formatINR(summary.netAmount || preview.net)} bold highlight />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <button onClick={onCalculate} disabled={loadingSummary}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-3 text-sm font-semibold shadow-sm">
+          {loadingSummary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
+          {loadingSummary ? "Calculating..." : "Calculate & save"}
+        </button>
+        <button onClick={onDownload} disabled={loadingSlip}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-3 text-sm font-semibold">
+          {loadingSlip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          Download slip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BreakdownRow({ icon: Icon, accent, label, sub, value, bold, highlight }) {
+  const tints = {
+    emerald: "text-emerald-500",
+    rose:    "text-rose-500",
+    indigo:  "text-indigo-500",
+    slate:   "text-slate-500",
+  };
+  return (
+    <div className={`px-4 py-2.5 flex items-center gap-3 ${highlight ? "bg-indigo-50/50" : ""}`}>
+      <Icon className={`w-4 h-4 ${tints[accent] || tints.slate} shrink-0`} />
+      <div className="flex-1 min-w-0">
+        <div className={`text-[13px] ${bold ? "font-bold text-slate-900" : "text-slate-700"}`}>{label}</div>
+        {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+      </div>
+      <div className={`text-sm tabular-nums ${bold ? "font-bold" : "font-medium"} ${highlight ? "text-indigo-900" : "text-slate-900"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SetupTab({ staff, settings, setSettings, savingSettings, onSave, preview }) {
+  const update = (k, v) => setSettings((s) => ({ ...s, [k]: v }));
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white text-sm font-bold flex items-center justify-center">
+          <SettingsIcon className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold text-slate-900">Payroll setup</h3>
+          <p className="text-[12px] text-slate-500">
+            Configure the base components used to calculate {staff?.displayName || staff?.fullName || "this staff"}'s salary.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Monthly fixed amount</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{RUPEE}</span>
+            <input type="number" min="0" step="100"
+              value={settings.monthlyFixedAmount}
+              onChange={(e) => update("monthlyFixedAmount", e.target.value)}
+              className="input pl-8 tabular-nums" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Paid every month regardless of days worked.</p>
+        </div>
+
+        <div>
+          <Label>Daily rate</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{RUPEE}</span>
+            <input type="number" min="0" step="10"
+              value={settings.hourlyRate}
+              onChange={(e) => update("hourlyRate", e.target.value)}
+              className="input pl-8 tabular-nums" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Multiplied by the count of present days.</p>
+        </div>
+
+        <div>
+          <Label>Allowances</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{RUPEE}</span>
+            <input type="number" min="0" step="100"
+              value={settings.allowances}
+              onChange={(e) => update("allowances", e.target.value)}
+              className="input pl-8 tabular-nums" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">HRA, transport, etc. — added to gross.</p>
+        </div>
+
+        <div>
+          <Label>Standard fines / standing deductions</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{RUPEE}</span>
+            <input type="number" min="0" step="50"
+              value={settings.deductions}
+              onChange={(e) => update("deductions", e.target.value)}
+              className="input pl-8 tabular-nums" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Payroll advances from Costs are added automatically.</p>
+        </div>
+
+        <div className="sm:col-span-2 flex items-center gap-2 px-1">
+          <input id="isActive" type="checkbox"
+            checked={!!settings.isActive}
+            onChange={(e) => update("isActive", e.target.checked)}
+            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-400" />
+          <label htmlFor="isActive" className="text-sm text-slate-700">
+            Active — include in bulk run and use these values when calculating
+          </label>
+        </div>
+      </div>
+
+      {/* Live preview */}
+      <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Eye className="w-4 h-4 text-indigo-500" />
+          <h4 className="text-sm font-semibold text-slate-800">Live preview</h4>
+          <span className="ml-auto text-[11px] text-slate-500">Based on currently saved attendance</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+          <PreviewBox label="Gross"      value={formatINR(preview.gross)} accent="emerald" />
+          <PreviewBox label="Deductions" value={formatINR(preview.totalDed)} accent="rose" />
+          <PreviewBox label="Days"       value={preview.days} accent="slate" />
+          <PreviewBox label="Net"        value={formatINR(preview.net)} accent="indigo" big />
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={onSave} disabled={savingSettings}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-4 py-2.5 text-sm font-semibold shadow-sm">
+          {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save setup
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PreviewBox({ label, value, accent, big }) {
+  const tint = {
+    emerald: "bg-emerald-50 border-emerald-100 text-emerald-700",
+    rose:    "bg-rose-50 border-rose-100 text-rose-700",
+    slate:   "bg-slate-100 border-slate-200 text-slate-700",
+    indigo:  "bg-indigo-50 border-indigo-100 text-indigo-700",
+  }[accent] || "bg-slate-50 border-slate-100 text-slate-700";
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 ${tint}`}>
+      <div className="text-[10px] uppercase tracking-wider font-semibold">{label}</div>
+      <div className={`mt-1 tabular-nums font-bold ${big ? "text-lg" : "text-sm"}`}>{value}</div>
+    </div>
+  );
+}
+
+function HistoryTab({ history, loadingHistory, downloadingHistoryId, deletingRunId, currentRunId, onDownload, onDelete, scope }) {
+  const rows = (history || []).slice().sort((a, b) => {
+    return dayjs(b.from || b.From).unix() - dayjs(a.from || a.From).unix();
+  });
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <HistoryIcon className="w-4 h-4 text-slate-500" />
+        <h3 className="text-base font-semibold text-slate-900">Payroll history</h3>
+        <span className="ml-auto text-[11px] text-slate-500">
+          {scope === "global" ? "All staff" : "This staff"} · {rows.length} run{rows.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {loadingHistory && (
+        <div className="py-10 text-center text-sm text-slate-400">
+          <Loader2 className="w-4 h-4 animate-spin inline mr-1.5" /> Loading…
+        </div>
+      )}
+      {!loadingHistory && rows.length === 0 && (
+        <div className="bg-white border border-dashed border-slate-200 rounded-2xl py-10 text-center">
+          <ClipboardList className="w-6 h-6 mx-auto text-slate-400" />
+          <p className="mt-2 text-sm font-medium text-slate-700">No runs yet</p>
+          <p className="text-xs text-slate-500">Saved payroll runs will appear here.</p>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr className="text-left">
+                <Th>Period</Th>
+                {scope === "global" && <Th>Staff</Th>}
+                <Th num>Days</Th>
+                <Th num>Daily</Th>
+                <Th num>Gross</Th>
+                <Th num>Ded.</Th>
+                <Th num>Net</Th>
+                <Th center>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const id = r.id || r.Id;
+                const isCurrent = id === currentRunId;
+                return (
+                  <tr key={id} className={`border-t border-slate-100 ${isCurrent ? "bg-indigo-50/40" : "hover:bg-slate-50/50"}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="text-sm font-medium text-slate-800">
+                        {dayjs(r.from || r.From).format("MMM YYYY")}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {dayjs(r.from || r.From).format("DD MMM")} – {dayjs(r.to || r.To).format("DD MMM")}
+                      </div>
+                    </td>
+                    {scope === "global" && (
+                      <td className="px-4 py-2.5">
+                        <div className="text-sm text-slate-800 truncate max-w-[180px]">
+                          {r.displayName || r.DisplayName || r.userId || r.UserId}
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{r.totalHours ?? r.TotalHours ?? 0}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatINR(r.hourlyRate ?? r.HourlyRate ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-slate-900 font-medium">{formatINR(r.grossAmount ?? r.GrossAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-rose-600">− {formatINR(r.deductions ?? r.Deductions ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-emerald-700 font-bold">{formatINR(r.netAmount ?? r.NetAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <div className="inline-flex gap-1">
+                        <button onClick={() => onDownload(r)} disabled={downloadingHistoryId === id}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-50" title="Download slip">
+                          {downloadingHistoryId === id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
+                        <button onClick={() => onDelete(r)} disabled={deletingRunId === id}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-rose-500 hover:bg-rose-50 disabled:opacity-50" title="Delete">
+                          {deletingRunId === id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Th({ children, num, center }) {
+  return (
+    <th className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wider ${num ? "text-right" : center ? "text-center" : "text-left"}`}>
+      {children}
+    </th>
+  );
+}
+
+/* ============================================================================
+ *  Bulk run modal
+ * ========================================================================= */
+function BulkRunModal({ onClose, staff, allSettings, fromDate, toDate, calculateFor, persistRun, onDone, toast }) {
+  const [selected, setSelected] = useState(() => {
+    const set = new Set();
+    for (const u of staff) {
+      const id = u.id || u.userId;
+      const s = allSettings.find((x) => x.userId === id);
+      if (s && s.isActive !== false) set.add(id);
+    }
+    return set;
+  });
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [results, setResults] = useState([]);
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allSel = staff.length > 0 && selected.size === staff.length;
+  const toggleAll = () => {
+    if (allSel) setSelected(new Set());
+    else setSelected(new Set(staff.map((u) => u.id || u.userId)));
+  };
+
+  const run = async () => {
+    if (selected.size === 0) { toast.error("Select at least one staff."); return; }
+    setRunning(true);
+    setResults([]);
+    let i = 0;
+    const out = [];
+    for (const id of selected) {
+      i++;
+      const u = staff.find((s) => (s.id || s.userId) === id);
+      const name = u?.displayName || u?.fullName || u?.username || id;
+      try {
+        const settings = allSettings.find((s) => s.userId === id);
+        const res = await calculateFor(id, settings);
+        await persistRun(res);
+        out.push({ id, name, ok: true, net: res.netAmount });
+      } catch (err) {
+        out.push({ id, name, ok: false, error: errMsg(err) });
+      }
+      setProgress(Math.round((i / selected.size) * 100));
+      setResults([...out]);
+    }
+    setRunning(false);
+    const ok = out.filter((r) => r.ok).length;
+    const fail = out.length - ok;
+    if (ok) toast.success(`Bulk run complete — ${ok} processed${fail ? `, ${fail} failed` : ""}.`);
+    else if (fail) toast.error(`All ${fail} runs failed.`);
+    onDone();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[190] bg-slate-900/45 backdrop-blur-sm flex items-end sm:items-center justify-center p-3" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-violet-500" />
+          <h3 className="text-base font-semibold text-slate-900">Bulk payroll run</h3>
+          <button onClick={onClose} className="ml-auto w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100 flex items-center justify-center">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+          <div className="text-sm text-slate-700">
+            Period: <strong>{dayjs(fromDate).format("DD MMM")} – {dayjs(toDate).format("DD MMM YYYY")}</strong>
+          </div>
+          <div className="text-[12px] text-slate-500 mt-0.5">
+            Each selected staff member will have their attendance + setup pulled and a snapshot saved.
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-700">{selected.size} of {staff.length} selected</span>
+            <button onClick={toggleAll}
+              className="text-xs rounded-lg border border-slate-200 px-2.5 py-1 text-slate-700 hover:bg-slate-50">
+              {allSel ? "Clear all" : "Select all"}
+            </button>
+          </div>
+          <div className="space-y-1">
+            {staff.map((u) => {
+              const id = u.id || u.userId;
+              const name = u.displayName || u.fullName || u.username || u.email || id;
+              const sSetup = allSettings.find((x) => x.userId === id);
+              const result = results.find((r) => r.id === id);
+              return (
+                <div key={id} className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-slate-50">
+                  <input type="checkbox" checked={selected.has(id)} onChange={() => toggle(id)}
+                    disabled={running}
+                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-400" />
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                    {initials(name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-800 truncate">{name}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {sSetup
+                        ? `Fixed ${formatINR(sSetup.monthlyFixedAmount)} · ${formatINR(sSetup.hourlyRate)}/day`
+                        : "No payroll setup"}
+                    </div>
+                  </div>
+                  {result && (
+                    result.ok
+                      ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> {formatINR(result.net)}
+                        </span>
+                      : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700" title={result.error}>
+                          <AlertCircle className="w-3.5 h-3.5" /> Failed
+                        </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {running && (
+          <div className="px-5 py-2 bg-violet-50">
+            <div className="flex items-center justify-between text-[12px] font-semibold text-violet-800 mb-1">
+              <span>Running…</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-violet-200 overflow-hidden">
+              <div className="h-full bg-violet-600 transition-all" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} disabled={running}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+            Close
+          </button>
+          <button onClick={run} disabled={running || selected.size === 0}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold shadow-sm">
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            Run for {selected.size || "?"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

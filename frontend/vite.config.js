@@ -1,16 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
-  base: "/",
+export default defineConfig(({ mode }) => ({
+  base: mode === "mobile" ? "./" : "/",
   plugins: [react()],
   server: {
     proxy: {
       "/api": {
-        target: "http://187.127.132.149:5001",   // ✅ FIXED
+        target: "https://mahimaministries.in",
         changeOrigin: true,
         secure: false,
       },
     },
   },
-});
+}));

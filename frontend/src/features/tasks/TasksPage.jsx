@@ -1,229 +1,499 @@
 ﻿// src/features/tasks/TasksPage.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  FiEdit2,
-  FiTrash2,
-  FiSend,
-  FiLink,
-  FiChevronLeft,
-  FiChevronRight,
-  FiPlus,
-  FiRefreshCw,
-  FiDownload,
-} from "react-icons/fi";
+  AlertCircle,
+  Bell,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  Copy,
+  Download,
+  Filter,
+  Flag,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Send,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { apiFetch } from "../../utils/fetch-auth-shim";
 
-/* --- helpers --- */
-function normalizeResponse(res) {
-  const isArray = Array.isArray(res);
-  const items = isArray ? res : (res && (res.items || res.data || [])) || [];
-  const meta = {
-    total: !isArray ? (res?.total ?? items.length) : items.length,
-    page: !isArray ? (res?.page ?? 1) : 1,
-    limit: !isArray ? (res?.limit ?? items.length) : items.length,
-  };
-  return { items, meta };
-}
-// Allow env override but fall back to your working API
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
-///  import.meta.env.VITE_API_BASE || "https://www.mahimaministries.com/api";
-console.log("🔥 API_BASE VALUE:", API_BASE);
+const DEFAULT_LIMIT = 200;
+
+const STATUS_OPTIONS = [
+  { code: 0, key: "pending", label: "Pending", bg: "#eef2f7", fg: "#344054" },
+  { code: 1, key: "in-progress", label: "In Progress", bg: "#fff5d7", fg: "#8a5c00" },
+  { code: 2, key: "completed", label: "Completed", bg: "#e7f7ed", fg: "#146c43" },
+  { code: 3, key: "on-hold", label: "On Hold", bg: "#fff0f0", fg: "#a83232" },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: 1, label: "Low" },
+  { value: 2, label: "Normal" },
+  { value: 3, label: "High" },
+  { value: 4, label: "Critical" },
+  { value: 5, label: "Urgent" },
+];
+
+const defaultFilters = {
+  status: "all",
+  assignee: "",
+  priority: "all",
+  due: "all",
+  broadcast: "all",
+  sortBy: "smart",
+};
 
 function defaultForm() {
   return {
     id: null,
     title: "",
     description: "",
-    // multi-assignees:
-    assignedToIds: [], // array of GUID strings
-    assignedToDisplay: "", // computed for UI convenience
+    assignedToIds: [],
     dueDate: "",
     status: "Pending",
     priority: 2,
-    broadcast: false, // ★ BROADCAST: default
+    broadcast: false,
   };
 }
-// status map
-const statusMap = {
-  Pending: 0,
-  "In Progress": 1,
-  "In-Progress": 1,
-  InProgress: 1,
-  Done: 2,
-  Completed: 2,
-  "On Hold": 3,
-  "On-Hold": 3,
-};
-// numeric → label mapping for display
-const statusLabels = Object.entries(statusMap).reduce((acc, [k, v]) => {
-  if (!acc[v]) acc[v] = k;
-  return acc;
-}, {});
 
-// label/string/number → numeric code
-function normalizeStatusValue(raw) {
-  if (raw == null) return 0;
-  const asNum = Number(raw);
-  if (!Number.isNaN(asNum)) return asNum;
-  const normalized = String(raw).trim();
-  if (statusMap.hasOwnProperty(normalized)) return statusMap[normalized];
-  // case-insensitive fallback
-  const match = Object.keys(statusMap).find(
-    (k) =>
-      k.toLowerCase().replace(/[-_]/g, " ") ===
-      normalized.toLowerCase().replace(/[-_]/g, " ")
+
+function isUnauthorizedError(err) {
+  const text = String(err?.message || err || "");
+  return err?.status === 401 || /401|unauthorized/i.test(text);
+}
+
+function friendlyError(err, fallback) {
+  if (isUnauthorizedError(err)) {
+    return "Your session has expired. Please log out and sign in again.";
+  }
+
+  return err?.message || fallback;
+}
+
+function normalizeResponse(res) {
+  const data = res?.data ?? res;
+  const items = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.Items ?? data?.data ?? data?.Data ?? [];
+
+  const list = Array.isArray(items) ? items : [];
+
+  return {
+    items: list,
+    meta: {
+      total: Array.isArray(data) ? list.length : data?.total ?? data?.Total ?? list.length,
+      page: Array.isArray(data) ? 1 : data?.page ?? data?.Page ?? 1,
+      limit: Array.isArray(data) ? list.length : data?.limit ?? data?.Limit ?? list.length,
+    },
+  };
+}
+
+function userIdOf(user) {
+  return user?.id ?? user?.Id ?? user?.userId ?? user?.UserId ?? "";
+}
+
+function userNameOf(user) {
+  return (
+    user?.displayName ??
+    user?.DisplayName ??
+    user?.name ??
+    user?.Name ??
+    user?.fullName ??
+    user?.FullName ??
+    user?.username ??
+    user?.userName ??
+    user?.UserName ??
+    user?.email ??
+    user?.Email ??
+    "Unknown user"
   );
-  return match ? statusMap[match] : 0;
 }
 
-// numeric → label for UI
-function statusCodeToLabel(code) {
-  return statusLabels[Number(code)] || "Pending";
+function emailOf(user) {
+  return user?.email ?? user?.Email ?? "";
 }
 
-/* --- MultiSelect (mobile-first dropdown) --- */
+function initialsOf(name) {
+  return String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function normalizeText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function normalizeStatusValue(raw) {
+  if (raw == null || raw === "") return 0;
+
+  const asNumber = Number(raw);
+  if (!Number.isNaN(asNumber)) return asNumber;
+
+  const text = normalizeText(raw).replace(/[-_]/g, " ");
+
+  if (text === "done" || text === "complete" || text === "completed") return 2;
+  if (text === "in progress" || text === "inprogress") return 1;
+  if (text === "on hold" || text === "hold") return 3;
+
+  return 0;
+}
+
+function statusOptionOf(value) {
+  const code = normalizeStatusValue(value);
+  return STATUS_OPTIONS.find((status) => status.code === code) ?? STATUS_OPTIONS[0];
+}
+
+function priorityLabel(priority) {
+  const value = Number(priority) || 2;
+  return PRIORITY_OPTIONS.find((item) => item.value === value)?.label ?? `P${value}`;
+}
+
+function toDateInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isCompleted(task) {
+  return normalizeStatusValue(task.statusCode ?? task.status ?? task.Status) === 2;
+}
+
+function isOverdue(task) {
+  const raw = task.dueDate ?? task.DueDate;
+  if (!raw || isCompleted(task)) return false;
+
+  const due = new Date(raw);
+  if (Number.isNaN(due.getTime())) return false;
+
+  due.setHours(0, 0, 0, 0);
+  return due < startOfToday();
+}
+
+function isDueToday(task) {
+  const raw = task.dueDate ?? task.DueDate;
+  if (!raw) return false;
+
+  const due = new Date(raw);
+  if (Number.isNaN(due.getTime())) return false;
+
+  due.setHours(0, 0, 0, 0);
+  return due.getTime() === startOfToday().getTime();
+}
+
+function isDueThisWeek(task) {
+  const raw = task.dueDate ?? task.DueDate;
+  if (!raw) return false;
+
+  const due = new Date(raw);
+  if (Number.isNaN(due.getTime())) return false;
+
+  due.setHours(0, 0, 0, 0);
+
+  const today = startOfToday();
+  return due >= today && due <= addDays(today, 7);
+}
+
+function dueTime(task) {
+  const raw = task.dueDate ?? task.DueDate;
+  if (!raw) return Number.POSITIVE_INFINITY;
+
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? Number.POSITIVE_INFINITY : date.getTime();
+}
+
+function dueLabel(task) {
+  const raw = task.dueDate ?? task.DueDate;
+  if (!raw) return "No due date";
+
+  const due = new Date(raw);
+  if (Number.isNaN(due.getTime())) return "Invalid date";
+
+  due.setHours(0, 0, 0, 0);
+
+  const today = startOfToday();
+  const diffDays = Math.round((due - today) / 86400000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays < 0) return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? "" : "s"} overdue`;
+
+  return due.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function normalizeTask(task) {
+  const assignedToIds =
+    task.AssigneeIds ??
+    task.assigneeIds ??
+    task.AssignedToIds ??
+    task.assignedToIds ??
+    (task.AssigneeId ? [String(task.AssigneeId)] : []);
+
+  const rawStatus = task.Status ?? task.status ?? (task.Completed ? "Completed" : "Pending");
+  const status = statusOptionOf(rawStatus);
+
+  return {
+    ...task,
+    id: task.Id ?? task.id ?? null,
+    title: task.Title ?? task.title ?? "",
+    description: task.Description ?? task.description ?? "",
+    assignedToIds: Array.isArray(assignedToIds) ? assignedToIds.map(String) : [],
+    assignedTo:
+      Array.isArray(task.AssignedToNames)
+        ? task.AssignedToNames.join(", ")
+        : task.AssignedToNames ?? task.AssignedToName ?? task.assignedTo ?? "",
+    dueDate: task.DueDate ?? task.dueDate ?? "",
+    priority: Number(task.Priority ?? task.priority ?? 2),
+    broadcast: Boolean(task.Broadcast ?? task.broadcast),
+    statusCode: status.code,
+    status: status.label,
+  };
+}
+
+function splitSearchTokens(query) {
+  const tokens = [];
+
+  String(query || "").replace(/"([^"]+)"|(\S+)/g, (_, quoted, bare) => {
+    tokens.push(quoted || bare);
+    return "";
+  });
+
+  return tokens.filter(Boolean);
+}
+
+function getStoredAdminFlag() {
+  const keys = ["mahima_user", "authUser", "currentUser", "user"];
+
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+
+      const user = JSON.parse(raw);
+      const roles = [
+        user?.role,
+        user?.Role,
+        ...(Array.isArray(user?.roles) ? user.roles : []),
+        ...(Array.isArray(user?.Roles) ? user.Roles : []),
+      ]
+        .filter(Boolean)
+        .map((role) => String(role).toLowerCase());
+
+      if (roles.some((role) => ["admin", "administrator", "superadmin"].includes(role))) {
+        return true;
+      }
+    } catch {
+      // Ignore malformed storage.
+    }
+  }
+
+  return false;
+}
+
+function IconButton({
+  icon: Icon,
+  label,
+  onClick,
+  type = "button",
+  disabled = false,
+  loading = false,
+  variant = "neutral",
+}) {
+  return (
+    <button
+      type={type}
+      className={`task-icon-btn task-icon-btn-${variant}`}
+      onClick={onClick}
+      disabled={disabled || loading}
+      title={label}
+      aria-label={label}
+    >
+      {loading ? <Loader2 className="task-spin" size={18} /> : <Icon size={18} />}
+      <span className="task-tooltip">{label}</span>
+    </button>
+  );
+}
+
+function ActionButton({
+  icon: Icon,
+  children,
+  onClick,
+  type = "button",
+  disabled = false,
+  loading = false,
+  variant = "primary",
+}) {
+  return (
+    <button
+      type={type}
+      className={`task-action-btn task-action-btn-${variant}`}
+      onClick={onClick}
+      disabled={disabled || loading}
+    >
+      {loading ? <Loader2 className="task-spin" size={18} /> : <Icon size={18} />}
+      <span>{children}</span>
+    </button>
+  );
+}
+
 function MultiUserSelect({ allUsers = [], value = [], onChange }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const ref = useRef();
 
-  useEffect(() => {
-    function onDoc(e) {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("click", onDoc);
-    return () => document.removeEventListener("click", onDoc);
-  }, []);
+  const selectedSet = useMemo(() => new Set((value || []).map(String)), [value]);
 
-  const selectedMap = new Set((value || []).map(String));
-  const filtered = (allUsers || []).filter(
-    (u) =>
-      (u.displayName || "")
-        .toString()
-        .toLowerCase()
-        .includes(filter.trim().toLowerCase()) ||
-      (u.email || "").toString().toLowerCase().includes(filter.trim().toLowerCase())
+  const selectedUsers = useMemo(
+    () =>
+      (value || []).map((id) => {
+        const user = allUsers.find((item) => String(userIdOf(item)) === String(id));
+        return user ?? { id, displayName: "Unknown user" };
+      }),
+    [allUsers, value]
   );
 
-  function toggleUser(id) {
-    const s = new Set(selectedMap);
-    if (s.has(String(id))) s.delete(String(id));
-    else s.add(String(id));
-    onChange(Array.from(s));
-  }
-  function removeChip(id) {
-    const s = new Set(selectedMap);
-    s.delete(String(id));
-    onChange(Array.from(s));
-  }
+  const filteredUsers = useMemo(() => {
+    const query = normalizeText(filter);
+
+    return allUsers
+      .filter((user) => {
+        if (!query) return true;
+        return normalizeText(`${userNameOf(user)} ${emailOf(user)}`).includes(query);
+      })
+      .slice(0, 120);
+  }, [allUsers, filter]);
+
+  const toggleUser = (id) => {
+    const next = new Set(selectedSet);
+
+    if (next.has(String(id))) next.delete(String(id));
+    else next.add(String(id));
+
+    onChange(Array.from(next));
+  };
+
+  const removeUser = (id) => {
+    const next = new Set(selectedSet);
+    next.delete(String(id));
+    onChange(Array.from(next));
+  };
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div className="assignee-picker">
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}
-        className="input like-chipbox"
+        className="assignee-trigger"
+        onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") setOpen((prev) => !prev);
+        }}
       >
-        {(value || []).length === 0 ? (
-          <div className="muted">— none — (tap to pick)</div>
-        ) : (
-          (value || []).map((id) => {
-            const u = allUsers.find((x) => String(x.id) === String(id));
-            const label = u ? u.displayName ?? u.name ?? u.email : id;
-            const initials = label
-              .split(" ")
-              .map((s) => s[0] || "")
-              .join("")
-              .slice(0, 2)
-              .toUpperCase();
-            return (
-              <div key={id} className="chip">
-                <div className="chip-avatar">{initials}</div>
-                <div className="chip-label" title={label}>
-                  {label}
-                </div>
-                <button
-                  type="button"
-                  className="chip-x"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeChip(id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })
-        )}
-        <div className="ml-auto small muted">
-          {(value || []).length} selected ▾
+        <div className="assignee-chip-row">
+          {selectedUsers.length === 0 ? (
+            <span className="muted-text">Choose assignees</span>
+          ) : (
+            selectedUsers.map((user) => {
+              const id = userIdOf(user) || user.id;
+              const name = userNameOf(user);
+
+              return (
+                <span className="assignee-chip" key={id}>
+                  <span className="mini-avatar">{initialsOf(name)}</span>
+                  <span>{name}</span>
+                  <button
+                    type="button"
+                    className="chip-remove"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeUser(id);
+                    }}
+                    aria-label={`Remove ${name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              );
+            })
+          )}
         </div>
+
+        <span className="assignee-count">{selectedUsers.length}</span>
       </div>
 
       {open && (
-        <div className="select-pop">
-          <div className="select-filter">
+        <div className="assignee-panel">
+          <div className="task-search-wrap">
+            <Search size={18} />
             <input
-              placeholder="Filter users…"
+              className="task-input task-search-input"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="input"
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Search people..."
             />
           </div>
-          <div className="select-list">
-            {filtered.length === 0 ? (
-              <div className="muted pad">No users match</div>
+
+          <div className="assignee-list">
+            {filteredUsers.length === 0 ? (
+              <div className="task-empty">No users found.</div>
             ) : (
-              filtered.map((u) => {
-                const id =
-                  u.id ?? u.Id ?? u.userId ?? u.UserId ?? u.userid ?? u.UID ?? u.Id;
-                const checked = selectedMap.has(String(id));
-                const initials = (u.displayName || u.name || u.email || "")
-                  .split(" ")
-                  .map((s) => s[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase();
+              filteredUsers.map((user) => {
+                const id = userIdOf(user);
+                const name = userNameOf(user);
+                const checked = selectedSet.has(String(id));
+
                 return (
-                  <label key={id} className="select-row">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleUser(id)}
-                    />
-                    <div className="chip-avatar sm">{initials}</div>
-                    <div className="col">
-                      <div className="strong">
-                        {u.displayName ?? u.name ?? u.email}
-                      </div>
-                      <div className="tiny muted">{u.email ?? ""}</div>
-                    </div>
+                  <label className="assignee-row" key={id}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleUser(id)} />
+                    <span className="mini-avatar">{initialsOf(name)}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="assignee-name">{name}</span>
+                      {emailOf(user) && <span className="assignee-email">{emailOf(user)}</span>}
+                    </span>
                   </label>
                 );
               })
             )}
           </div>
-          <div className="select-actions">
-            <button
-              type="button"
-              className="btn btn-muted"
-              onClick={() => {
-                onChange([]);
-                setFilter("");
-              }}
-            >
+
+          <div className="assignee-actions">
+            <ActionButton icon={X} onClick={() => onChange([])} variant="secondary">
               Clear
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setOpen(false)}
-            >
+            </ActionButton>
+            <ActionButton icon={Check} onClick={() => setOpen(false)}>
               Done
-            </button>
+            </ActionButton>
           </div>
         </div>
       )}
@@ -231,1183 +501,1651 @@ function MultiUserSelect({ allUsers = [], value = [], onChange }) {
   );
 }
 
-/* --- Calendar helper component --- */
-function CalendarView({ tasks = [], onTaskClick = () => {}, initialMonth = new Date() }) {
-  const [month, setMonth] = useState(() => {
-    const d = new Date(initialMonth);
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
-  const [selectedDate, setSelectedDate] = useState(null);
-
-  function monthMatrix(d) {
-    const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-    const startDay = firstOfMonth.getDay(); // 0 = Sun
-    const startDate = new Date(firstOfMonth);
-    startDate.setDate(firstOfMonth.getDate() - startDay);
-    const weeks = [];
-    let cur = new Date(startDate);
-    for (let week = 0; week < 6; week++) {
-      const row = [];
-      for (let day = 0; day < 7; day++) {
-        row.push(new Date(cur));
-        cur.setDate(cur.getDate() + 1);
-      }
-      weeks.push(row);
-    }
-    return weeks;
-  }
-  function toKey(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  const tasksByDate = useMemo(() => {
-    const map = new Map();
-    (tasks || []).forEach((t) => {
-      const raw = t.dueDate || t.DueDate;
-      if (!raw) return;
-      const dt = new Date(raw);
-      if (!dt || isNaN(dt.getTime())) return;
-      const k = toKey(dt);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(t);
-    });
-    return map;
-  }, [tasks]);
-
-  const weeks = monthMatrix(month);
-  const todayKey = toKey(new Date());
-  const prev = () =>
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
-  const next = () =>
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
-  const goToday = () => {
-    const d = new Date();
-    d.setDate(1);
-    setMonth(d);
-    setSelectedDate(null);
-  };
-
-  const selectedKey = selectedDate ? toKey(selectedDate) : null;
-  const selectedTasks = selectedKey ? tasksByDate.get(selectedKey) || [] : [];
-
-  return (
-    <div className="calendar-layout">
-      <div className="card pad">
-        <div className="row between center mb-sm">
-          <div className="row gap-sm">
-            <button onClick={prev} className="btn btn-muted icon">
-              <FiChevronLeft />
-            </button>
-            <button onClick={next} className="btn btn-muted icon">
-              <FiChevronRight />
-            </button>
-            <button onClick={goToday} className="btn btn-muted">
-              Today
-            </button>
-          </div>
-          <div className="strong lg">
-            {month.toLocaleString(undefined, { month: "long", year: "numeric" })}
-          </div>
-          <div style={{ width: 120 }} />
-        </div>
-
-        <div className="grid-7 gap-xs muted bold mb-xs">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((h) => (
-            <div key={h} className="center tiny">
-              {h}
-            </div>
-          ))}
-        </div>
-
-        <div className="grid-7 gap-xs">
-          {weeks.flat().map((date) => {
-            const k = toKey(date);
-            const items = tasksByDate.get(k) || [];
-            const inMonth = date.getMonth() === month.getMonth();
-            const isToday = k === todayKey;
-            return (
-              <div
-                key={k}
-                onClick={() => {
-                  setSelectedDate(new Date(date));
-                }}
-                className={`day ${!inMonth ? "muted-out" : ""} ${
-                  selectedKey === k ? "sel" : ""
-                }`}
-                title={`${date.toDateString()} — ${items.length} task(s)`}
-              >
-                <div className="row between center mb-xxs">
-                  <div className={`tiny bold daynum ${isToday ? "today" : ""}`}>
-                    {date.getDate()}
-                  </div>
-                  <div className="tiny muted">
-                    {items.length > 0 ? `${items.length}` : ""}
-                  </div>
-                </div>
-                <div className="col gap-xxs">
-                  {items.slice(0, 3).map((t) => (
-                    <div
-                      key={(t.id ?? t.Id) + "-" + k}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTaskClick(t);
-                      }}
-                      className="pill task-pill"
-                      title={t.title}
-                    >
-                      {t.title}
-                    </div>
-                  ))}
-                  {items.length > 3 && (
-                    <div className="tiny muted">+{items.length - 3} more</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* side panel: tasks for selected day */}
-      <div className="card pad">
-        <div className="row between center mb-xxs">
-          <div className="strong">
-            {selectedDate ? selectedDate.toDateString() : "Select a date"}
-          </div>
-          <div className="tiny muted">
-            {selectedKey
-              ? (tasksByDate.get(selectedKey)?.length || 0) + " tasks"
-              : ""}
-          </div>
-        </div>
-
-        <div className="scroll-y" style={{ maxHeight: 420 }}>
-          {selectedTasks.length === 0 ? (
-            <div className="muted pad">No tasks for this day.</div>
-          ) : (
-            selectedTasks.map((t) => (
-              <div key={t.id ?? t.Id} className="panel">
-                <div className="row between gap-sm">
-                  <div className="strong">{t.title}</div>
-                  <div className="tiny muted">
-                    Priority {t.priority ?? 2}
-                  </div>
-                </div>
-                <div className="muted mt-xxs">
-                  {(t.description || "").slice(0, 160)}
-                </div>
-                <div className="row gap-xs mt-xs">
-                  <button
-                    onClick={() => onTaskClick(t)}
-                    className="btn btn-muted icon"
-                  >
-                    <FiEdit2 />
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard
-                        ?.writeText(
-                          window.location.href +
-                            "/tasks/" +
-                            ((t.id ?? t.Id) || "")
-                        )
-                        .catch(() => {});
-                      alert("Link copied");
-                    }}
-                    className="btn btn-muted icon"
-                  >
-                    <FiLink />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* --- Admin tabular view (admin-only, list mode) --- */
-function AdminTaskTable({ tasks, allUsers, busyId, onChangeOwner }) {
-  const getUserName = (id) => {
-    if (!id) return "—";
-    const u = allUsers.find((x) => String(x.id) === String(id));
-    return u ? u.displayName || u.name || u.email || "—" : "—";
-  };
-
-  const sorted = [...(tasks || [])].sort((a, b) => {
-    const da = a.dueDate || a.DueDate || "";
-    const db = b.dueDate || b.DueDate || "";
-    return String(da).localeCompare(String(db));
-  });
-
-  return (
-    <div className="admin-table-wrap card pad">
-      <div className="row between center mb-xs">
-        <div className="strong lg">Admin Task List (All)</div>
-        <div className="tiny muted">
-          {sorted.length} task{sorted.length === 1 ? "" : "s"}
-        </div>
-      </div>
-
-      <div className="admin-table-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Assigned To</th>
-              <th>Status</th>
-              <th>Priority</th>
-              <th>Due Date</th>
-              <th>Change Owner</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="admin-td-empty">
-                  No tasks to display.
-                </td>
-              </tr>
-            ) : (
-              sorted.map((t) => {
-                const id = t.id ?? t.Id;
-                const assignedIds = Array.isArray(t.assignedToIds)
-                  ? t.assignedToIds
-                  : Array.isArray(t.AssigneeIds)
-                  ? t.AssigneeIds
-                  : t.AssigneeId
-                  ? [String(t.AssigneeId)]
-                  : [];
-                const displayAssigned =
-                  t.assignedTo && String(t.assignedTo).trim()
-                    ? t.assignedTo
-                    : assignedIds.map((x) => getUserName(x)).join(", ");
-                const currentOwner = assignedIds[0] || "";
-                const dueRaw = t.dueDate || t.DueDate;
-                const dueText = dueRaw
-                  ? String(dueRaw).slice(0, 10)
-                  : "—";
-                return (
-                  <tr key={id}>
-                    <td>
-                      <div className="admin-title" title={t.title}>
-                        {t.title}
-                      </div>
-                      {t.description && (
-                        <div className="admin-desc">
-                          {t.description.length > 80
-                            ? t.description.slice(0, 80) + "…"
-                            : t.description}
-                        </div>
-                      )}
-                    </td>
-                    <td>{displayAssigned || "—"}</td>
-                    <td>{t.status || (t.completed ? "Completed" : "Pending")}</td>
-                    <td>{t.priority ?? 2}</td>
-                    <td>{dueText}</td>
-                    <td>
-                      <select
-                        className="admin-owner-select"
-                        value={currentOwner || ""}
-                        disabled={busyId === id}
-                        onChange={(e) =>
-                          onChangeOwner(id, e.target.value || null)
-                        }
-                      >
-                        <option value="">Unassigned</option>
-                        {allUsers.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.displayName || u.name || u.email}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/* --- main TasksPage component --- */
 export default function TasksPage() {
   const [tasks, setTasks] = useState([]);
-  const [meta, setMeta] = useState({ total: 0, page: 1, limit: 100 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
+  const [meta, setMeta] = useState({ total: 0, page: 1, limit: DEFAULT_LIMIT });
   const [allUsers, setAllUsers] = useState([]);
+
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState(defaultFilters);
+  const [view, setView] = useState("list");
 
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(defaultForm());
+  const [loading, setLoading] = useState(false);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [view, setView] = useState("calendar"); // calendar | list
-  const [statusTab, setStatusTab] = useState("all");
-
-  // admin detection
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [busyTaskId, setBusyTaskId] = useState(null);
   const [changingOwnerId, setChangingOwnerId] = useState(null);
 
-  /* --- API: users/tasks --- */
-  const fetchUsers = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/users?limit=1000`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
-      const { items } = normalizeResponse(json);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
 
-      const normalized = (items || []).map((u) => {
-        const id =
-          u?.id ??
-          u?.Id ??
-          u?.userId ??
-          u?.UserId ??
-          u?.userid ??
-          u?.UID ??
-          u?.Id;
-        const displayName = (
-          u?.displayName ??
-          u?.name ??
-          u?.fullName ??
-          u?.username ??
-          u?.userName ??
-          u?.email ??
-          ""
-        ).toString();
-        return { ...u, id: id?.toString?.() ?? null, displayName };
-      });
+  const [showModal, setShowModal] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [form, setForm] = useState(defaultForm());
 
-      setAllUsers(normalized || []);
-    } catch (err) {
-      console.error("fetchUsers:", err);
-      setAllUsers([]);
-    }
+  const [isAdmin] = useState(getStoredAdminFlag);
+
+  const notify = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2200);
   };
 
-  const fetchTasks = async (page = 1, limit = 100) => {
+  const findUser = useCallback(
+    (id) =>
+      allUsers.find((user) => {
+        const uid = userIdOf(user);
+        return String(uid) === String(id);
+      }),
+    [allUsers]
+  );
+
+  const findUserDisplay = useCallback(
+    (id) => {
+      const user = findUser(id);
+      return user ? userNameOf(user) : "";
+    },
+    [findUser]
+  );
+
+  const assignedNamesOf = useCallback(
+    (task) => {
+      if (task.assignedTo && String(task.assignedTo).trim()) return task.assignedTo;
+
+      return (task.assignedToIds || [])
+        .map(findUserDisplay)
+        .filter(Boolean)
+        .join(", ");
+    },
+    [findUserDisplay]
+  );
+
+  const fetchUsers = useCallback(async () => {
+    setUsersLoading(true);
+
     try {
-      setLoading(true);
-      setError(null);
-      const q = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-      });
-      const r = await fetch(`${API_BASE}/tasks?${q.toString()}`);
-      if (!r.ok) {
-        const txt = await r.text();
-        throw new Error(`API error (${r.status}): ${txt || r.statusText}`);
-      }
-      const json = await r.json();
-      const { items, meta: m } = normalizeResponse(json);
+      const res = await apiFetch("/users?limit=1000");
+      const { items } = normalizeResponse(res);
 
-      const enriched = (items || []).map((t) => {
-        const out = { ...t };
-        out.assignedToIds =
-          out.AssigneeIds ??
-          out.assigneeIds ??
-          (out.AssigneeId ? [String(out.AssigneeId)] : []);
-        if (Array.isArray(out.AssignedToNames))
-          out.assignedTo = out.AssignedToNames.join(", ");
-        else if (typeof out.AssignedToNames === "string")
-          out.assignedTo = out.AssignedToNames;
-        else if (out.AssignedToName) out.assignedTo = out.AssignedToName;
-        else out.assignedTo = "";
-        out.id = out.Id ?? out.id ?? null;
-        out.title = out.Title ?? out.title ?? "";
-        if (out.DueDate && !out.dueDate) out.dueDate = out.DueDate;
-        out.priority = out.Priority ?? out.priority ?? 2;
-        out.broadcast = out.Broadcast ?? out.broadcast ?? false;
-        const rawStatus =
-          out.Status ?? out.status ?? (out.Completed ? "Completed" : "Pending");
-        out.statusCode = normalizeStatusValue(rawStatus);
-        out.status = statusCodeToLabel(out.statusCode);
-        return out;
-      });
+      const normalized = items
+        .map((user) => ({
+          ...user,
+          id: String(userIdOf(user) || ""),
+          displayName: userNameOf(user),
+        }))
+        .filter((user) => user.id)
+        .sort((a, b) => userNameOf(a).localeCompare(userNameOf(b)));
 
-      setTasks(enriched);
-      setMeta((prev) => ({ ...prev, ...m }));
+      setAllUsers(normalized);
     } catch (err) {
-      console.error("fetchTasks:", err);
-      setError(String(err));
+      if (!isUnauthorizedError(err)) console.warn("fetchUsers:", err);
+      setAllUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  const fetchTasks = useCallback(async (page = 1, limit = DEFAULT_LIMIT) => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await apiFetch(`/tasks?page=${page}&limit=${limit}`);
+      const { items, meta: nextMeta } = normalizeResponse(res);
+      const normalized = items.map(normalizeTask);
+
+      setTasks(normalized);
+      setMeta({
+        total: nextMeta.total ?? normalized.length,
+        page: nextMeta.page ?? page,
+        limit: nextMeta.limit ?? limit,
+      });
+    } catch (err) {
+      if (!isUnauthorizedError(err)) console.warn("fetchTasks:", err);
       setTasks([]);
+      setError(friendlyError(err, "Unable to load tasks."));
     } finally {
       setLoading(false);
     }
-  };
-
-  const fetchMe = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/auth/me`, {
-        credentials: "include",
-      });
-      if (!r.ok) return;
-      const me = await r.json();
-      setCurrentUser(me || null);
-
-      const rolesRaw = [];
-      if (me?.role) rolesRaw.push(me.role);
-      if (Array.isArray(me?.roles)) rolesRaw.push(...me.roles);
-      const roles = rolesRaw
-        .filter(Boolean)
-        .map((r) => String(r).toLowerCase());
-      const admin = roles.some((r) =>
-        ["admin", "administrator", "superadmin"].includes(r)
-      );
-      setIsAdmin(admin);
-    } catch (e) {
-      console.error("fetchMe:", e);
-      setCurrentUser(null);
-      setIsAdmin(false);
-    }
-  };
-
-  useEffect(() => {
-    (async () => {
-      await Promise.all([fetchUsers(), fetchTasks(meta.page, meta.limit), fetchMe()]);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* --- UI helpers --- */
-  const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  useEffect(() => {
+    Promise.all([fetchUsers(), fetchTasks()]);
+  }, [fetchUsers, fetchTasks]);
 
-  const findUserDisplay = (id) => {
-    if (id == null) return id;
-    const u = allUsers.find(
-      (x) =>
-        String(x.id) === String(id) ||
-        String(x.Id ?? "") === String(id) ||
-        String(x.userId ?? "") === String(id) ||
-        String(x.UserId ?? "") === String(id)
-    );
-    if (!u) return id;
-    return u.displayName ?? u.name ?? u.username ?? String(u.id);
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const statusColor = (s) => {
-    const map = {
-      Completed: { bg: "#e6f4ea", fg: "#11633a" },
-      "In-Progress": { bg: "#fff8e6", fg: "#6a4e00" },
-      "On-Hold": { bg: "#fdecea", fg: "#7b1616" },
-      Pending: { bg: "#eef0f2", fg: "#2f3942" },
-    };
-    return map[s] || map.Pending;
-  };
-
-  /* --- CRUD --- */
   const openAdd = () => {
     setForm(defaultForm());
     setShowModal(true);
   };
 
   const openEdit = (task) => {
-    const assignedIds = Array.isArray(task.AssigneeIds)
-      ? task.AssigneeIds.map(String)
-      : task.AssignedToIds ??
-        task.assignedToIds ??
-        (task.AssigneeId ? [String(task.AssigneeId)] : []);
-    const display = (assignedIds || [])
-      .map((id) => findUserDisplay(id))
-      .filter(Boolean)
-      .join(", ");
-
     setForm({
       id: task.id ?? task.Id ?? null,
       title: task.title ?? task.Title ?? "",
       description: task.description ?? task.Description ?? "",
-      assignedToIds: assignedIds || [],
-      assignedToDisplay: display,
-      dueDate:
-        (task.dueDate || task.DueDate)
-          ? (task.dueDate || task.DueDate).slice(0, 10)
-          : "",
-      status:
-        task.status ??
-        task.Status ??
-        (task.completed ? "Completed" : "Pending"),
-      priority: task.priority ?? task.Priority ?? 2,
-      broadcast: task.broadcast ?? task.Broadcast ?? false,
+      assignedToIds: task.assignedToIds ?? [],
+      dueDate: toDateInput(task.dueDate ?? task.DueDate),
+      status: task.status ?? statusOptionOf(task.statusCode).label,
+      priority: task.priority ?? 2,
+      broadcast: Boolean(task.broadcast ?? task.Broadcast),
     });
-    if (!allUsers.length) fetchUsers();
     setShowModal(true);
   };
 
-  const saveTask = async (e) => {
-    e?.preventDefault?.();
+  const taskPayload = (task, overrides = {}) => {
+    const next = { ...task, ...overrides };
+
+    return {
+      Id: next.id ?? next.Id ?? undefined,
+      Title: next.title ?? next.Title ?? "",
+      Description: next.description ?? next.Description ?? null,
+      AssigneeIds: Array.isArray(next.assignedToIds) ? next.assignedToIds.filter(Boolean) : [],
+      TeamId: null,
+      Status: normalizeStatusValue(next.status ?? next.Status ?? next.statusCode),
+      Priority: Number(next.priority ?? next.Priority ?? 2),
+      DueDate: next.dueDate ? new Date(next.dueDate).toISOString() : null,
+      Broadcast: Boolean(next.broadcast ?? next.Broadcast),
+    };
+  };
+
+  const saveTask = async (event) => {
+    event?.preventDefault?.();
+
+    if (!form.title.trim()) {
+      notify("Task title is required.");
+      return;
+    }
+
     setSaving(true);
+    setError("");
+
     try {
-      if (!form.title || !form.title.trim()) {
-        alert("Title required");
-        setSaving(false);
-        return;
-      }
-      const payload = {
-        Id: form.id ?? undefined,
-        Title: form.title,
-        Description: form.description || null,
-        AssigneeIds: Array.isArray(form.assignedToIds)
-          ? form.assignedToIds.filter(Boolean)
-          : [],
-        TeamId: null,
-        Status: normalizeStatusValue(form.status),
-        Priority: Number(form.priority) || 2,
-        DueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
-        Broadcast: !!form.broadcast,
-      };
-      const url = form.id
-        ? `${API_BASE}/tasks/${form.id}`
-        : `${API_BASE}/tasks`;
+      const payload = taskPayload(form);
       const method = form.id ? "PUT" : "POST";
-      const resp = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`API error (${resp.status}): ${txt || resp.statusText}`);
-      }
+      const url = form.id ? `/tasks/${encodeURIComponent(form.id)}` : "/tasks";
+
+  await apiFetch(url, {
+  method,
+  body: JSON.stringify(payload),
+});
       setShowModal(false);
       await fetchTasks(meta.page, meta.limit);
+      notify(form.id ? "Task updated." : "Task created.");
     } catch (err) {
-      console.error("saveTask:", err);
-      alert("Save error: " + String(err));
+      notify(friendlyError(err, "Unable to save task."));
     } finally {
       setSaving(false);
     }
   };
 
   const deleteTask = async (id) => {
-    if (!window.confirm("Delete this task?")) return;
+    if (!id || !window.confirm("Delete this task?")) return;
+
+    setBusyTaskId(id);
+
     try {
-      const resp = await fetch(`${API_BASE}/tasks/${id}`, { method: "DELETE" });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await apiFetch(`/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
       await fetchTasks(meta.page, meta.limit);
+      notify("Task deleted.");
     } catch (err) {
-      console.error("deleteTask:", err);
-      alert("Delete failed: " + String(err));
+      notify(friendlyError(err, "Unable to delete task."));
+    } finally {
+      setBusyTaskId(null);
     }
   };
 
-  const sendTaskNotification = async (taskId) => {
+  const sendTaskNotification = async (id) => {
+    if (!id) return;
+
+    setBusyTaskId(id);
+
     try {
-      const resp = await fetch(`${API_BASE}/tasks/${taskId}/send`, {
-        method: "POST",
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
-      alert("Message(s) queued/sent successfully!");
+      await apiFetch(`/tasks/${encodeURIComponent(id)}/send`, { method: "POST" });
       await fetchTasks(meta.page, meta.limit);
+      notify("Task notification sent.");
     } catch (err) {
-      console.error("sendTaskNotification:", err);
-      alert("Error sending message: " + (err.message || err));
+      notify(friendlyError(err, "Unable to send notification."));
+    } finally {
+      setBusyTaskId(null);
     }
   };
 
-  // admin: change owner (single owner from allUsers)
-  const handleChangeOwner = async (taskId, newOwnerId) => {
-    const task = tasks.find(
-      (t) => String(t.id ?? t.Id) === String(taskId)
-    );
-    if (!task) return;
-    setChangingOwnerId(taskId);
+  const quickSetStatus = async (task, statusLabel) => {
+    const id = task.id ?? task.Id;
+    if (!id) return;
+
+    setBusyTaskId(id);
+
     try {
-      const payload = {
-        Id: task.id ?? task.Id,
-        Title: task.title ?? task.Title ?? "",
-        Description: task.description ?? task.Description ?? null,
-        AssigneeIds: newOwnerId ? [String(newOwnerId)] : [],
-        TeamId: null,
-        Status: normalizeStatusValue(
-          task.status ??
-            task.Status ??
-            (task.completed ? "Completed" : "Pending")
-        ),
-        Priority: Number(task.priority ?? task.Priority) || 2,
-        DueDate: task.dueDate
-          ? new Date(task.dueDate).toISOString()
-          : task.DueDate
-          ? new Date(task.DueDate).toISOString()
-          : null,
-        Broadcast: !!(task.broadcast ?? task.Broadcast),
-      };
-      const resp = await fetch(`${API_BASE}/tasks/${taskId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `HTTP ${resp.status}`);
-      }
+     await apiFetch(`/tasks/${encodeURIComponent(id)}`, {
+  method: "PUT",
+  body: JSON.stringify(taskPayload(task, { status: statusLabel })),
+});
       await fetchTasks(meta.page, meta.limit);
-    } catch (e) {
-      console.error("handleChangeOwner:", e);
-      alert("Failed to change owner: " + String(e));
+      notify(`Marked ${statusLabel.toLowerCase()}.`);
+    } catch (err) {
+      notify(friendlyError(err, "Unable to update status."));
+    } finally {
+      setBusyTaskId(null);
+    }
+  };
+
+  const handleChangeOwner = async (task, newOwnerId) => {
+    const id = task.id ?? task.Id;
+    if (!id) return;
+
+    setChangingOwnerId(id);
+
+    try {
+    await apiFetch(`/tasks/${encodeURIComponent(id)}`, {
+  method: "PUT",
+  body: JSON.stringify(taskPayload(task, { assignedToIds: newOwnerId ? [String(newOwnerId)] : [] })),
+});
+      await fetchTasks(meta.page, meta.limit);
+      notify("Owner updated.");
+    } catch (err) {
+      notify(friendlyError(err, "Unable to update owner."));
     } finally {
       setChangingOwnerId(null);
     }
   };
 
-  /* --- filters / derived --- */
-  const filtered = useMemo(() => {
-    let base = tasks;
-    if (statusTab !== "all")
-      base = base.filter(
-        (t) =>
-          (t.status || "")
-            .toLowerCase()
-            .replace(/\s+/g, "-") === statusTab
+  const copyTaskLink = async (task) => {
+    const id = task.id ?? task.Id;
+    const link = `${window.location.origin}${window.location.pathname}#/home/tasks/${id}`;
+
+    try {
+      await navigator.clipboard?.writeText(link);
+      notify("Task link copied.");
+    } catch {
+      notify(link);
+    }
+  };
+
+  const matchesSearch = useCallback(
+    (task) => {
+      const tokens = splitSearchTokens(query);
+      if (tokens.length === 0) return true;
+
+      const status = statusOptionOf(task.statusCode).label;
+      const assignees = assignedNamesOf(task);
+      const blob = normalizeText(
+        [
+          task.title,
+          task.description,
+          status,
+          assignees,
+          priorityLabel(task.priority),
+          dueLabel(task),
+          task.broadcast ? "broadcast" : "",
+        ].join(" ")
       );
-    if (!query) return base;
-    const q = query.trim().toLowerCase();
-    return base.filter(
-      (t) =>
-        String(t.title ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.description ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.assignedTo ?? "")
-          .toLowerCase()
-          .includes(q) ||
-        String(t.AssignedToName ?? "")
-          .toLowerCase()
-          .includes(q)
-    );
-  }, [tasks, query, statusTab]);
 
-  /* --- styles (mobile-first) --- */
-  const Styles = (
-    <style>{`
-      :root{ --bg: linear-gradient(180deg,#fffdfa,#fbf3e8); --deep:#12223a; --muted:#6f5f4f; --gold:#d1a62a; --card: rgba(255,255,255,0.96); --shadow:0 12px 34px rgba(12,16,24,0.08); --radius:16px; --safe-bottom: env(safe-area-inset-bottom); }
-      .tasks-wrap{ min-height:100vh; padding:12px; background: var(--bg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--deep); }
-      .top-hero{ position:sticky; top:8px; z-index:20; display:flex; gap:12px; align-items:flex-start; padding:14px; border-radius: var(--radius); background: linear-gradient(90deg,#123a63,#0b2a47); color:white; box-shadow: var(--shadow); }
-      .hero-actions{ margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
-      .btn{ border:none; border-radius:12px; padding:12px 14px; font-weight:800; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px; }
-      .btn-primary{ background: linear-gradient(90deg,var(--gold), #f4de93); color:#2b1f0f; box-shadow: 0 8px 20px rgba(178,136,7,0.18); }
-      .btn-muted{ background:#fff; border:1px solid rgba(0,0,0,0.06); color:#2d3b48; }
-      .btn-ghost{ background:transparent; border:1px dashed rgba(255,255,255,0.6); color:#fff; }
-      .btn.icon{ padding:10px; border-radius:12px; }
+      return tokens.every((token) => {
+        const raw = String(token);
+        const colonIndex = raw.indexOf(":");
 
-      .search-row{ display:flex; gap:8px; margin-top:12px; }
-      .search{ width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(0,0,0,0.08); background:#fff; }
+        if (colonIndex > 0) {
+          const key = normalizeText(raw.slice(0, colonIndex));
+          const value = normalizeText(raw.slice(colonIndex + 1));
 
-      .tabs{ display:flex; gap:8px; margin-top:12px; overflow:auto; }
-      .tab{ padding:8px 12px; border-radius:999px; border:1px solid rgba(0,0,0,0.06); background:#fff; font-weight:700; font-size:13px; white-space:nowrap; }
-      .tab.active{ background: #fff7d1; border-color: rgba(200,170,90,0.3); }
+          if (key === "status") return normalizeText(status).includes(value);
+          if (key === "assignee" || key === "owner") return normalizeText(assignees).includes(value);
+          if (key === "priority") return normalizeText(`${task.priority} ${priorityLabel(task.priority)}`).includes(value);
+          if (key === "due") return normalizeText(dueLabel(task)).includes(value);
+          if (key === "broadcast") return value === "yes" ? task.broadcast : !task.broadcast;
 
-      .calendar-layout{ display:grid; grid-template-columns: 1fr; gap:12px; margin-top:14px; }
-      @media(min-width: 980px){ .calendar-layout{ grid-template-columns: 1fr 360px; } }
+          return blob.includes(value);
+        }
 
-      .card{ background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); border:1px solid rgba(0,0,0,0.04); }
-      .pad{ padding:12px; }
-      .panel{ padding:10px; border:1px solid rgba(0,0,0,0.04); border-radius:12px; background:#fff; margin-bottom:8px; }
-
-      .grid-7{ display:grid; grid-template-columns: repeat(7,1fr); }
-      .gap-xs{ gap:6px; }
-      .mb-xs{ margin-bottom:8px; } .mb-sm{ margin-bottom:12px; } .mb-xxs{ margin-bottom:6px; } .mt-xs{ margin-top:8px; } .mt-xxs{ margin-top:6px; }
-      .row{ display:flex; } .col{ display:flex; flex-direction:column; }
-      .between{ justify-content:space-between; } .center{ align-items:center; }
-      .gap-xs{ gap:6px; } .gap-sm{ gap:10px; }
-      .bold{ font-weight:800; } .strong{ font-weight:800; } .lg{ font-size:16px; }
-      .tiny{ font-size:12px; } .muted{ color: var(--muted); } .muted-out{ background:#fafafa; }
-      .pad-s{ padding:6px 8px; }
-
-      .day{ min-height:96px; border-radius:12px; padding:6px; background:#fff; border:1px solid rgba(0,0,0,0.04); cursor:pointer; }
-      .day.sel{ border:2px solid #f1c232; box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
-      .daynum{ padding:2px 6px; border-radius:8px; }
-      .daynum.today{ background:#2e7d32; color:#fff; }
-
-      .pill{ padding:6px 8px; border-radius:8px; font-size:12px; font-weight:700; }
-      .task-pill{ background:#fff8e6; border:1px solid rgba(200,170,90,0.12); color:#6a4e00; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-
-      .scroll-y{ overflow:auto; }
-
-      .grid-cards{ display:grid; grid-template-columns: 1fr; gap:12px; margin-top:14px; }
-      @media(min-width: 760px){ .grid-cards{ grid-template-columns: repeat(2,1fr); } }
-      @media(min-width: 1200px){ .grid-cards{ grid-template-columns: repeat(3,1fr); } }
-
-      .task-card{ background:#fff; padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(11,42,71,0.06); display:flex; flex-direction:column; min-height:150px; border:1px solid rgba(0,0,0,0.04); }
-
-      .status{ padding:6px 12px; border-radius:999px; font-weight:800; font-size:13px; }
-
-      .input{ width:100%; padding:12px; border-radius:12px; border:1px solid #e5e7eb; background:#fff; font-size:14px; }
-      .input.like-chipbox{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; cursor:text; min-height:48px; }
-      .chip{ display:inline-flex; align-items:center; gap:8px; padding:6px 8px; background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.04); }
-      .chip-avatar{ width:28px; height:28px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; background:linear-gradient(180deg,#fff6e3,#fff1d6); color:#112b44; }
-      .chip-avatar.sm{ width:24px; height:24px; font-size:11px; }
-      .chip-label{ font-size:13px; color:#123a63; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .chip-x{ background:transparent; border:none; cursor:pointer; color:#c33; font-size:16px; }
-
-      .select-pop{ position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:40; background:#fff; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.15); border:1px solid rgba(0,0,0,0.06); display:flex; flex-direction:column; max-height:340px; }
-      .select-filter{ padding:8px; border-bottom:1px solid rgba(0,0,0,0.04); }
-      .select-list{ overflow:auto; padding:8px; }
-      .select-row{ display:flex; align-items:center; gap:10px; padding:8px 6px; border-radius:8px; cursor:pointer; }
-      .select-actions{ padding:8px; border-top:1px solid rgba(0,0,0,0.04); display:flex; justify-content:space-between; }
-
-      /* Modal Sheet (mobile-friendly) */
-      .sheet{ position:fixed; inset:0; background: rgba(7,12,20,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:9999; }
-      .sheet-panel{ width:100%; max-width:880px; background: linear-gradient(180deg,#fff,#fffdf8); border-radius:18px 18px 0 0; box-shadow: 0 20px 60px rgba(17,24,39,0.2); padding:16px; max-height:88vh; overflow:auto; }
-      @media(min-width: 900px){ .sheet{ align-items:center; } .sheet-panel{ border-radius:18px; } }
-
-      /* FAB */
-      .fab{ position: fixed; right: 16px; bottom: calc(18px + var(--safe-bottom)); z-index: 70; }
-
-      /* Utility */
-      .ml-auto{ margin-left:auto; }
-
-      /* Admin table styles (list view, admin only) */
-      .admin-table-wrap{ margin-top:14px; }
-      .admin-table-scroll{ overflow:auto; border-radius:12px; border:1px solid rgba(0,0,0,0.04); }
-      .admin-table{ width:100%; border-collapse:collapse; font-size:13px; background:#fff; }
-      .admin-table thead{ background:rgba(1,48,98,0.04); text-align:left; }
-      .admin-table th{ padding:8px 10px; font-weight:700; }
-      .admin-table td{ padding:8px 10px; border-top:1px solid rgba(0,0,0,0.04); vertical-align:top; }
-      .admin-td-empty{ text-align:center; color:var(--muted); font-size:13px; }
-      .admin-title{ font-weight:600; max-width:260px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
-      .admin-desc{ font-size:12px; color:var(--muted); max-width:260px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; margin-top:2px; }
-      .admin-owner-select{ padding:4px 8px; border-radius:999px; border:1px solid rgba(0,0,0,0.16); background:#fff; font-size:12px; min-width:150px; }
-    `}</style>
+        return blob.includes(normalizeText(raw));
+      });
+    },
+    [assignedNamesOf, query]
   );
 
-  /* --- render --- */
-  return (
-    <div className="tasks-wrap">
-      {Styles}
+  const filteredTasks = useMemo(() => {
+    let list = tasks.filter(matchesSearch);
 
-      {/* Header / Banner */}
-      <div className="top-hero" role="region" aria-label="Tasks header">
-        <div>
-          <h2 style={{ margin: 0, fontSize: 22 }}>Tasks</h2>
-          <p style={{ marginTop: 6, opacity: 0.9, fontSize: 13 }}>
-            Manage and track ministry tasks — who is responsible, priorities, and
-            due dates.
-          </p>
-        </div>
-        <div className="hero-actions">
-          <button
-            onClick={() => {
-              fetchTasks(meta.page, meta.limit);
-            }}
-            className="btn btn-ghost"
-          >
-            <FiRefreshCw /> Refresh
-          </button>
-          <button
-            onClick={() => {
-              alert("Export not implemented");
-            }}
-            className="btn btn-ghost"
-          >
-            <FiDownload /> Export
-          </button>
-          <button onClick={openAdd} className="btn btn-primary">
-            <FiPlus /> New Task
-          </button>
-        </div>
-      </div>
+    if (filters.status !== "all") {
+      list = list.filter((task) => statusOptionOf(task.statusCode).key === filters.status);
+    }
 
-      {/* Search + View toggles */}
-      <div className="search-row">
-        <input
-          className="search"
-          placeholder="Search tasks by title, assigned, or description…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div
-          className="ml-auto tiny muted"
-          style={{ alignSelf: "center" }}
-        >
-          Showing {filtered.length} of {meta.total ?? tasks.length}
-        </div>
-      </div>
+    if (filters.assignee) {
+      list = list.filter((task) => (task.assignedToIds || []).map(String).includes(String(filters.assignee)));
+    }
 
-      <div className="tabs" role="tablist" aria-label="Status filters">
-        {[
-          { key: "all", label: "All" },
-          { key: "pending", label: "Pending" },
-          { key: "in-progress", label: "In-Progress" },
-          { key: "completed", label: "Completed" },
-          { key: "on-hold", label: "On-Hold" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={statusTab === t.key}
-            className={`tab ${statusTab === t.key ? "active" : ""}`}
-            onClick={() => setStatusTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <div className="ml-auto" />
-        <button
-          className="tab"
-          onClick={() => setView((v) => (v === "calendar" ? "list" : "calendar"))}
-        >
-          {view === "calendar" ? "Switch to List" : "Switch to Calendar"}
-        </button>
-      </div>
+    if (filters.priority !== "all") {
+      list = list.filter((task) => Number(task.priority) === Number(filters.priority));
+    }
 
-      {/* Main content */}
-      {error && (
-        <div className="card pad" style={{ color: "#b91c1c", fontWeight: 700 }}>
-          {error}
-        </div>
-      )}
+    if (filters.broadcast !== "all") {
+      list = list.filter((task) => Boolean(task.broadcast) === (filters.broadcast === "yes"));
+    }
 
-      {view === "calendar" ? (
-        <CalendarView tasks={filtered} onTaskClick={(t) => openEdit(t)} />
-      ) : (
-        <>
-          {/* Admin-only tabular view (on top, list mode) */}
-          {isAdmin && (
-            <AdminTaskTable
-              tasks={filtered}
-              allUsers={allUsers}
-              busyId={changingOwnerId}
-              onChangeOwner={handleChangeOwner}
-            />
-          )}
+    if (filters.due === "overdue") list = list.filter(isOverdue);
+    if (filters.due === "today") list = list.filter(isDueToday);
+    if (filters.due === "week") list = list.filter(isDueThisWeek);
+    if (filters.due === "none") list = list.filter((task) => !task.dueDate);
+    if (filters.due === "future") {
+      list = list.filter((task) => task.dueDate && !isOverdue(task) && !isDueToday(task));
+    }
 
-          <div className="grid-cards">
-            {loading ? (
-              [...Array(6)].map((_, i) => (
-                <div key={i} className="task-card" aria-hidden />
-              ))
-            ) : filtered.length === 0 ? (
-              <div className="card pad muted">No tasks found.</div>
-            ) : (
-              filtered.map((t) => {
-                const sc = statusColor(
-                  t.status || (t.completed ? "Completed" : "Pending")
-                );
-                const assignedDisplay =
-                  t.assignedTo && String(t.assignedTo).trim()
-                    ? t.assignedTo
-                    : Array.isArray(t.assignedToIds)
-                    ? t.assignedToIds.map(findUserDisplay).join(", ")
-                    : "";
-                return (
-                  <div
-                    key={t.id ?? t.Id}
-                    className="task-card"
-                    role="article"
-                    aria-label={t.title}
-                  >
-                    <div
-                      className="row between"
-                      style={{ gap: 12, alignItems: "flex-start" }}
-                    >
-                      <div>
-                        <div className="row gap-xs center">
-                          <div
-                            className="strong"
-                            style={{ fontSize: 16 }}
-                          >
-                            {t.title}
-                          </div>
-                          <div className="tiny muted">
-                            #{t.id ?? t.Id}
-                          </div>
-                          {t.broadcast ? (
-                            <span
-                              className="pill"
-                              style={{
-                                background: "#fff2cc",
-                                border: "1px solid rgba(200,170,90,0.3)",
-                                color: "#6a4e00",
-                              }}
-                            >
-                              📣 Broadcast
-                            </span>
-                          ) : null}
-                        </div>
-                        <div
-                          className="muted mt-xxs"
-                          style={{ minHeight: 36 }}
-                        >
-                          {t.description ? (
-                            t.description.length > 160 ? (
-                              t.description.slice(0, 160) + "…"
-                            ) : (
-                              t.description
-                            )
-                          ) : (
-                            <span style={{ opacity: 0.6 }}>
-                              No description
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div
-                        className="col"
-                        style={{ gap: 8, alignItems: "flex-end" }}
-                      >
-                        <div
-                          className="status"
-                          style={{ background: sc.bg, color: sc.fg }}
-                        >
-                          {t.status ||
-                            (t.completed ? "Completed" : "Pending")}
-                        </div>
-                        <div className="tiny muted">
-                          <div>
-                            Due:{" "}
-                            <strong>
-                              {t.dueDate
-                                ? String(t.dueDate).slice(0, 10)
-                                : "-"}
-                            </strong>
-                          </div>
-                          <div className="mt-xxs">
-                            Assigned:{" "}
-                            <strong>{assignedDisplay || "—"}</strong>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+    const sorted = [...list];
 
-                    <div className="row between center mt-xs">
-                      <div className="tiny muted">
-                        Priority: <strong>{t.priority ?? 2}</strong>
-                      </div>
-                      <div className="row gap-xs">
-                        <button
-                          onClick={() => openEdit(t)}
-                          className="btn btn-muted icon"
-                          title="Edit"
-                        >
-                          <FiEdit2 />
-                        </button>
-                        <button
-                          onClick={() => deleteTask(t.id ?? t.Id)}
-                          className="btn btn-muted icon"
-                          title="Delete"
-                          style={{
-                            background: "#d32f2f",
-                            color: "#fff",
-                            border: "none",
-                          }}
-                        >
-                          <FiTrash2 />
-                        </button>
-                        <button
-                          onClick={() => sendTaskNotification(t.id ?? t.Id)}
-                          className="btn btn-muted icon"
-                          title="Send"
-                          style={{
-                            background: "#2e7d32",
-                            color: "#fff",
-                            border: "none",
-                          }}
-                        >
-                          <FiSend />
-                        </button>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard
-                              ?.writeText(
-                                window.location.href +
-                                  "/tasks/" +
-                                  ((t.id ?? t.Id) || "")
-                              )
-                              .catch(() => {});
-                            alert("Link copied.");
-                          }}
-                          className="btn btn-muted icon"
-                          title="Copy link"
-                        >
-                          <FiLink />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+    sorted.sort((a, b) => {
+      if (filters.sortBy === "title") return String(a.title).localeCompare(String(b.title));
+      if (filters.sortBy === "priority") return Number(b.priority || 0) - Number(a.priority || 0);
+      if (filters.sortBy === "due") return dueTime(a) - dueTime(b);
+      if (filters.sortBy === "status") return Number(a.statusCode) - Number(b.statusCode);
+
+      const completedDiff = Number(isCompleted(a)) - Number(isCompleted(b));
+      if (completedDiff !== 0) return completedDiff;
+
+      const overdueDiff = Number(isOverdue(b)) - Number(isOverdue(a));
+      if (overdueDiff !== 0) return overdueDiff;
+
+      const dueDiff = dueTime(a) - dueTime(b);
+      if (dueDiff !== 0) return dueDiff;
+
+      return Number(b.priority || 0) - Number(a.priority || 0);
+    });
+
+    return sorted;
+  }, [filters, matchesSearch, tasks]);
+
+  const exportTasks = () => {
+    const rows = [
+      ["Title", "Description", "Status", "Priority", "Due Date", "Assigned To", "Broadcast"],
+      ...filteredTasks.map((task) => [
+        task.title,
+        task.description,
+        task.status,
+        priorityLabel(task.priority),
+        task.dueDate ? toDateInput(task.dueDate) : "",
+        assignedNamesOf(task),
+        task.broadcast ? "Yes" : "No",
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = "tasks.csv";
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const stats = useMemo(
+    () => ({
+      visible: filteredTasks.length,
+      overdue: tasks.filter(isOverdue).length,
+      today: tasks.filter(isDueToday).length,
+      completed: tasks.filter(isCompleted).length,
+    }),
+    [filteredTasks.length, tasks]
+  );
+
+  const agendaGroups = useMemo(() => {
+    const groups = new Map();
+
+    filteredTasks.forEach((task) => {
+      const key = task.dueDate ? toDateInput(task.dueDate) : "No due date";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(task);
+    });
+
+    return Array.from(groups.entries()).sort(([a], [b]) => {
+      if (a === "No due date") return 1;
+      if (b === "No due date") return -1;
+      return String(a).localeCompare(String(b));
+    });
+  }, [filteredTasks]);
+
+  const activeFilterCount = Object.entries(defaultFilters).filter(
+    ([key, value]) => filters[key] !== value
+  ).length;
+
+  const renderTaskCard = (task, compact = false) => {
+    const id = task.id ?? task.Id;
+    const status = statusOptionOf(task.statusCode);
+    const assignedNames = assignedNamesOf(task);
+    const busy = busyTaskId === id;
+    const completed = isCompleted(task);
+
+    return (
+      <article className={`task-card ${compact ? "task-card-compact" : ""}`} key={id}>
+        <div className="task-card-main">
+          <div>
+            <div className="task-title">{task.title || "Untitled task"}</div>
+            {!compact && <div className="task-desc">{task.description || "No description"}</div>}
+
+            <div className="task-badges">
+              <span className="task-badge" style={{ background: status.bg, color: status.fg }}>
+                {status.label}
+              </span>
+              <span className="task-badge">
+                <Flag size={14} />
+                {priorityLabel(task.priority)}
+              </span>
+              <span className={`task-badge ${isOverdue(task) ? "task-badge-danger" : ""}`}>
+                <Clock size={14} />
+                {dueLabel(task)}
+              </span>
+              {task.broadcast && (
+                <span className="task-badge">
+                  <Bell size={14} />
+                  Broadcast
+                </span>
+              )}
+            </div>
           </div>
-        </>
-      )}
 
-      {/* Floating Add button */}
-      <div className="fab">
-        <button
-          className="btn btn-primary"
-          onClick={openAdd}
-          aria-label="Add task"
-        >
-          <FiPlus /> New Task
-        </button>
+          <div className="task-people">
+            <Users size={15} />
+            <span>{assignedNames || "Unassigned"}</span>
+          </div>
+        </div>
+
+        {isAdmin && (
+          <div className="owner-row">
+            <span>Owner</span>
+            <select
+              className="task-select"
+              value={(task.assignedToIds || [])[0] || ""}
+              disabled={changingOwnerId === id}
+              onChange={(event) => handleChangeOwner(task, event.target.value || null)}
+            >
+              <option value="">Unassigned</option>
+              {allUsers.map((user) => (
+                <option key={userIdOf(user)} value={userIdOf(user)}>
+                  {userNameOf(user)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="task-card-actions">
+          <IconButton icon={Pencil} label="Edit task" onClick={() => openEdit(task)} variant="neutral" />
+          <IconButton
+            icon={CheckCircle2}
+            label={completed ? "Reopen task" : "Mark complete"}
+            onClick={() => quickSetStatus(task, completed ? "Pending" : "Completed")}
+            loading={busy}
+            disabled={Boolean(busyTaskId && busyTaskId !== id)}
+            variant={completed ? "soft" : "primary"}
+          />
+          <IconButton
+            icon={Send}
+            label="Send notification"
+            onClick={() => sendTaskNotification(id)}
+            loading={busy}
+            disabled={Boolean(busyTaskId && busyTaskId !== id)}
+            variant="soft"
+          />
+          <IconButton icon={Copy} label="Copy link" onClick={() => copyTaskLink(task)} variant="neutral" />
+          <IconButton
+            icon={Trash2}
+            label="Delete task"
+            onClick={() => deleteTask(id)}
+            loading={busy}
+            disabled={Boolean(busyTaskId && busyTaskId !== id)}
+            variant="danger"
+          />
+        </div>
+      </article>
+    );
+  };
+
+  return (
+    <div className="tasks-page">
+      <style>{`
+        .tasks-page {
+          min-height: 100vh;
+          padding: 14px;
+          padding-bottom: calc(92px + env(safe-area-inset-bottom));
+          background: #f9f6ef;
+          color: #332817;
+        }
+
+        .tasks-shell {
+          display: grid;
+          gap: 14px;
+        }
+
+        .tasks-header {
+          display: grid;
+          gap: 14px;
+        }
+
+        .tasks-title {
+          margin: 0;
+          color: #6b4f1d;
+          font-size: clamp(28px, 9vw, 38px);
+          line-height: 1.05;
+          font-weight: 900;
+        }
+
+        .tasks-subtitle {
+          color: #8a7a5c;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+
+        .tasks-toolbar {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .tasks-search-stack {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          display: grid;
+          gap: 8px;
+          padding: 10px 0;
+          background: #f9f6ef;
+        }
+
+        .tasks-search-row {
+          display: grid;
+          grid-template-columns: 1fr 48px 48px;
+          gap: 10px;
+        }
+
+        .task-search-wrap {
+          position: relative;
+          min-width: 0;
+        }
+
+        .task-search-wrap svg {
+          position: absolute;
+          left: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #8a7a5c;
+          pointer-events: none;
+        }
+
+        .task-input,
+        .task-select,
+        .task-textarea {
+          width: 100%;
+          border: 1px solid #ddd2bd;
+          border-radius: 14px;
+          background: #fff;
+          color: #332817;
+          font-size: 16px;
+          transition: border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .task-input,
+        .task-select {
+          height: 46px;
+          padding: 0 12px;
+        }
+
+        .task-search-input {
+          padding-left: 40px;
+        }
+
+        .task-textarea {
+          min-height: 96px;
+          padding: 12px;
+          resize: vertical;
+          line-height: 1.4;
+        }
+
+        .task-input:focus,
+        .task-select:focus,
+        .task-textarea:focus {
+          outline: none;
+          border-color: #b89b58;
+          box-shadow: 0 0 0 4px rgba(184, 155, 88, 0.18);
+        }
+
+        .task-chip-row {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .task-chip-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .task-chip {
+          border: 1px solid #eadfca;
+          border-radius: 999px;
+          background: #fff;
+          color: #6b4f1d;
+          padding: 7px 10px;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+          cursor: pointer;
+        }
+
+        .task-chip-active {
+          background: #f8f2e6;
+        }
+
+        .task-stats {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .task-stat {
+          min-height: 58px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid #eee2cf;
+          border-radius: 14px;
+          background: #fff;
+          color: #6b4f1d;
+          padding: 12px;
+          font-weight: 900;
+          box-shadow: 0 8px 24px rgba(80, 60, 28, 0.06);
+        }
+
+        .view-tabs {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .view-tab {
+          min-height: 44px;
+          border: 1px solid #eadfca;
+          border-radius: 14px;
+          background: #fff;
+          color: #6b4f1d;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .view-tab-active {
+          background: #6b4f1d;
+          color: #fff;
+          border-color: #6b4f1d;
+        }
+
+        .task-alert {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 12px;
+          border-radius: 12px;
+          background: #fff3f3;
+          color: #9b1c1c;
+          border: 1px solid #ffd1d1;
+          line-height: 1.4;
+        }
+
+        .task-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .task-card {
+          display: grid;
+          gap: 14px;
+          padding: 14px;
+          border-radius: 14px;
+          border: 1px solid #eee2cf;
+          background: #fff;
+          box-shadow: 0 8px 24px rgba(80, 60, 28, 0.08);
+        }
+
+        .task-card-main {
+          display: grid;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .task-title {
+          color: #332817;
+          font-weight: 900;
+          font-size: 16px;
+          line-height: 1.25;
+        }
+
+        .task-desc {
+          margin-top: 4px;
+          color: #777;
+          font-size: 13px;
+          line-height: 1.4;
+        }
+
+        .task-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+        }
+
+        .task-badge {
+          min-height: 32px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 9px;
+          border-radius: 9px;
+          background: #f8f2e6;
+          color: #6b4f1d;
+          border: 1px solid #eadfca;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .task-badge-danger {
+          background: #fff3f3;
+          color: #a83232;
+          border-color: #f3c3c3;
+        }
+
+        .task-people {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: #76664b;
+          font-size: 13px;
+          font-weight: 800;
+          min-width: 0;
+        }
+
+        .task-people span {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .task-card-actions {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .owner-row {
+          display: grid;
+          gap: 6px;
+          color: #8a7a5c;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .task-empty {
+          color: #76664b;
+          background: #fff;
+          border: 1px dashed #d8c9ad;
+          border-radius: 12px;
+          padding: 18px;
+          line-height: 1.45;
+        }
+
+        .board-scroll {
+          display: grid;
+          grid-auto-flow: column;
+          grid-auto-columns: minmax(285px, 86vw);
+          gap: 12px;
+          overflow-x: auto;
+          padding-bottom: 8px;
+          scroll-snap-type: x mandatory;
+        }
+
+        .board-column {
+          scroll-snap-align: start;
+          display: grid;
+          gap: 10px;
+          align-content: start;
+          border: 1px solid #eee2cf;
+          background: rgba(255, 255, 255, 0.72);
+          border-radius: 16px;
+          padding: 12px;
+        }
+
+        .board-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          font-weight: 900;
+          color: #6b4f1d;
+        }
+
+        .agenda-list {
+          display: grid;
+          gap: 14px;
+        }
+
+        .agenda-group {
+          display: grid;
+          gap: 10px;
+        }
+
+        .agenda-title {
+          position: sticky;
+          top: 76px;
+          z-index: 10;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 10px 12px;
+          border: 1px solid #eadfca;
+          border-radius: 12px;
+          background: #f8f2e6;
+          color: #6b4f1d;
+          font-weight: 900;
+        }
+
+        .task-icon-btn,
+        .task-action-btn {
+          font-family: inherit;
+          cursor: pointer;
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, color 160ms ease;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .task-icon-btn {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 46px;
+          border: 1px solid;
+          border-radius: 14px;
+        }
+
+        .task-icon-btn-neutral {
+          background: #fff;
+          color: #6b4f1d;
+          border-color: #e6dcc8;
+        }
+
+        .task-icon-btn-soft {
+          background: #f8f2e6;
+          color: #6b4f1d;
+          border-color: #eadfca;
+        }
+
+        .task-icon-btn-primary {
+          background: #6b4f1d;
+          color: #fff;
+          border-color: #6b4f1d;
+        }
+
+        .task-icon-btn-danger {
+          background: #fff5f5;
+          color: #a83232;
+          border-color: #f3c3c3;
+        }
+
+        .task-icon-btn:hover:not(:disabled),
+        .task-action-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 22px rgba(80, 60, 28, 0.14);
+        }
+
+        .task-icon-btn-primary:hover:not(:disabled),
+        .task-action-btn-primary:hover:not(:disabled) {
+          background: #5a4217;
+        }
+
+        .task-icon-btn-danger:hover:not(:disabled) {
+          background: #a83232;
+          color: #fff;
+          border-color: #a83232;
+        }
+
+        .task-icon-btn:disabled,
+        .task-action-btn:disabled {
+          opacity: 0.58;
+          cursor: not-allowed;
+        }
+
+        .task-tooltip {
+          display: none;
+        }
+
+        .task-action-btn {
+          width: 100%;
+          min-height: 48px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          border-radius: 14px;
+          padding: 0 14px;
+          font-weight: 900;
+          border: 1px solid;
+          white-space: nowrap;
+        }
+
+        .task-action-btn-primary {
+          background: #6b4f1d;
+          color: #fff;
+          border-color: #6b4f1d;
+        }
+
+        .task-action-btn-secondary {
+          background: #fff;
+          color: #6b4f1d;
+          border-color: #e1d6c0;
+        }
+
+        .task-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 50;
+          background: rgba(38, 30, 18, 0.48);
+          display: flex;
+          align-items: flex-end;
+          justify-content: center;
+        }
+
+        .task-modal {
+          width: 100%;
+          max-height: 92vh;
+          overflow: hidden;
+          background: #fff;
+          border: 1px solid #efe2cb;
+          border-radius: 18px 18px 0 0;
+          box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.22);
+          display: flex;
+          flex-direction: column;
+        }
+
+        .task-modal-header,
+        .task-modal-footer {
+          padding: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border-bottom: 1px solid #f0e5d4;
+        }
+
+        .task-modal-footer {
+          border-top: 1px solid #f0e5d4;
+          border-bottom: 0;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          padding-bottom: max(14px, env(safe-area-inset-bottom));
+        }
+
+        .task-modal-title {
+          margin: 0;
+          color: #332817;
+          font-size: 20px;
+          font-weight: 900;
+        }
+
+        .task-modal-body {
+          padding: 14px;
+          overflow: auto;
+        }
+
+        .task-form-grid,
+        .filter-grid {
+          display: grid;
+          gap: 12px;
+        }
+
+        .task-field label {
+          display: block;
+          margin-bottom: 6px;
+          color: #8a7a5c;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .assignee-picker {
+          position: relative;
+        }
+
+        .assignee-trigger {
+          width: 100%;
+          min-height: 50px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid #ddd2bd;
+          border-radius: 14px;
+          background: #fff;
+          padding: 8px;
+          color: #332817;
+          cursor: pointer;
+        }
+
+        .assignee-chip-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .assignee-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          max-width: 100%;
+          border: 1px solid #eadfca;
+          border-radius: 999px;
+          background: #f8f2e6;
+          color: #6b4f1d;
+          padding: 5px 8px;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .mini-avatar {
+          width: 24px;
+          height: 24px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #efe4ca, #d7be83);
+          color: #6b4f1d;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 900;
+          flex-shrink: 0;
+        }
+
+        .chip-remove {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          background: transparent;
+          color: #6b4f1d;
+          cursor: pointer;
+          padding: 0;
+        }
+
+        .assignee-count {
+          min-width: 28px;
+          height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #6b4f1d;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .assignee-panel {
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: calc(100% + 8px);
+          z-index: 60;
+          display: grid;
+          gap: 10px;
+          padding: 10px;
+          border: 1px solid #eee2cf;
+          border-radius: 16px;
+          background: #fff;
+          box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+        }
+
+        .assignee-list {
+          display: grid;
+          gap: 6px;
+          max-height: 260px;
+          overflow: auto;
+        }
+
+        .assignee-row {
+          display: grid;
+          grid-template-columns: auto auto 1fr;
+          gap: 10px;
+          align-items: center;
+          padding: 8px;
+          border-radius: 12px;
+          background: #fffdfa;
+          border: 1px solid #f0e5d4;
+        }
+
+        .assignee-name,
+        .assignee-email {
+          display: block;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .assignee-name {
+          color: #332817;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .assignee-email {
+          color: #777;
+          font-size: 12px;
+        }
+
+        .assignee-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .muted-text {
+          color: #8a7a5c;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .tasks-fab {
+          position: fixed;
+          left: 14px;
+          right: 14px;
+          bottom: max(14px, env(safe-area-inset-bottom));
+          z-index: 30;
+        }
+
+        .task-toast {
+          position: fixed;
+          left: 14px;
+          right: 14px;
+          bottom: calc(78px + env(safe-area-inset-bottom));
+          z-index: 80;
+          border-radius: 14px;
+          background: #332817;
+          color: #fff;
+          padding: 12px 14px;
+          font-weight: 900;
+          box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
+        }
+
+        .task-spin {
+          animation: task-spin 0.8s linear infinite;
+        }
+
+        @keyframes task-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        @media (min-width: 760px) {
+          .tasks-page {
+            padding: 24px;
+            padding-bottom: 24px;
+          }
+
+          .tasks-header {
+            grid-template-columns: 1fr auto;
+            align-items: center;
+          }
+
+          .tasks-toolbar {
+            display: flex;
+          }
+
+          .task-stats {
+            grid-template-columns: repeat(4, max-content);
+          }
+
+          .task-list {
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 18px;
+          }
+
+          .task-card-actions {
+            display: flex;
+          }
+
+          .tasks-fab {
+            left: auto;
+            right: 24px;
+            width: auto;
+          }
+
+          .task-modal-backdrop {
+            align-items: center;
+            padding: 16px;
+          }
+
+          .task-modal {
+            width: min(860px, 100%);
+            max-height: 90vh;
+            border-radius: 16px;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+          }
+
+          .task-modal-header,
+          .task-modal-footer {
+            padding: 18px;
+          }
+
+          .task-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+          }
+
+          .task-modal-body {
+            padding: 18px;
+          }
+
+          .task-form-grid,
+          .filter-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .task-field-full {
+            grid-column: 1 / -1;
+          }
+
+          .task-action-btn {
+            width: auto;
+          }
+
+          .task-icon-btn {
+            width: 42px;
+            height: 42px;
+          }
+
+          .task-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #332817;
+            color: #fff;
+            font-size: 11px;
+            line-height: 1;
+            padding: 7px 9px;
+            border-radius: 8px;
+            opacity: 0;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: opacity 140ms ease, transform 140ms ease;
+            z-index: 20;
+            display: block;
+          }
+
+          .task-icon-btn:hover .task-tooltip {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+          }
+
+          .task-toast {
+            left: auto;
+            right: 24px;
+            bottom: 24px;
+            width: auto;
+            min-width: 260px;
+          }
+        }
+      `}</style>
+
+      <div className="tasks-shell">
+        <div className="tasks-header">
+          <div>
+            <h1 className="tasks-title">Tasks</h1>
+            <div className="tasks-subtitle">
+              Plan, assign, track, and message ministry tasks with clear ownership.
+            </div>
+          </div>
+
+          <div className="tasks-toolbar">
+            <IconButton icon={RefreshCw} label="Refresh tasks" onClick={() => fetchTasks(meta.page, meta.limit)} loading={loading} variant="soft" />
+            <IconButton icon={Download} label="Export tasks" onClick={exportTasks} variant="neutral" />
+            <IconButton icon={Plus} label="New task" onClick={openAdd} variant="primary" />
+          </div>
+        </div>
+
+        <div className="tasks-search-stack">
+          <div className="tasks-search-row">
+            <div className="task-search-wrap">
+              <Search size={18} />
+              <input
+                className="task-input task-search-input"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search tasks, assignees, status..."
+              />
+            </div>
+
+            <IconButton
+              icon={Filter}
+              label="Filters"
+              onClick={() => setFiltersOpen(true)}
+              variant={activeFilterCount > 0 ? "primary" : "neutral"}
+            />
+
+            <IconButton
+              icon={X}
+              label="Clear search"
+              onClick={() => {
+                setQuery("");
+                setFilters(defaultFilters);
+              }}
+              variant="soft"
+            />
+          </div>
+
+          <div className="task-chip-row">
+            <button className={`task-chip ${filters.due === "overdue" ? "task-chip-active" : ""}`} type="button" onClick={() => setFilters((prev) => ({ ...prev, due: prev.due === "overdue" ? "all" : "overdue" }))}>
+              Overdue
+            </button>
+            <button className={`task-chip ${filters.due === "today" ? "task-chip-active" : ""}`} type="button" onClick={() => setFilters((prev) => ({ ...prev, due: prev.due === "today" ? "all" : "today" }))}>
+              Today
+            </button>
+            <button className={`task-chip ${filters.status === "pending" ? "task-chip-active" : ""}`} type="button" onClick={() => setFilters((prev) => ({ ...prev, status: prev.status === "pending" ? "all" : "pending" }))}>
+              Pending
+            </button>
+            <button className={`task-chip ${filters.status === "completed" ? "task-chip-active" : ""}`} type="button" onClick={() => setFilters((prev) => ({ ...prev, status: prev.status === "completed" ? "all" : "completed" }))}>
+              Completed
+            </button>
+          </div>
+        </div>
+
+        <div className="task-stats">
+          <div className="task-stat">
+            <ClipboardList size={18} />
+            Visible: {stats.visible}
+          </div>
+          <div className="task-stat">
+            <AlertCircle size={18} />
+            Overdue: {stats.overdue}
+          </div>
+          <div className="task-stat">
+            <CalendarDays size={18} />
+            Today: {stats.today}
+          </div>
+          <div className="task-stat">
+            <CheckCircle2 size={18} />
+            Done: {stats.completed}
+          </div>
+        </div>
+
+        <div className="view-tabs">
+          <button className={`view-tab ${view === "list" ? "view-tab-active" : ""}`} type="button" onClick={() => setView("list")}>
+            <ClipboardList size={17} />
+            List
+          </button>
+          <button className={`view-tab ${view === "board" ? "view-tab-active" : ""}`} type="button" onClick={() => setView("board")}>
+            <Users size={17} />
+            Board
+          </button>
+          <button className={`view-tab ${view === "agenda" ? "view-tab-active" : ""}`} type="button" onClick={() => setView("agenda")}>
+            <CalendarDays size={17} />
+            Agenda
+          </button>
+        </div>
+
+        {error && (
+          <div className="task-alert">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="task-empty">Loading tasks...</div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="task-empty">No tasks found.</div>
+        ) : view === "list" ? (
+          <div className="task-list">{filteredTasks.map((task) => renderTaskCard(task))}</div>
+        ) : view === "board" ? (
+          <div className="board-scroll">
+            {STATUS_OPTIONS.map((status) => {
+              const columnTasks = filteredTasks.filter((task) => statusOptionOf(task.statusCode).key === status.key);
+
+              return (
+                <section className="board-column" key={status.key}>
+                  <div className="board-title">
+                    <span>{status.label}</span>
+                    <span className="task-badge">{columnTasks.length}</span>
+                  </div>
+
+                  {columnTasks.length === 0 ? (
+                    <div className="task-empty">No tasks.</div>
+                  ) : (
+                    columnTasks.map((task) => renderTaskCard(task, true))
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="agenda-list">
+            {agendaGroups.map(([date, groupTasks]) => (
+              <section className="agenda-group" key={date}>
+                <div className="agenda-title">
+                  <span>
+                    {date === "No due date"
+                      ? "No due date"
+                      : new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                  </span>
+                  <span>{groupTasks.length}</span>
+                </div>
+
+                {groupTasks.map((task) => renderTaskCard(task, true))}
+              </section>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Modal Sheet */}
-      {showModal && (
+      <div className="tasks-fab">
+        <ActionButton icon={Plus} onClick={openAdd}>
+          New Task
+        </ActionButton>
+      </div>
+
+      {toast && <div className="task-toast">{toast}</div>}
+
+      {filtersOpen && (
         <div
-          className="sheet"
+          className="task-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={form.id ? "Edit Task" : "New Task"}
-          onClick={(e) => {
-            if (e.target.classList.contains("sheet")) setShowModal(false);
+          onClick={(event) => {
+            if (event.target.classList.contains("task-modal-backdrop")) setFiltersOpen(false);
           }}
         >
-          <div className="sheet-panel">
-            <h3 style={{ marginTop: 0 }}>
-              {form.id ? "Edit Task" : "New Task"}
-            </h3>
-            <form
-              onSubmit={saveTask}
-              style={{ display: "grid", gap: 12 }}
-            >
-              <label className="col">
-                <span className="tiny muted bold">Title</span>
-                <input
-                  value={form.title}
-                  onChange={(e) => setField("title", e.target.value)}
-                  className="input"
-                />
-              </label>
+          <div className="task-modal">
+            <div className="task-modal-header">
+              <h2 className="task-modal-title">Task Filters</h2>
+              <IconButton icon={X} label="Close filters" onClick={() => setFiltersOpen(false)} variant="neutral" />
+            </div>
 
-              <label className="col">
-                <span className="tiny muted bold">Description</span>
-                <textarea
-                  value={form.description || ""}
-                  onChange={(e) =>
-                    setField("description", e.target.value)
-                  }
-                  className="input"
-                  style={{ minHeight: 90 }}
-                />
-              </label>
-
-              <div
-                className="row gap-sm"
-                style={{ flexWrap: "wrap" }}
-              >
-                <div style={{ flex: "1 1 320px", minWidth: 260 }}>
-                  <div
-                    className="tiny muted bold"
-                    style={{ marginBottom: 6 }}
-                  >
-                    Assigned To (multiple)
-                  </div>
-                  <MultiUserSelect
-                    allUsers={allUsers}
-                    value={form.assignedToIds || []}
-                    onChange={(ids) => {
-                      setField("assignedToIds", ids);
-                      setField(
-                        "assignedToDisplay",
-                        (ids || []).map(findUserDisplay).join(", ")
-                      );
-                    }}
-                  />
+            <div className="task-modal-body">
+              <div className="filter-grid">
+                <div className="task-field">
+                  <label>Status</label>
+                  <select className="task-select" value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}>
+                    <option value="all">All statuses</option>
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status.key} value={status.key}>
+                        {status.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div
-                  className="col"
-                  style={{
-                    flex: "1 1 220px",
-                    minWidth: 220,
-                    gap: 10,
-                  }}
-                >
-                  <label className="col">
-                    <span className="tiny muted bold">Due Date</span>
-                    <input
-                      type="date"
-                      value={form.dueDate || ""}
-                      onChange={(e) =>
-                        setField("dueDate", e.target.value)
-                      }
-                      className="input"
-                    />
-                  </label>
-                  <label
-                    className="row center"
-                    style={{ gap: 8 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!form.broadcast}
-                      onChange={(e) =>
-                        setField("broadcast", e.target.checked)
-                      }
-                    />
-                    <span className="tiny">
-                      Broadcast to Upcoming Events
-                    </span>
-                  </label>
-                  <label className="col">
-                    <span className="tiny muted bold">Status</span>
-                    <select
-                      value={form.status}
-                      onChange={(e) =>
-                        setField("status", e.target.value)
-                      }
-                      className="input"
-                    >
-                      <option>Pending</option>
-                      <option>In-Progress</option>
-                      <option>On-Hold</option>
-                      <option>Completed</option>
-                    </select>
-                  </label>
-                  <label className="col">
-                    <span className="tiny muted bold">Priority</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={form.priority ?? 2}
-                      onChange={(e) =>
-                        setField("priority", e.target.value)
-                      }
-                      className="input"
-                    />
-                  </label>
+
+                <div className="task-field">
+                  <label>Assignee</label>
+                  <select className="task-select" value={filters.assignee} onChange={(event) => setFilters((prev) => ({ ...prev, assignee: event.target.value }))}>
+                    <option value="">Anyone</option>
+                    {allUsers.map((user) => (
+                      <option key={userIdOf(user)} value={userIdOf(user)}>
+                        {userNameOf(user)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Priority</label>
+                  <select className="task-select" value={filters.priority} onChange={(event) => setFilters((prev) => ({ ...prev, priority: event.target.value }))}>
+                    <option value="all">Any priority</option>
+                    {PRIORITY_OPTIONS.map((priority) => (
+                      <option key={priority.value} value={priority.value}>
+                        {priority.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Due</label>
+                  <select className="task-select" value={filters.due} onChange={(event) => setFilters((prev) => ({ ...prev, due: event.target.value }))}>
+                    <option value="all">Any due date</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="today">Due today</option>
+                    <option value="week">Next 7 days</option>
+                    <option value="future">Future</option>
+                    <option value="none">No due date</option>
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Broadcast</label>
+                  <select className="task-select" value={filters.broadcast} onChange={(event) => setFilters((prev) => ({ ...prev, broadcast: event.target.value }))}>
+                    <option value="all">Any</option>
+                    <option value="yes">Broadcast only</option>
+                    <option value="no">Not broadcast</option>
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Sort</label>
+                  <select className="task-select" value={filters.sortBy} onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value }))}>
+                    <option value="smart">Smart order</option>
+                    <option value="due">Due date</option>
+                    <option value="priority">Priority</option>
+                    <option value="status">Status</option>
+                    <option value="title">Title</option>
+                  </select>
                 </div>
               </div>
+            </div>
 
-              <div
-                className="row between"
-                style={{ gap: 8, flexWrap: "wrap" }}
-              >
-                <button
-                  type="button"
-                  className="btn btn-muted"
-                  onClick={() => setShowModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={saving}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
+            <div className="task-modal-footer">
+              <ActionButton icon={X} onClick={() => setFilters(defaultFilters)} variant="secondary">
+                Clear
+              </ActionButton>
+              <ActionButton icon={Check} onClick={() => setFiltersOpen(false)}>
+                Done
+              </ActionButton>
+            </div>
           </div>
+        </div>
+      )}
+
+      {showModal && (
+        <div
+          className="task-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target.classList.contains("task-modal-backdrop")) setShowModal(false);
+          }}
+        >
+          <form className="task-modal" onSubmit={saveTask}>
+            <div className="task-modal-header">
+              <h2 className="task-modal-title">{form.id ? "Edit Task" : "New Task"}</h2>
+              <IconButton icon={X} label="Close" onClick={() => setShowModal(false)} disabled={saving} variant="neutral" />
+            </div>
+
+            <div className="task-modal-body">
+              <div className="task-form-grid">
+                <div className="task-field task-field-full">
+                  <label>Title</label>
+                  <input className="task-input" value={form.title} onChange={(event) => setField("title", event.target.value)} autoFocus />
+                </div>
+
+                <div className="task-field task-field-full">
+                  <label>Description</label>
+                  <textarea className="task-textarea" value={form.description} onChange={(event) => setField("description", event.target.value)} />
+                </div>
+
+                <div className="task-field task-field-full">
+                  <label>Assignees</label>
+                  <MultiUserSelect allUsers={allUsers} value={form.assignedToIds} onChange={(ids) => setField("assignedToIds", ids)} />
+                  {usersLoading && <div className="muted-text" style={{ marginTop: 6 }}>Loading users...</div>}
+                </div>
+
+                <div className="task-field">
+                  <label>Due Date</label>
+                  <input className="task-input" type="date" value={form.dueDate} onChange={(event) => setField("dueDate", event.target.value)} />
+                </div>
+
+                <div className="task-field">
+                  <label>Status</label>
+                  <select className="task-select" value={form.status} onChange={(event) => setField("status", event.target.value)}>
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status.key} value={status.label}>
+                        {status.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Priority</label>
+                  <select className="task-select" value={form.priority} onChange={(event) => setField("priority", Number(event.target.value))}>
+                    {PRIORITY_OPTIONS.map((priority) => (
+                      <option key={priority.value} value={priority.value}>
+                        {priority.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="task-field">
+                  <label>Broadcast</label>
+                  <label className="assignee-trigger" style={{ justifyContent: "flex-start" }}>
+                    <input type="checkbox" checked={Boolean(form.broadcast)} onChange={(event) => setField("broadcast", event.target.checked)} />
+                    <span className="muted-text">Broadcast to upcoming events</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="task-modal-footer">
+              <ActionButton icon={X} onClick={() => setShowModal(false)} disabled={saving} variant="secondary">
+                Cancel
+              </ActionButton>
+              <ActionButton icon={Save} type="submit" loading={saving}>
+                Save
+              </ActionButton>
+            </div>
+          </form>
         </div>
       )}
     </div>
