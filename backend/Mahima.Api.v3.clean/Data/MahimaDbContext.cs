@@ -1,5 +1,5 @@
-using Mahima.Api.v3.clean.Data;
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Mahima.Api.v3.clean.Data;
+using Microsoft.EntityFrameworkCore;
 using Mahima.Api.v3.clean.Models;
 using Mahima.Api.v3.clean.Models.Counselling;
 using Mahima.Api.v3.clean.Models.Marriage;
@@ -41,6 +41,10 @@ namespace Mahima.Api.v3.clean.Data
         public DbSet<ChatMember> ChatMembers => Set<ChatMember>();
         public DbSet<Message> Messages => Set<Message>();
         public DbSet<MessageRead> MessageReads => Set<MessageRead>();
+        public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+        public DbSet<MinistryScheduledMessageRun> MinistryScheduledMessageRuns => Set<MinistryScheduledMessageRun>();
+        public DbSet<MinistryAutomationSetting> MinistryAutomationSettings => Set<MinistryAutomationSetting>();
+        public DbSet<AppLanguage> AppLanguages => Set<AppLanguage>();
 
         public DbSet<PrayerResponse> PrayerResponses => Set<PrayerResponse>();
 
@@ -59,7 +63,66 @@ namespace Mahima.Api.v3.clean.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<UserBlock>(eb =>
+            {
+                eb.ToTable("user_blocks", "public");
+                eb.HasKey(b => new { b.BlockerId, b.BlockedId });
+                eb.Property(b => b.BlockerId).HasColumnName("blocker_id");
+                eb.Property(b => b.BlockedId).HasColumnName("blocked_id");
+                eb.Property(b => b.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+                eb.HasIndex(b => b.BlockedId);
+                eb.HasOne(b => b.Blocker)
+                  .WithMany()
+                  .HasForeignKey(b => b.BlockerId)
+                  .HasConstraintName("fk_user_blocks_blocker")
+                  .OnDelete(DeleteBehavior.Cascade);
+                eb.HasOne(b => b.Blocked)
+                  .WithMany()
+                  .HasForeignKey(b => b.BlockedId)
+                  .HasConstraintName("fk_user_blocks_blocked")
+                  .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<MinistryScheduledMessageRun>(eb =>
+            {
+                eb.ToTable("ministry_scheduled_message_runs", "public");
+                eb.HasKey(r => r.Id);
+                eb.Property(r => r.Id).HasColumnName("id");
+                eb.Property(r => r.MessageKey).HasColumnName("message_key").IsRequired();
+                eb.Property(r => r.ScheduledLocalDate).HasColumnName("scheduled_local_date").HasColumnType("date");
+                eb.Property(r => r.SentAtUtc).HasColumnName("sent_at_utc").HasDefaultValueSql("now()");
+                eb.HasIndex(r => new { r.MessageKey, r.ScheduledLocalDate })
+                  .IsUnique()
+                  .HasDatabaseName("ux_ministry_scheduled_message_runs_key_date");
+            });
+
+            modelBuilder.Entity<MinistryAutomationSetting>(eb =>
+            {
+                eb.ToTable("ministry_automation_settings", "public");
+                eb.HasKey(s => s.Key);
+                eb.Property(s => s.Key).HasColumnName("key");
+                eb.Property(s => s.Value).HasColumnName("value");
+                eb.Property(s => s.UpdatedAtUtc).HasColumnName("updated_at_utc").HasDefaultValueSql("now()");
+            });
+
             // -------------------------
+            // AppLanguage (admin-managed language list)
+            // -------------------------
+            modelBuilder.Entity<AppLanguage>(eb =>
+            {
+                eb.ToTable("app_languages", "public");
+                eb.HasKey(l => l.Code);
+                eb.Property(l => l.Code).HasColumnName("code").HasMaxLength(8);
+                eb.Property(l => l.Name).HasColumnName("name").HasMaxLength(80).IsRequired();
+                eb.Property(l => l.NativeName).HasColumnName("native_name").HasMaxLength(80).IsRequired();
+                eb.Property(l => l.Enabled).HasColumnName("enabled").HasDefaultValue(true);
+                eb.Property(l => l.IsDefault).HasColumnName("is_default").HasDefaultValue(false);
+                eb.Property(l => l.DisplayOrder).HasColumnName("display_order").HasDefaultValue(0);
+                eb.Property(l => l.Rtl).HasColumnName("rtl").HasDefaultValue(false);
+                eb.Property(l => l.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+                eb.Property(l => l.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+            });
+// -------------------------
             // AdminNotification
             // -------------------------
             modelBuilder.Entity<AdminNotification>(eb =>
@@ -307,7 +370,7 @@ modelBuilder.Entity<MarriageApplication>(eb =>
       .HasColumnName("credit")
       .HasColumnType("numeric(12,2)");
 
-    // 🔗 Relationships
+    // Ã°Å¸â€â€” Relationships
     eb.HasOne(l => l.JournalEntry)
       .WithMany(j => j.Lines)
       .HasForeignKey(l => l.JournalEntryId)
@@ -425,6 +488,8 @@ modelBuilder.Entity<MarriageApplication>(eb =>
                 eb.Property(u => u.Username).HasColumnName("username");
                 eb.Property(u => u.Email).HasColumnName("email");
                 eb.Property(u => u.DisplayName).HasColumnName("displayname");
+                eb.Property(u => u.ProfilePhotoUrl).HasColumnName("profilephotourl");
+                eb.Property(u => u.PayrollEnabled).HasColumnName("payrollenabled");
                 eb.Property(u => u.CognitoSub).HasColumnName("cognitosub");
                 eb.Property(u => u.JoinDate).HasColumnName("joindate");
                 eb.Property(u => u.LastLogin).HasColumnName("lastlogin");
@@ -1009,3 +1074,5 @@ modelBuilder.Entity<MarriageApplication>(eb =>
         }
     }
 }
+
+

@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 
@@ -59,14 +60,12 @@ builder.Services.AddDbContext<MahimaDbContext>(opt =>
 // -------------------------------------------------------
 // JSON / Controllers
 // -------------------------------------------------------
-builder.Services.AddControllers()
-    .AddJsonOptions(opts =>
-    {
-        opts.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        opts.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        opts.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-    });
-
+builder.Services.AddControllers().AddJsonOptions(opts =>
+{
+    opts.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    opts.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    opts.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
 // -------------------------------------------------------
 // JWT AUTH
 // -------------------------------------------------------
@@ -108,7 +107,9 @@ builder.Services
                 var token = ctx.Request.Query["access_token"];
                 var path = ctx.HttpContext.Request.Path;
 
-                if (!string.IsNullOrEmpty(token) && path.StartsWithSegments("/api/hubs/chat"))
+                if (!string.IsNullOrEmpty(token)
+                    && (path.StartsWithSegments("/api/hubs/chat")
+                        || path.StartsWithSegments("/api/server-files")))
                 {
                     ctx.Token = token;
                 }
@@ -144,11 +145,16 @@ builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IBaptismCertificateService, BaptismCertificateService>();
 builder.Services.AddScoped<IMarriageService, MarriageService>();
 builder.Services.AddScoped<ICounsellingService, CounsellingService>();
 builder.Services.AddScoped<AccountingService>();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient("PastorBot");
+builder.Services.AddScoped<IPastorBotService, PastorBotService>();
+builder.Services.AddHostedService<MinistryChatAutomationService>();
+
 
 // -------------------------------------------------------
 // BUILD APP
@@ -168,7 +174,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
+var webRootPath = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRootPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(webRootPath),
+    RequestPath = ""
+});
 app.UseRouting();
 
 // ✅ CORS MUST BE HERE

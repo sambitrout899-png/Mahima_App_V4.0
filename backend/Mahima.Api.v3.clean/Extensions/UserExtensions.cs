@@ -7,18 +7,19 @@ namespace Mahima.Api.v3.clean.Extensions
     {
         /// <summary>
         /// Returns the user's id from claims as a Guid.
-        /// Expects either ClaimTypes.NameIdentifier or "sub" to contain a GUID string.
-        /// Throws FormatException if the claim is missing or not a valid GUID.
+        /// Expects ClaimTypes.NameIdentifier, "sub", or "nameid" to contain a GUID string.
+        /// Returns Guid.Empty when the claim is missing or invalid so controllers can return Unauthorized.
         /// </summary>
         public static Guid GetUserIdGuid(this ClaimsPrincipal user)
         {
             var id = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                     ?? user.FindFirst("sub")?.Value;
+                     ?? user.FindFirst("sub")?.Value
+                     ?? user.FindFirst("nameid")?.Value;
 
             if (string.IsNullOrWhiteSpace(id))
-                throw new InvalidOperationException("User id claim not found.");
+                return Guid.Empty;
 
-            return Guid.Parse(id);
+            return Guid.TryParse(id, out var guid) ? guid : Guid.Empty;
         }
 
         /// <summary>
@@ -28,7 +29,8 @@ namespace Mahima.Api.v3.clean.Extensions
         {
             userId = Guid.Empty;
             var id = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                     ?? user.FindFirst("sub")?.Value;
+                     ?? user.FindFirst("sub")?.Value
+                     ?? user.FindFirst("nameid")?.Value;
 
             return Guid.TryParse(id, out userId);
         }

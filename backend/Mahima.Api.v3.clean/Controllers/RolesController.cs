@@ -6,6 +6,7 @@ using Npgsql;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Mahima.Api.v3.clean.Controllers
@@ -38,7 +39,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
                 var sql = @"
 SELECT r.id, r.name, r.description,
-       ARRAY_REMOVE(ARRAY_AGG(rp.page_key) FILTER (WHERE rp.page_key IS NOT NULL), NULL) AS pages
+       COALESCE(ARRAY_AGG(DISTINCT UPPER(rp.page_key)) FILTER (WHERE rp.page_key IS NOT NULL), ARRAY[]::text[]) AS pages
 FROM roles r
 LEFT JOIN role_permissions rp ON rp.role_id = r.id
 GROUP BY r.id, r.name, r.description
@@ -80,7 +81,7 @@ ORDER BY r.id;
 
                 var sql = @"
 SELECT r.id, r.name, r.description,
-       ARRAY_REMOVE(ARRAY_AGG(rp.page_key) FILTER (WHERE rp.page_key IS NOT NULL), NULL) AS pages
+       COALESCE(ARRAY_AGG(DISTINCT UPPER(rp.page_key)) FILTER (WHERE rp.page_key IS NOT NULL), ARRAY[]::text[]) AS pages
 FROM roles r
 LEFT JOIN role_permissions rp ON rp.role_id = r.id
 WHERE r.id = @id
@@ -133,9 +134,9 @@ GROUP BY r.id, r.name, r.description;
                     // assign pages (page keys)
                     if (dto.Pages != null && dto.Pages.Length > 0)
                     {
-                        foreach (var pk in dto.Pages)
+                        foreach (var pk in NormalizePageKeys(dto.Pages))
                         {
-                            await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk) ON CONFLICT (role_id, page_key) DO NOTHING;", conn) { Transaction = tx };
+                            await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk);", conn) { Transaction = tx };
                             rel.Parameters.AddWithValue("r", NpgsqlTypes.NpgsqlDbType.Integer, roleId);
                             rel.Parameters.AddWithValue("pk", NpgsqlTypes.NpgsqlDbType.Text, pk);
                             await rel.ExecuteNonQueryAsync();
@@ -197,9 +198,9 @@ GROUP BY r.id, r.name, r.description;
                     await del.ExecuteNonQueryAsync();
 
                     // insert new mappings
-                    foreach (var pk in dto.Pages)
+                    foreach (var pk in NormalizePageKeys(dto.Pages))
                     {
-                        await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk) ON CONFLICT (role_id, page_key) DO NOTHING;", conn) { Transaction = tx };
+                        await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk);", conn) { Transaction = tx };
                         rel.Parameters.AddWithValue("r", NpgsqlTypes.NpgsqlDbType.Integer, id);
                         rel.Parameters.AddWithValue("pk", NpgsqlTypes.NpgsqlDbType.Text, pk);
                         await rel.ExecuteNonQueryAsync();
@@ -253,6 +254,18 @@ GROUP BY r.id, r.name, r.description;
             public string? Name { get; set; }
             public string? Description { get; set; }
             public string[]? Pages { get; set; } // page keys
+        }
+
+        private static IEnumerable<string> NormalizePageKeys(IEnumerable<string> pageKeys)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pageKey in pageKeys)
+            {
+                var normalized = (pageKey ?? "").Trim().ToUpperInvariant();
+                if (normalized.Length == 0 || !seen.Add(normalized)) continue;
+                yield return normalized;
+            }
         }
     }
 }

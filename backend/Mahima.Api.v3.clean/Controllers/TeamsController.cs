@@ -4,7 +4,9 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using System;
 using System.Data;
+using System.Security.Claims;
 using System.Threading.Tasks;
+using Mahima.Api.v3.clean.Services;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -14,11 +16,13 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         private readonly string _connectionString;
         private readonly ILogger<TeamsController> _logger;
+        private readonly IChatService _chatService;
 
-        public TeamsController(IConfiguration configuration, ILogger<TeamsController> logger)
+        public TeamsController(IConfiguration configuration, ILogger<TeamsController> logger, IChatService chatService)
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection") ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger;
+            _chatService = chatService;
         }
 
         public class TeamCreateDto
@@ -65,6 +69,8 @@ namespace Mahima.Api.v3.clean.Controllers
                         Description = rdr["Description"] is DBNull ? null : rdr["Description"]?.ToString()
                     };
 
+                    await CreateTeamChatIfPossibleAsync(created.Name);
+
                     // Return 201 Created + Location header for REST clients
                     return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
                 }
@@ -76,6 +82,25 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 _logger.LogError(ex, "Error creating team");
                 return StatusCode(500, "Error creating team.");
+            }
+        }
+
+
+        private Guid GetCurrentUserId() =>
+            Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
+
+        private async Task CreateTeamChatIfPossibleAsync(string? teamName)
+        {
+            var creatorId = GetCurrentUserId();
+            if (creatorId == Guid.Empty || string.IsNullOrWhiteSpace(teamName)) return;
+
+            try
+            {
+                await _chatService.CreateGroupChatAsync(creatorId, teamName.Trim(), Array.Empty<Guid>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Team was created but chat group creation failed for {TeamName}", teamName);
             }
         }
 

@@ -28,6 +28,7 @@
 /var/www/mahima-api/Mahima.Api.v3.clean.dll
 /var/www/mahima-api/Mahima.Api.v3.clean.runtimeconfig.json
 /var/www/mahima-api/Mahima.Api.v3.clean.pdb
+/var/www/mahima-api/BouncyCastle.Cryptography.dll
 /var/www/mahima-api/itext.barcodes.dll
 /var/www/mahima-api/itext.bouncy-castle-connector.dll
 /var/www/mahima-api/itext.forms.dll
@@ -40,6 +41,7 @@
 /var/www/mahima-api/itext.styledxmlparser.dll
 /var/www/mahima-api/itext.svg.dll
 /var/www/mahima-api/itext.commons.dll
+/var/www/mahima-api/MailKit.dll
 /var/www/mahima-api/Microsoft.AspNetCore.Authentication.JwtBearer.dll
 /var/www/mahima-api/Microsoft.Bcl.Memory.dll
 /var/www/mahima-api/Microsoft.DotNet.PlatformAbstractions.dll
@@ -54,6 +56,7 @@
 /var/www/mahima-api/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
 /var/www/mahima-api/Microsoft.IdentityModel.Tokens.dll
 /var/www/mahima-api/Microsoft.OpenApi.dll
+/var/www/mahima-api/MimeKit.dll
 /var/www/mahima-api/Newtonsoft.Json.dll
 /var/www/mahima-api/Npgsql.dll
 /var/www/mahima-api/Npgsql.EntityFrameworkCore.PostgreSQL.dll

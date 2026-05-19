@@ -208,6 +208,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mahima.Api.v3.clean.runtimeconfig.json
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mahima.Api.v3.clean.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mahima.Api.v3.clean.pdb
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/BouncyCastle.Cryptography.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Humanizer.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.barcodes.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.bouncy-castle-connector.dll
@@ -221,6 +222,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.styledxmlparser.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.svg.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.commons.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/MailKit.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.Bcl.AsyncInterfaces.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.Bcl.Memory.dll
@@ -241,6 +243,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.IdentityModel.Tokens.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Microsoft.OpenApi.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/MimeKit.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mono.TextTemplating.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Newtonsoft.Json.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Npgsql.dll

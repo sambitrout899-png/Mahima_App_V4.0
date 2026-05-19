@@ -23,10 +23,17 @@ namespace Mahima.Api.v3.clean.Services
         // ✅ Correct signature (Message.Id is GUID)
         Task MarkReadAsync(Guid chatId, Guid userId, Guid lastMessageId);
 
+        Task DeleteMessageForEveryoneAsync(Guid chatId, Guid messageId, Guid requestedBy);
+
         Task<Chat> CreateOrGetDirectChatAsync(Guid currentUserId, string usernameOrEmail);
         Task<Chat> CreateOrGetDirectChatAsync(Guid userA, Guid userB);
 
         Task<IEnumerable<Guid>> GetChatMemberIdsAsync(Guid chatId);
+
+        Task<ChatBlockStatusDto> GetBlockStatusAsync(Guid chatId, Guid userId);
+        Task<ChatBlockStatusDto> BlockChatUserAsync(Guid chatId, Guid blockerId);
+        Task<ChatBlockStatusDto> UnblockChatUserAsync(Guid chatId, Guid blockerId);
+        Task EnsureCanSendDirectChatAsync(Guid chatId, Guid senderId);
 
         Task<Chat> CreateGroupChatAsync(Guid userId, string name, Guid[] memberIds);
 
@@ -35,3 +42,4 @@ namespace Mahima.Api.v3.clean.Services
         Task SoftDeleteChatAsync(Guid chatId, Guid requestedBy);
     }
 }
+

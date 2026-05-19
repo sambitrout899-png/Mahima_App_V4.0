@@ -6,6 +6,10 @@ namespace Mahima.Api.v3.clean.Dtos
         string? Name,
         bool IsGroup,
         MessageDto? LastMessage,
-        int UnreadCount
+        int UnreadCount,
+        Guid? OtherId = null,
+        string? OtherName = null,
+        string? OtherUsername = null,
+        string? OtherProfilePhotoUrl = null
     );
 }

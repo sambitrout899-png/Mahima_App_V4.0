@@ -36,6 +36,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                await EnsureBuiltInPagesAsync(conn);
 
                 // Select by key (string), not numeric id — compatible with role_permissions.page_key
                 var cmd = new NpgsqlCommand(@"SELECT key, title, description, created_at, updated_at FROM pages ORDER BY key;", conn);
@@ -75,6 +76,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                await EnsureBuiltInPagesAsync(conn);
 
                 var cmd = new NpgsqlCommand(@"SELECT key, title, description, created_at, updated_at FROM pages WHERE key = @key;", conn);
                 cmd.Parameters.AddWithValue("key", NpgsqlTypes.NpgsqlDbType.Text, key);
@@ -214,6 +216,21 @@ namespace Mahima.Api.v3.clean.Controllers
             public string Key { get; set; } = "";
             public string Title { get; set; } = "";
             public string? Description { get; set; }
+        }
+
+        private static async Task EnsureBuiltInPagesAsync(NpgsqlConnection conn)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+                INSERT INTO pages (key, title, description, created_at, updated_at)
+                VALUES
+                    ('PASTOR', 'AI Pastor', 'Pastoral AI assistant for prayer, Scripture, and daily guidance.', now(), now()),
+                    ('SERVER_FILES', 'Server Files', 'Admin-only upload and download manager for the backend download folder.', now(), now())
+                ON CONFLICT (key) DO UPDATE
+                SET title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    updated_at = now();", conn);
+
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 }

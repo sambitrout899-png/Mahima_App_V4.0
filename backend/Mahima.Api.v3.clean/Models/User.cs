@@ -12,6 +12,7 @@ namespace Mahima.Api.v3.clean.Models
         public string? Email { get; set; }
         public string? Phone { get; set; }
         public string? DisplayName { get; set; }
+        public string? ProfilePhotoUrl { get; set; }
         public string Role { get; set; } = "member";
         public DateTime JoinDate { get; set; } = DateTime.UtcNow;
         public DateTime? LastLogin { get; set; }
@@ -58,5 +59,7 @@ namespace Mahima.Api.v3.clean.Models
 
         // 12. Pastor?
         public bool? IsPastor { get; set; }
+
+        public bool PayrollEnabled { get; set; } = false;
     }
 }

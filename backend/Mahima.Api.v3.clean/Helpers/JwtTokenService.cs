@@ -20,16 +20,22 @@ namespace Mahima.Api.v3.clean.Helpers
             _key = config["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key missing");
             _issuer = config["Jwt:Issuer"] ?? "MahimaApi";
             _audience = config["Jwt:Audience"] ?? "MahimaClients";
-            _expireMinutes = int.TryParse(config["Jwt:ExpireMinutes"], out var m) ? m : 60;
+            // Mobile users should stay signed in like a chat app. Keep the
+            // default token valid for 30 days unless production config
+            // explicitly overrides Jwt:ExpireMinutes.
+            var configuredMinutes = int.TryParse(config["Jwt:ExpireMinutes"], out var m) ? m : 43200;
+            _expireMinutes = Math.Max(configuredMinutes, 43200);
         }
 
         public string GenerateToken(Guid userId, string username, string displayName, string role = "member")
         {
             var roleName = role switch
             {
-                "3" => "admin",
-                "2" => "moderator",
-                "1" => "member",
+                "1" => "admin",
+                "2" => "member",
+                "10" => "volunteer",
+                "11" => "staff",
+                "12" => "pastor",
                 _   => string.IsNullOrWhiteSpace(role) ? "member" : role
             };
 

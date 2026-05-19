@@ -6,9 +6,16 @@ using Npgsql;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using System.Text.Json;
+using Mahima.Api.v3.clean.Dtos;
+using Mahima.Api.v3.clean.Hubs;
 using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -19,12 +26,80 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly string? _connectionString;
         private readonly ILogger<UsersController> _logger;
         private readonly IHostEnvironment _env;
+        private readonly IPastorBotService _pastorBot;
+        private readonly IHubContext<ChatHub> _chatHub;
 
-        public UsersController(IConfiguration configuration, ILogger<UsersController> logger, IHostEnvironment env)
+        public UsersController(
+            IConfiguration configuration,
+            ILogger<UsersController> logger,
+            IHostEnvironment env,
+            IPastorBotService pastorBot,
+            IHubContext<ChatHub> chatHub)
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _env = env ?? throw new ArgumentNullException(nameof(env));
+            _pastorBot = pastorBot ?? throw new ArgumentNullException(nameof(pastorBot));
+            _chatHub = chatHub ?? throw new ArgumentNullException(nameof(chatHub));
+        }
+
+        private async Task SendNewUserWelcomeAsync(Guid userId, string? displayName)
+        {
+            try
+            {
+                var sent = await _pastorBot.SendJaiMasihMessageAsync(
+                    MinistryMessageFactory.BuildNewUserWelcome(displayName),
+                    HttpContext.RequestAborted);
+
+                await _chatHub.Clients.All.SendAsync("ReceiveMessage", sent, HttpContext.RequestAborted);
+                _logger.LogInformation("AI Pastor welcome sent for new user {UserId}", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI Pastor welcome could not be sent for new user {UserId}", userId);
+            }
+        }
+
+        private Guid GetCurrentUserId() =>
+            Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id)
+                ? id
+                : Guid.Empty;
+
+        private static DateTime? ParsePayloadDate(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            if (DateTimeOffset.TryParse(value, out var dto)) return dto.UtcDateTime;
+            if (DateTime.TryParse(value, out var dt)) return EnsureUtc(dt);
+            return null;
+        }
+
+        private static DateTime EnsureUtc(DateTime value)
+        {
+            if (value.Kind == DateTimeKind.Utc) return value;
+            if (value.Kind == DateTimeKind.Local) return value.ToUniversalTime();
+            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        }
+
+        private static object DbTimestamp(DateTime? value) =>
+            value.HasValue ? EnsureUtc(value.Value) : DBNull.Value;
+
+        private static async Task EnsureUserProfilesTableAsync(NpgsqlConnection conn)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.user_profiles (
+    user_id uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    status text NULL,
+    updated_at_utc timestamp with time zone NOT NULL DEFAULT now()
+);", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task EnsurePayrollEnabledColumnAsync(NpgsqlConnection conn)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+ALTER TABLE public.users
+ADD COLUMN IF NOT EXISTS payrollenabled boolean NOT NULL DEFAULT false;", conn);
+            await cmd.ExecuteNonQueryAsync();
         }
 
         // DTO used for admin reset via POST /api/users/{id}/reset-password
@@ -52,9 +127,46 @@ namespace Mahima.Api.v3.clean.Controllers
             public bool? IsPastor { get; set; }
         }
 
+        public class UserProfileUpdateDto
+        {
+            public string? DisplayName { get; set; }
+            public string? ProfilePhotoUrl { get; set; }
+            public string? Status { get; set; }
+        }
+
+        private sealed class UserListItemDto
+        {
+            public string Id { get; set; } = string.Empty;
+            public string? Username { get; set; }
+            public string? UserCode { get; set; }
+            public string? Email { get; set; }
+            public string? DisplayName { get; set; }
+            public string? ProfilePhotoUrl { get; set; }
+            public string? Status { get; set; }
+            public string? Role { get; set; }
+            public string? Phone { get; set; }
+            public string? JoinDate { get; set; }
+            public string? LastLogin { get; set; }
+            public string? Birthday { get; set; }
+            public string? MaritalStatus { get; set; }
+            public string? Sex { get; set; }
+            public bool? IsBaptized { get; set; }
+            public string? BaptismPlace { get; set; }
+            public string? BaptismDate { get; set; }
+            public bool? IsBornAgain { get; set; }
+            public bool? IsBeliever { get; set; }
+            public int? Age { get; set; }
+            public string? AadharNumber { get; set; }
+            public string? HomeAddress { get; set; }
+            public string? CurrentAddress { get; set; }
+            public string? EmergencyContactPhone { get; set; }
+            public bool? IsPastor { get; set; }
+            public bool? PayrollEnabled { get; set; }
+        }
+
         // GET api/users?search=&page=1&limit=50
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 50)
+        public async Task<IActionResult> GetAll([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 50, [FromQuery] bool? payrollEnabled = null)
         {
             if (string.IsNullOrWhiteSpace(_connectionString))
             {
@@ -62,315 +174,357 @@ namespace Mahima.Api.v3.clean.Controllers
                 return StatusCode(500, "Missing connection string 'DefaultConnection'.");
             }
 
-            if (page < 1) page = 1;
-            if (limit < 1 || limit > 500) limit = 50;
+            page = Math.Max(1, page);
+            limit = Math.Clamp(limit, 1, 5000);
             var offset = (page - 1) * limit;
+            var hasSearch = !string.IsNullOrWhiteSpace(search);
 
             try
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                await EnsureUserProfilesTableAsync(conn);
+                await EnsurePayrollEnabledColumnAsync(conn);
+                var columns = await GetUsersColumnsAsync(conn);
 
-                // ---------- NO SEARCH ----------
-                if (string.IsNullOrWhiteSpace(search))
+                string Expr(params string[] names)
                 {
-                    await using var countCmd = new NpgsqlCommand(@"SELECT COUNT(*) FROM users", conn);
-                    var totalObj = await countCmd.ExecuteScalarAsync();
-                    var total = Convert.ToInt32(totalObj);
-
-                    // Include enrichment + UserCode
-                    await using var cmd = new NpgsqlCommand(@"
-                        SELECT
-                            id            AS ""Id"",
-                            username      AS ""Username"",
-                            ""UserCode"",
-                            email         AS ""Email"",
-                            displayname   AS ""DisplayName"",
-                            role          AS ""Role"",
-                            phone         AS ""Phone"",
-                            joindate      AS ""JoinDate"",
-                            lastlogin     AS ""LastLogin"",
-                            ""Birthday"",
-                            ""MaritalStatus"",
-                            ""Sex"",
-                            ""IsBaptized"",
-                            ""BaptismPlace"",
-                            ""BaptismDate"",
-                            ""IsBornAgain"",
-                            ""IsBeliever"",
-                            ""Age"",
-                            ""AadharNumber"",
-                            ""HomeAddress"",
-                            ""CurrentAddress"",
-                            ""EmergencyContactPhone"",
-                            ""IsPastor""
-                        FROM users
-                        ORDER BY COALESCE(displayname, username) ASC
-                        LIMIT @limit OFFSET @offset;", conn);
-
-                    cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
-                    cmd.Parameters.AddWithValue("offset", NpgsqlTypes.NpgsqlDbType.Integer, offset);
-
-                    var items = new List<object>();
-                    await using (var rdr = await cmd.ExecuteReaderAsync())
-                    {
-                        while (await rdr.ReadAsync())
-                        {
-                            var idObj = rdr["Id"];
-                            var idString = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
-
-                            int? age = rdr["Age"] is DBNull ? (int?)null : Convert.ToInt32(rdr["Age"]);
-                            bool? isBaptized = rdr["IsBaptized"] is DBNull ? (bool?)null : (bool)rdr["IsBaptized"];
-                            bool? isBornAgain = rdr["IsBornAgain"] is DBNull ? (bool?)null : (bool)rdr["IsBornAgain"];
-                            bool? isBeliever = rdr["IsBeliever"] is DBNull ? (bool?)null : (bool)rdr["IsBeliever"];
-                            bool? isPastor = rdr["IsPastor"] is DBNull ? (bool?)null : (bool)rdr["IsPastor"];
-
-                            items.Add(new
-                            {
-                                id = idString,
-                                username = rdr["Username"] is DBNull ? null : rdr["Username"]?.ToString(),
-                                UserCode = rdr["UserCode"] is DBNull ? null : rdr["UserCode"]?.ToString(),
-                                email = rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString(),
-                                displayName = rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString(),
-                                role = rdr["Role"] is DBNull ? null : rdr["Role"]?.ToString(),
-                                phone = rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
-                                joinDate = rdr["JoinDate"] is DBNull ? null : rdr["JoinDate"]?.ToString(),
-                                lastLogin = rdr["LastLogin"] is DBNull ? null : rdr["LastLogin"]?.ToString(),
-
-                                birthday = rdr["Birthday"] is DBNull ? null : rdr["Birthday"]?.ToString(),
-                                maritalStatus = rdr["MaritalStatus"] is DBNull ? null : rdr["MaritalStatus"]?.ToString(),
-                                sex = rdr["Sex"] is DBNull ? null : rdr["Sex"]?.ToString(),
-                                isBaptized,
-                                baptismPlace = rdr["BaptismPlace"] is DBNull ? null : rdr["BaptismPlace"]?.ToString(),
-                                baptismDate = rdr["BaptismDate"] is DBNull ? null : rdr["BaptismDate"]?.ToString(),
-                                isBornAgain,
-                                isBeliever,
-                                age,
-                                aadharNumber = rdr["AadharNumber"] is DBNull ? null : rdr["AadharNumber"]?.ToString(),
-                                homeAddress = rdr["HomeAddress"] is DBNull ? null : rdr["HomeAddress"]?.ToString(),
-                                currentAddress = rdr["CurrentAddress"] is DBNull ? null : rdr["CurrentAddress"]?.ToString(),
-                                emergencyContactPhone = rdr["EmergencyContactPhone"] is DBNull ? null : rdr["EmergencyContactPhone"]?.ToString(),
-                                isPastor
-                            });
-                        }
-                    }
-
-                    return Ok(new { items, total, page, limit });
+                    var column = names.FirstOrDefault(columns.Contains);
+                    return column == null ? "NULL" : $@"u.""{column}""";
                 }
 
-                // ---------- SEARCH PRESENT ----------
-                var useFullText = search.Trim().Length >= 3;
+                string SelectExpr(string alias, params string[] names) =>
+                    $@"{Expr(names)} AS ""{alias}""";
 
-                // ===== Full-text search (>= 3 chars) =====
-                if (useFullText)
+                var idExpr = Expr("id");
+                var usernameExpr = Expr("username");
+                var emailExpr = Expr("email");
+                var displayNameExpr = Expr("displayname");
+                var phoneExpr = Expr("phone");
+                var roleExpr = Expr("role");
+                var joinDateExpr = Expr("joindate");
+                var userCodeExpr = Expr("UserCode", "usercode");
+                var isDeletedExpr = Expr("isdeleted", "IsDeleted");
+                var payrollEnabledExpr = Expr("payrollenabled", "PayrollEnabled", "payroll_enabled");
+
+                var conditions = new List<string>();
+                if (isDeletedExpr != "NULL")
                 {
-                    var sql = @"
-WITH q AS (
-  SELECT websearch_to_tsquery('english', @q) AS query
-)
-SELECT COUNT(*) OVER() AS total,
-       u.id          AS ""Id"",
-       u.username    AS ""Username"",
-       u.""UserCode"",
-       u.email       AS ""Email"",
-       u.displayname AS ""DisplayName"",
-       u.role        AS ""Role"",
-       u.phone       AS ""Phone"",
-       u.joindate    AS ""JoinDate"",
-       u.lastlogin   AS ""LastLogin"",
-       u.""Birthday"",
-       u.""MaritalStatus"",
-       u.""Sex"",
-       u.""IsBaptized"",
-       u.""BaptismPlace"",
-       u.""BaptismDate"",
-       u.""IsBornAgain"",
-       u.""IsBeliever"",
-       u.""Age"",
-       u.""AadharNumber"",
-       u.""HomeAddress"",
-       u.""CurrentAddress"",
-       u.""EmergencyContactPhone"",
-       u.""IsPastor"",
-       ts_rank(
-setweight(to_tsvector('english', coalesce(u.displayname,'')), 'A') ||
-setweight(to_tsvector('english', coalesce(u.username,'')), 'A') ||
-setweight(to_tsvector('english', coalesce(u.email,'')), 'B') ||
-setweight(to_tsvector('english', coalesce(u.phone,'')), 'A'),
-         q.query
-       ) AS rank
-FROM users u, q
-WHERE (
-         setweight(to_tsvector('english', coalesce(u.displayname,'')), 'A') ||
-         setweight(to_tsvector('english', coalesce(u.username,'')), 'B') ||
-         setweight(to_tsvector('english', coalesce(u.email,'')), 'C')
-      ) @@ q.query
-ORDER BY rank DESC, COALESCE(u.displayname, u.username) ASC
-LIMIT @limit OFFSET @offset;
-";
-                    await using var cmd = new NpgsqlCommand(sql, conn);
-                    cmd.Parameters.AddWithValue("q", NpgsqlTypes.NpgsqlDbType.Text, search);
-                    cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
-                    cmd.Parameters.AddWithValue("offset", NpgsqlTypes.NpgsqlDbType.Integer, offset);
-
-                    var items = new List<object>();
-                    int total = 0;
-                    await using (var rdr = await cmd.ExecuteReaderAsync())
-                    {
-                        while (await rdr.ReadAsync())
-                        {
-                            if (total == 0)
-                            {
-                                var totVal = rdr["total"];
-                                total = totVal is DBNull ? 0 : Convert.ToInt32(totVal);
-                            }
-
-                            var idObj = rdr["Id"];
-                            var idString = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
-
-                            int? age = rdr["Age"] is DBNull ? (int?)null : Convert.ToInt32(rdr["Age"]);
-                            bool? isBaptized = rdr["IsBaptized"] is DBNull ? (bool?)null : (bool)rdr["IsBaptized"];
-                            bool? isBornAgain = rdr["IsBornAgain"] is DBNull ? (bool?)null : (bool)rdr["IsBornAgain"];
-                            bool? isBeliever = rdr["IsBeliever"] is DBNull ? (bool?)null : (bool)rdr["IsBeliever"];
-                            bool? isPastor = rdr["IsPastor"] is DBNull ? (bool?)null : (bool)rdr["IsPastor"];
-
-                            items.Add(new
-                            {
-                                id = idString,
-                                username = rdr["Username"] is DBNull ? null : rdr["Username"]?.ToString(),
-                                UserCode = rdr["UserCode"] is DBNull ? null : rdr["UserCode"]?.ToString(),
-                                email = rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString(),
-                                displayName = rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString(),
-                                role = rdr["Role"] is DBNull ? null : rdr["Role"]?.ToString(),
-                                phone = rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
-                                joinDate = rdr["JoinDate"] is DBNull ? null : rdr["JoinDate"]?.ToString(),
-                                lastLogin = rdr["LastLogin"] is DBNull ? null : rdr["LastLogin"]?.ToString(),
-
-                                birthday = rdr["Birthday"] is DBNull ? null : rdr["Birthday"]?.ToString(),
-                                maritalStatus = rdr["MaritalStatus"] is DBNull ? null : rdr["MaritalStatus"]?.ToString(),
-                                sex = rdr["Sex"] is DBNull ? null : rdr["Sex"]?.ToString(),
-                                isBaptized,
-                                baptismPlace = rdr["BaptismPlace"] is DBNull ? null : rdr["BaptismPlace"]?.ToString(),
-                                baptismDate = rdr["BaptismDate"] is DBNull ? null : rdr["BaptismDate"]?.ToString(),
-                                isBornAgain,
-                                isBeliever,
-                                age,
-                                aadharNumber = rdr["AadharNumber"] is DBNull ? null : rdr["AadharNumber"]?.ToString(),
-                                homeAddress = rdr["HomeAddress"] is DBNull ? null : rdr["HomeAddress"]?.ToString(),
-                                currentAddress = rdr["CurrentAddress"] is DBNull ? null : rdr["CurrentAddress"]?.ToString(),
-                                emergencyContactPhone = rdr["EmergencyContactPhone"] is DBNull ? null : rdr["EmergencyContactPhone"]?.ToString(),
-                                isPastor
-                            });
-                        }
-                    }
-
-                    return Ok(new { items, total, page, limit });
+                    conditions.Add($"COALESCE(({isDeletedExpr})::boolean, false) = false");
                 }
-                // ===== Short search (ILIKE) =====
                 else
                 {
-                    var p = "%" + search.Replace("%", "\\%").Replace("_", "\\_") + "%";
-
-                    var sql = @"
-SELECT COUNT(*) OVER() AS total,
-       u.id          AS ""Id"",
-       u.username    AS ""Username"",
-       u.""UserCode"",
-       u.email       AS ""Email"",
-       u.displayname AS ""DisplayName"",
-       u.role        AS ""Role"",
-       u.phone       AS ""Phone"",
-       u.joindate    AS ""JoinDate"",
-       u.lastlogin   AS ""LastLogin"",
-       u.""Birthday"",
-       u.""MaritalStatus"",
-       u.""Sex"",
-       u.""IsBaptized"",
-       u.""BaptismPlace"",
-       u.""BaptismDate"",
-       u.""IsBornAgain"",
-       u.""IsBeliever"",
-       u.""Age"",
-       u.""AadharNumber"",
-       u.""HomeAddress"",
-       u.""CurrentAddress"",
-       u.""EmergencyContactPhone"",
-       u.""IsPastor""
-FROM users u
-WHERE 
-    u.username ILIKE @p 
-    OR u.email ILIKE @p 
-    OR u.displayname ILIKE @p
-    OR u.phone ILIKE @p
-ORDER BY COALESCE(u.displayname, u.username) ASC
-ORDER BY u.id
-LIMIT @limit OFFSET @offset;
-";
-                    await using var cmd = new NpgsqlCommand(sql, conn);
-                    cmd.Parameters.AddWithValue("p", NpgsqlTypes.NpgsqlDbType.Text, p);
-                    cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
-                    cmd.Parameters.AddWithValue("offset", NpgsqlTypes.NpgsqlDbType.Integer, offset);
-
-                    var items = new List<object>();
-                    int total = 0;
-                    await using (var rdr = await cmd.ExecuteReaderAsync())
-                    {
-                        while (await rdr.ReadAsync())
-                        {
-                            if (total == 0)
-                            {
-                                var totVal = rdr["total"];
-                                total = totVal is DBNull ? 0 : Convert.ToInt32(totVal);
-                            }
-
-                            var idObj = rdr["Id"];
-                            var idString = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
-
-                            int? age = rdr["Age"] is DBNull ? (int?)null : Convert.ToInt32(rdr["Age"]);
-                            bool? isBaptized = rdr["IsBaptized"] is DBNull ? (bool?)null : (bool)rdr["IsBaptized"];
-                            bool? isBornAgain = rdr["IsBornAgain"] is DBNull ? (bool?)null : (bool)rdr["IsBornAgain"];
-                            bool? isBeliever = rdr["IsBeliever"] is DBNull ? (bool?)null : (bool)rdr["IsBeliever"];
-                            bool? isPastor = rdr["IsPastor"] is DBNull ? (bool?)null : (bool)rdr["IsPastor"];
-
-                            items.Add(new
-                            {
-                                id = idString,
-                                username = rdr["Username"] is DBNull ? null : rdr["Username"]?.ToString(),
-                                UserCode = rdr["UserCode"] is DBNull ? null : rdr["UserCode"]?.ToString(),
-                                email = rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString(),
-                                displayName = rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString(),
-                                role = rdr["Role"] is DBNull ? null : rdr["Role"]?.ToString(),
-                                phone = rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
-                                joinDate = rdr["JoinDate"] is DBNull ? null : rdr["JoinDate"]?.ToString(),
-                                lastLogin = rdr["LastLogin"] is DBNull ? null : rdr["LastLogin"]?.ToString(),
-
-                                birthday = rdr["Birthday"] is DBNull ? null : rdr["Birthday"]?.ToString(),
-                                maritalStatus = rdr["MaritalStatus"] is DBNull ? null : rdr["MaritalStatus"]?.ToString(),
-                                sex = rdr["Sex"] is DBNull ? null : rdr["Sex"]?.ToString(),
-                                isBaptized,
-                                baptismPlace = rdr["BaptismPlace"] is DBNull ? null : rdr["BaptismPlace"]?.ToString(),
-                                baptismDate = rdr["BaptismDate"] is DBNull ? null : rdr["BaptismDate"]?.ToString(),
-                                isBornAgain,
-                                isBeliever,
-                                age,
-                                aadharNumber = rdr["AadharNumber"] is DBNull ? null : rdr["AadharNumber"]?.ToString(),
-                                homeAddress = rdr["HomeAddress"] is DBNull ? null : rdr["HomeAddress"]?.ToString(),
-                                currentAddress = rdr["CurrentAddress"] is DBNull ? null : rdr["CurrentAddress"]?.ToString(),
-                                emergencyContactPhone = rdr["EmergencyContactPhone"] is DBNull ? null : rdr["EmergencyContactPhone"]?.ToString(),
-                                isPastor
-                            });
-                        }
-                    }
-
-                    return Ok(new { items, total, page, limit });
+                    conditions.Add($"COALESCE(({usernameExpr})::text, '') NOT ILIKE 'deleted_%'");
                 }
+
+                if (hasSearch)
+                {
+                    conditions.Add(@"(
+                            COALESCE((" + usernameExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + emailExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + displayNameExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + phoneExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + roleExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + userCodeExpr + @")::text, '') ILIKE @p ESCAPE '\'
+                         OR COALESCE((" + idExpr + @")::text, '') ILIKE @p ESCAPE '\')");
+                }
+
+                if (payrollEnabled.HasValue)
+                {
+                    conditions.Add(payrollEnabledExpr == "NULL"
+                        ? "false"
+                        : $"COALESCE(({payrollEnabledExpr})::boolean, false) = @payrollEnabled");
+                }
+
+                var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : string.Empty;
+
+                var sql = $@"
+SELECT COUNT(*) OVER() AS total,
+       {SelectExpr("Id", "id")},
+       {SelectExpr("Username", "username")},
+       {SelectExpr("UserCode", "UserCode", "usercode")},
+       {SelectExpr("Email", "email")},
+       {SelectExpr("DisplayName", "displayname")},
+       {SelectExpr("ProfilePhotoUrl", "profilephotourl", "ProfilePhotoUrl")},
+       p.status AS ""Status"",
+       {SelectExpr("Role", "role")},
+       {SelectExpr("Phone", "phone")},
+       {SelectExpr("JoinDate", "joindate")},
+       {SelectExpr("LastLogin", "lastlogin")},
+       {SelectExpr("Birthday", "Birthday", "birthday")},
+       {SelectExpr("MaritalStatus", "MaritalStatus", "maritalstatus")},
+       {SelectExpr("Sex", "Sex", "sex")},
+       {SelectExpr("IsBaptized", "IsBaptized", "isbaptized")},
+       {SelectExpr("BaptismPlace", "BaptismPlace", "baptismplace")},
+       {SelectExpr("BaptismDate", "BaptismDate", "baptismdate")},
+       {SelectExpr("IsBornAgain", "IsBornAgain", "isbornagain")},
+       {SelectExpr("IsBeliever", "IsBeliever", "isbeliever")},
+       {SelectExpr("Age", "Age", "age")},
+       {SelectExpr("AadharNumber", "AadharNumber", "aadharnumber")},
+       {SelectExpr("HomeAddress", "HomeAddress", "homeaddress")},
+       {SelectExpr("CurrentAddress", "CurrentAddress", "currentaddress")},
+       {SelectExpr("EmergencyContactPhone", "EmergencyContactPhone", "emergencycontactphone")},
+       {SelectExpr("IsPastor", "IsPastor", "ispastor")},
+       {SelectExpr("PayrollEnabled", "payrollenabled", "PayrollEnabled", "payroll_enabled")}
+FROM users u
+LEFT JOIN public.user_profiles p ON p.user_id = u.id
+{where}
+ORDER BY ({joinDateExpr}) DESC NULLS LAST, COALESCE(({displayNameExpr})::text, ({usernameExpr})::text, ({emailExpr})::text, '') ASC, ({idExpr}) ASC
+LIMIT @limit OFFSET @offset;";
+
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
+                cmd.Parameters.AddWithValue("offset", NpgsqlTypes.NpgsqlDbType.Integer, offset);
+                if (hasSearch)
+                {
+                    var escaped = search!.Trim().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+                    cmd.Parameters.AddWithValue("p", NpgsqlTypes.NpgsqlDbType.Text, "%" + escaped + "%");
+                }
+                if (payrollEnabled.HasValue)
+                {
+                    cmd.Parameters.AddWithValue("payrollEnabled", NpgsqlTypes.NpgsqlDbType.Boolean, payrollEnabled.Value);
+                }
+
+                var items = new List<UserListItemDto>();
+                int total = 0;
+                await using (var rdr = await cmd.ExecuteReaderAsync())
+                {
+                    while (await rdr.ReadAsync())
+                    {
+                        if (total == 0)
+                        {
+                            var totalValue = rdr["total"];
+                            total = totalValue is DBNull ? 0 : Convert.ToInt32(totalValue);
+                        }
+
+                        items.Add(ToUserListItem(rdr));
+                    }
+                }
+
+                if (total == 0 && offset == 0 && items.Count == 0)
+                {
+                    total = 0;
+                }
+
+                return Ok(new { items, total, page, limit });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving users with search.");
+                _logger.LogError(ex, "Error retrieving users.");
                 if (_env.IsDevelopment())
                     return StatusCode(500, $"Error retrieving users: {ex.GetType().Name} - {ex.Message}");
                 return StatusCode(500, "Error retrieving users.");
+            }
+        }
+
+        private static async Task<HashSet<string>> GetUsersColumnsAsync(NpgsqlConnection conn)
+        {
+            var columns = new HashSet<string>(StringComparer.Ordinal);
+            await using var cmd = new NpgsqlCommand(@"
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'users';", conn);
+
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                columns.Add(rdr.GetString(0));
+            }
+
+            return columns;
+        }
+
+        private static async Task<(int Id, string Name)> ResolveRoleAsync(NpgsqlConnection conn, string? requestedRole)
+        {
+            static async Task<(int Id, string Name)?> ReadRoleAsync(NpgsqlCommand cmd)
+            {
+                await using var rdr = await cmd.ExecuteReaderAsync();
+                if (!await rdr.ReadAsync()) return null;
+                return (Convert.ToInt32(rdr["id"]), rdr["name"]?.ToString() ?? "Member");
+            }
+
+            if (!string.IsNullOrWhiteSpace(requestedRole))
+            {
+                if (int.TryParse(requestedRole.Trim(), out var requestedRoleId))
+                {
+                    await using var cmd = new NpgsqlCommand("SELECT id, name FROM roles WHERE id = @id LIMIT 1;", conn);
+                    cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, requestedRoleId);
+                    var role = await ReadRoleAsync(cmd);
+                    if (role.HasValue) return role.Value;
+                }
+                else
+                {
+                    await using var cmd = new NpgsqlCommand("SELECT id, name FROM roles WHERE LOWER(name) = @name LIMIT 1;", conn);
+                    cmd.Parameters.AddWithValue("name", NpgsqlTypes.NpgsqlDbType.Text, requestedRole.Trim().ToLowerInvariant());
+                    var role = await ReadRoleAsync(cmd);
+                    if (role.HasValue) return role.Value;
+                }
+            }
+
+            await using var memberCmd = new NpgsqlCommand("SELECT id, name FROM roles WHERE LOWER(name) = 'member' LIMIT 1;", conn);
+            var member = await ReadRoleAsync(memberCmd);
+            return member ?? (2, "Member");
+        }
+
+        private static string? DbString(IDataRecord rdr, string name)
+        {
+            var value = rdr[name];
+            return value is DBNull ? null : value?.ToString();
+        }
+
+        private static int? DbInt(IDataRecord rdr, string name)
+        {
+            var value = rdr[name];
+            if (value is DBNull || value == null) return null;
+            if (value is int i) return i;
+            if (value is long l && l >= int.MinValue && l <= int.MaxValue) return (int)l;
+            return int.TryParse(value.ToString(), out var parsed) ? parsed : null;
+        }
+
+        private static bool? DbBool(IDataRecord rdr, string name)
+        {
+            var value = rdr[name];
+            if (value is DBNull || value == null) return null;
+            if (value is bool b) return b;
+
+            var text = value.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            if (bool.TryParse(text, out var parsed)) return parsed;
+            if (text == "1") return true;
+            if (text == "0") return false;
+            if (string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(text, "no", StringComparison.OrdinalIgnoreCase)) return false;
+            return null;
+        }
+
+        private static UserListItemDto ToUserListItem(IDataRecord rdr)
+        {
+            var idObj = rdr["Id"];
+            var idString = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
+
+            return new UserListItemDto
+            {
+                Id = idString,
+                Username = DbString(rdr, "Username"),
+                UserCode = DbString(rdr, "UserCode"),
+                Email = DbString(rdr, "Email"),
+                DisplayName = DbString(rdr, "DisplayName"),
+                ProfilePhotoUrl = DbString(rdr, "ProfilePhotoUrl"),
+                Status = DbString(rdr, "Status"),
+                Role = DbString(rdr, "Role"),
+                Phone = DbString(rdr, "Phone"),
+                JoinDate = DbString(rdr, "JoinDate"),
+                LastLogin = DbString(rdr, "LastLogin"),
+                Birthday = DbString(rdr, "Birthday"),
+                MaritalStatus = DbString(rdr, "MaritalStatus"),
+                Sex = DbString(rdr, "Sex"),
+                IsBaptized = DbBool(rdr, "IsBaptized"),
+                BaptismPlace = DbString(rdr, "BaptismPlace"),
+                BaptismDate = DbString(rdr, "BaptismDate"),
+                IsBornAgain = DbBool(rdr, "IsBornAgain"),
+                IsBeliever = DbBool(rdr, "IsBeliever"),
+                Age = DbInt(rdr, "Age"),
+                AadharNumber = DbString(rdr, "AadharNumber"),
+                HomeAddress = DbString(rdr, "HomeAddress"),
+                CurrentAddress = DbString(rdr, "CurrentAddress"),
+                EmergencyContactPhone = DbString(rdr, "EmergencyContactPhone"),
+                IsPastor = DbBool(rdr, "IsPastor"),
+                PayrollEnabled = DbBool(rdr, "PayrollEnabled")
+            };
+        }
+
+        [Authorize]
+        [HttpGet("me/profile")]
+        public async Task<IActionResult> GetMyProfile()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+            if (string.IsNullOrWhiteSpace(_connectionString))
+                return StatusCode(500, "Missing connection string");
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+                await EnsureUserProfilesTableAsync(conn);
+
+                await using var cmd = new NpgsqlCommand(@"
+SELECT u.id, u.username, u.email, u.displayname, u.profilephotourl, p.status
+FROM public.users u
+LEFT JOIN public.user_profiles p ON p.user_id = u.id
+WHERE u.id = @id
+LIMIT 1;", conn);
+                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+
+                await using var rdr = await cmd.ExecuteReaderAsync();
+                if (!await rdr.ReadAsync()) return NotFound();
+
+                return Ok(new
+                {
+                    id = rdr["id"]?.ToString(),
+                    username = rdr["username"] is DBNull ? null : rdr["username"]?.ToString(),
+                    email = rdr["email"] is DBNull ? null : rdr["email"]?.ToString(),
+                    displayName = rdr["displayname"] is DBNull ? null : rdr["displayname"]?.ToString(),
+                    profilePhotoUrl = rdr["profilephotourl"] is DBNull ? null : rdr["profilephotourl"]?.ToString(),
+                    status = rdr["status"] is DBNull ? null : rdr["status"]?.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading current user profile.");
+                return StatusCode(500, "Error reading profile.");
+            }
+        }
+
+        [Authorize]
+        [HttpPut("me/profile")]
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UserProfileUpdateDto dto)
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty) return Unauthorized();
+            if (dto == null) return BadRequest("Payload is required.");
+            if (string.IsNullOrWhiteSpace(_connectionString))
+                return StatusCode(500, "Missing connection string");
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync();
+                await EnsureUserProfilesTableAsync(conn);
+
+                await using var tx = await conn.BeginTransactionAsync();
+
+                await using (var cmd = new NpgsqlCommand(@"
+UPDATE public.users
+SET displayname = COALESCE(NULLIF(@displayName, ''), displayname),
+    profilephotourl = COALESCE(NULLIF(@photo, ''), profilephotourl)
+WHERE id = @id;", conn, tx))
+                {
+                    cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+                    cmd.Parameters.AddWithValue("displayName", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto.DisplayName?.Trim() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("photo", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto.ProfilePhotoUrl?.Trim() ?? DBNull.Value);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                await using (var statusCmd = new NpgsqlCommand(@"
+INSERT INTO public.user_profiles (user_id, status, updated_at_utc)
+VALUES (@id, @status, now())
+ON CONFLICT (user_id)
+DO UPDATE SET status = EXCLUDED.status, updated_at_utc = now();", conn, tx))
+                {
+                    statusCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+                    statusCmd.Parameters.AddWithValue("status", NpgsqlTypes.NpgsqlDbType.Text, (object?)(dto.Status ?? string.Empty).Trim() ?? DBNull.Value);
+                    await statusCmd.ExecuteNonQueryAsync();
+                }
+
+                await tx.CommitAsync();
+                return await GetMyProfile();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating current user profile.");
+                return StatusCode(500, "Error updating profile.");
             }
         }
 
@@ -380,6 +534,10 @@ LIMIT @limit OFFSET @offset;
         //public async Task<IActionResult> EnrichUser(Guid id, [FromBody] EnrichUserDto dto)
         public async Task<IActionResult> EnrichUser(string id, [FromBody] EnrichUserDto dto)
         {
+		Console.WriteLine("🔥 Enrich API HIT");
+		Console.WriteLine($"ID FROM URL: {id}");
+		Console.WriteLine($"DTO AGE: {dto.Age}");
+		Console.WriteLine($"DTO Birthday: {dto.Birthday}");
             if (string.IsNullOrWhiteSpace(_connectionString))
             {
                 _logger.LogError("Missing connection string 'DefaultConnection'.");
@@ -394,30 +552,29 @@ LIMIT @limit OFFSET @offset;
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
 
-                var cmd = new NpgsqlCommand
-                {
-                    Connection = conn,
-                    CommandType = CommandType.Text,
-                    CommandText = @"
+           var cmd = new NpgsqlCommand
+{
+    Connection = conn,
+    CommandType = CommandType.Text,
+    CommandText = @"
 UPDATE users SET
-    ""Birthday""             = @Birthday,
-    ""MaritalStatus""        = @MaritalStatus,
-    ""Sex""                  = @Sex,
-    ""IsBaptized""           = @IsBaptized,
-    ""BaptismPlace""         = @BaptismPlace,
-    ""BaptismDate""          = @BaptismDate,
-    ""IsBornAgain""          = @IsBornAgain,
-    ""IsBeliever""           = @IsBeliever,
-    ""Age""                  = @Age,
-    ""AadharNumber""         = @AadharNumber,
-    ""HomeAddress""          = @HomeAddress,
-    ""CurrentAddress""       = @CurrentAddress,
-    ""EmergencyContactPhone""= @EmergencyContactPhone,
-    ""IsPastor""             = @IsPastor
-WHERE id = @Id;"
-                };
-
-                //cmd.Parameters.AddWithValue("Id", NpgsqlTypes.NpgsqlDbType.Uuid, id);
+    ""Birthday"" = @Birthday,
+    ""MaritalStatus"" = @MaritalStatus,
+    ""Sex"" = @Sex,
+    ""IsBaptized"" = @IsBaptized,
+    ""BaptismPlace"" = @BaptismPlace,
+    ""BaptismDate"" = @BaptismDate,
+    ""IsBornAgain"" = @IsBornAgain,
+    ""IsBeliever"" = @IsBeliever,
+    ""Age"" = @Age,
+    ""AadharNumber"" = @AadharNumber,
+    ""HomeAddress"" = @HomeAddress,
+    ""CurrentAddress"" = @CurrentAddress,
+    ""EmergencyContactPhone"" = @EmergencyContactPhone,
+    ""IsPastor"" = @IsPastor
+WHERE id = @Id;
+"
+};             //cmd.Parameters.AddWithValue("Id", NpgsqlTypes.NpgsqlDbType.Uuid, id);
                 var isGuid = Guid.TryParse(id, out var guidId);
 
         if (isGuid)
@@ -427,16 +584,12 @@ WHERE id = @Id;"
                 object DbNullIfNull(object? v) => v ?? DBNull.Value;
 
                 cmd.Parameters.AddWithValue("Birthday",
-                    dto.Birthday.HasValue
-                        ? NpgsqlTypes.NpgsqlDbType.Date
-                        : NpgsqlTypes.NpgsqlDbType.Date,
-                    (object?)dto.Birthday ?? DBNull.Value);
+                    NpgsqlTypes.NpgsqlDbType.TimestampTz,
+                    DbTimestamp(dto.Birthday));
 
                 cmd.Parameters.AddWithValue("BaptismDate",
-                    dto.BaptismDate.HasValue
-                        ? NpgsqlTypes.NpgsqlDbType.Date
-                        : NpgsqlTypes.NpgsqlDbType.Date,
-                    (object?)dto.BaptismDate ?? DBNull.Value);
+                    NpgsqlTypes.NpgsqlDbType.TimestampTz,
+                    DbTimestamp(dto.BaptismDate));
 
                 cmd.Parameters.AddWithValue("MaritalStatus", NpgsqlTypes.NpgsqlDbType.Text, DbNullIfNull(dto.MaritalStatus));
                 cmd.Parameters.AddWithValue("Sex", NpgsqlTypes.NpgsqlDbType.Text, DbNullIfNull(dto.Sex));
@@ -514,6 +667,7 @@ WHERE id = @Id;"
                                                   username    AS ""Username"",
                                                   email       AS ""Email"",
                                                   displayname AS ""DisplayName"",
+                            profilephotourl AS ""ProfilePhotoUrl"",
                                                   phone       AS ""Phone"",
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
@@ -528,6 +682,7 @@ WHERE id = @Id;"
                                                   username    AS ""Username"",
                                                   email       AS ""Email"",
                                                   displayname AS ""DisplayName"",
+                            profilephotourl AS ""ProfilePhotoUrl"",
                                                   phone       AS ""Phone"",
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
@@ -542,6 +697,7 @@ WHERE id = @Id;"
                                                   username    AS ""Username"",
                                                   email       AS ""Email"",
                                                   displayname AS ""DisplayName"",
+                            profilephotourl AS ""ProfilePhotoUrl"",
                                                   phone       AS ""Phone"",
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
@@ -556,6 +712,7 @@ WHERE id = @Id;"
                                                   username    AS ""Username"",
                                                   email       AS ""Email"",
                                                   displayname AS ""DisplayName"",
+                            profilephotourl AS ""ProfilePhotoUrl"",
                                                   phone       AS ""Phone"",
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
@@ -572,6 +729,7 @@ WHERE id = @Id;"
                     var username = rdr["Username"] is DBNull ? null : rdr["Username"]?.ToString();
                     var email = rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString();
                     var displayName = rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString();
+                    var profilePhotoUrl = rdr["ProfilePhotoUrl"] is DBNull ? null : rdr["ProfilePhotoUrl"]?.ToString();
                     var phone = rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString();
                     var role = rdr["Role"] is DBNull ? null : rdr["Role"]?.ToString();
                     var joinDate = rdr["JoinDate"] is DBNull ? null : rdr["JoinDate"]?.ToString();
@@ -582,6 +740,7 @@ WHERE id = @Id;"
                         username,
                         email,
                         displayName,
+                        profilePhotoUrl,
                         phone,
                         role,
                         joinDate
@@ -601,7 +760,7 @@ WHERE id = @Id;"
         }
 
         // POST api/users
-        [HttpPost]
+[HttpPost]
 public async Task<IActionResult> Create([FromBody] JsonElement body)
 {
     if (string.IsNullOrWhiteSpace(_connectionString))
@@ -610,23 +769,53 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
     try
     {
         string? Get(JsonElement root, params string[] names)
+{
+    foreach (var n in names)
+    {
+        foreach (var p in root.EnumerateObject())
         {
-            foreach (var p in root.EnumerateObject())
+            if (string.Equals(p.Name, n, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var n in names)
-                {
-                    if (string.Equals(p.Name, n, StringComparison.OrdinalIgnoreCase))
-                        return p.Value.GetString();
-                }
+                if (p.Value.ValueKind == JsonValueKind.Null)
+                    continue;
+
+                var val = p.Value.ToString();
+
+                if (!string.IsNullOrWhiteSpace(val))
+                    return val;
             }
-            return null;
+        }
+    }
+    return null;
+}
+        bool? GetBool(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return bool.TryParse(val, out var b) ? b : (bool?)null;
         }
 
+        int? GetInt(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return int.TryParse(val, out var i) ? i : (int?)null;
+        }
+
+        DateTime? GetDate(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return ParsePayloadDate(val);
+        }
+
+        // 🔹 BASIC FIELDS
         var username = Get(body, "username");
         var email = Get(body, "email");
         var password = Get(body, "password");
-	var phone = Get(body, "phone");
-	var displayName = Get(body, "displayname", "displayName", "DisplayName", "name");
+        var phone = Get(body, "phone");
+        var displayName = Get(body, "displayname", "displayName", "name");
+        var profilePhotoUrl = Get(body, "ProfilePhotoUrl", "profilePhotoUrl", "AvatarUrl", "avatarUrl", "PhotoUrl", "photoUrl");
+        var requestedRole = Get(body, "Role", "role", "RoleId", "roleId", "RoleName", "roleName");
+        var joinDate = GetDate(body, "JoinDate", "joinDate") ?? DateTime.UtcNow;
+
         if (string.IsNullOrWhiteSpace(username))
             return BadRequest("username required");
 
@@ -634,53 +823,184 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
             return BadRequest("password required");
 
         // 🔥 HASH PASSWORD
-        //var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<object>();
-        //var hash = hasher.HashPassword(null, password);
-		
-		var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<string>();
-		var hash = hasher.HashPassword(username, password);
+        var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<string>();
+        var hash = hasher.HashPassword(username, password);
+
+        // 🔹 ENRICH FIELDS
+        var birthday = GetDate(body, "Birthday", "birthday");
+        var maritalStatus = Get(body, "MaritalStatus", "maritalStatus");
+        var sex = Get(body, "Sex", "sex");
+        var isBaptized = GetBool(body, "IsBaptized", "isBaptized");
+        var baptismPlace = Get(body, "BaptismPlace", "baptismPlace");
+        var baptismDate = GetDate(body, "BaptismDate", "baptismDate");
+        var isBornAgain = GetBool(body, "IsBornAgain", "isBornAgain");
+        var isBeliever = GetBool(body, "IsBeliever", "isBeliever");
+        var age = GetInt(body, "Age", "age");
+        var aadhar = Get(body, "AadharNumber", "aadharNumber");
+        var homeAddress = Get(body, "HomeAddress", "homeAddress");
+        var currentAddress = Get(body, "CurrentAddress", "currentAddress");
+        var emergencyPhone = Get(body, "EmergencyContactPhone", "emergencyContactPhone");
+        var isPastor = GetBool(body, "IsPastor", "isPastor");
+        var payrollEnabled = GetBool(body, "PayrollEnabled", "payrollEnabled", "IsPayrollEnabled", "isPayrollEnabled");
 
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
+        await EnsurePayrollEnabledColumnAsync(conn);
+        var (roleId, roleName) = await ResolveRoleAsync(conn, requestedRole);
 
-const string sql = @"
-    INSERT INTO users (username, email, passwordhash, role, joindate, phone, displayname)
-    VALUES (@username, @email, @passwordhash, 'Member', NOW(), @phone, @displayname)
-    RETURNING id;
-";        await using var cmd = new NpgsqlCommand(sql, conn);
+        const string sql = @"
+INSERT INTO users (
+    username, email, passwordhash, role, joindate, phone, displayname, profilephotourl,
+    ""Birthday"", ""MaritalStatus"", ""Sex"", ""IsBaptized"", ""BaptismPlace"",
+    ""BaptismDate"", ""IsBornAgain"", ""IsBeliever"", ""Age"",
+    ""AadharNumber"", ""HomeAddress"", ""CurrentAddress"",
+    ""EmergencyContactPhone"", ""IsPastor"", payrollenabled
+)
+VALUES (
+    @username, @email, @passwordhash, @role, @JoinDate, @phone, @displayname, @profilePhotoUrl,
+    @Birthday, @MaritalStatus, @Sex, @IsBaptized, @BaptismPlace,
+    @BaptismDate, @IsBornAgain, @IsBeliever, @Age,
+    @AadharNumber, @HomeAddress, @CurrentAddress,
+    @EmergencyContactPhone, @IsPastor, @PayrollEnabled
+)
+RETURNING id;
+";
 
-        cmd.Parameters.AddWithValue("username", username);
-        cmd.Parameters.AddWithValue("email", (object?)email ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("passwordhash", hash);
-	cmd.Parameters.AddWithValue("phone", (object?)phone ?? DBNull.Value);
-	cmd.Parameters.AddWithValue(
-    "displayname",
-    !string.IsNullOrWhiteSpace(displayName)
-        ? displayName
-        : !string.IsNullOrWhiteSpace(username)
-            ? username
-            : DBNull.Value
-);
+        await using var cmd = new NpgsqlCommand(sql, conn);
 
+        // 🔹 BASIC PARAMS
+        cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username);
+        cmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("passwordhash", NpgsqlTypes.NpgsqlDbType.Text, hash);
+        cmd.Parameters.AddWithValue("role", NpgsqlTypes.NpgsqlDbType.Text, roleId.ToString());
+        cmd.Parameters.AddWithValue("JoinDate", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(joinDate));
+        cmd.Parameters.AddWithValue("phone", NpgsqlTypes.NpgsqlDbType.Text, (object?)phone ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("displayname",
+            NpgsqlTypes.NpgsqlDbType.Text,
+            !string.IsNullOrWhiteSpace(displayName) ? displayName : username);
+        cmd.Parameters.AddWithValue("profilePhotoUrl", NpgsqlTypes.NpgsqlDbType.Text, (object?)profilePhotoUrl ?? DBNull.Value);
+
+        // 🔹 ENRICH PARAMS
+        cmd.Parameters.AddWithValue("Birthday", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(birthday));
+	cmd.Parameters.AddWithValue("MaritalStatus", NpgsqlTypes.NpgsqlDbType.Text, maritalStatus ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("Sex", NpgsqlTypes.NpgsqlDbType.Text, sex ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("IsBaptized", NpgsqlTypes.NpgsqlDbType.Boolean, isBaptized ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("BaptismPlace", NpgsqlTypes.NpgsqlDbType.Text, baptismPlace ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("BaptismDate", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(baptismDate));
+	cmd.Parameters.AddWithValue("IsBornAgain", NpgsqlTypes.NpgsqlDbType.Boolean, isBornAgain ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("IsBeliever", NpgsqlTypes.NpgsqlDbType.Boolean, isBeliever ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("AadharNumber", NpgsqlTypes.NpgsqlDbType.Text, aadhar ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("HomeAddress", NpgsqlTypes.NpgsqlDbType.Text, homeAddress ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("CurrentAddress", NpgsqlTypes.NpgsqlDbType.Text, currentAddress ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("EmergencyContactPhone", NpgsqlTypes.NpgsqlDbType.Text, emergencyPhone ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("IsPastor", NpgsqlTypes.NpgsqlDbType.Boolean, isPastor ?? (object)DBNull.Value);
+	cmd.Parameters.AddWithValue("PayrollEnabled", NpgsqlTypes.NpgsqlDbType.Boolean, payrollEnabled ?? false);
+        cmd.Parameters.AddWithValue("Age", NpgsqlTypes.NpgsqlDbType.Integer, age ?? (object)DBNull.Value);
+        
+	
         var id = await cmd.ExecuteScalarAsync();
+        var createdUserId = Guid.TryParse(id?.ToString(), out var createdGuid) ? createdGuid : Guid.Empty;
+        _logger.LogInformation("New user {UserId} queued for AI Pastor welcome dashboard approval.", createdUserId);
 
-    return Ok(new
-{
-    id,
-    username,
-    email,
-    phone,
-    displayName,
-    role = "Member"
-});   }
+        return Ok(new
+        {
+            id,
+            username,
+            email,
+            phone,
+            displayName,
+            profilePhotoUrl,
+            role = roleName,
+            birthday,
+            maritalStatus,
+            sex,
+            age,
+            payrollEnabled = payrollEnabled ?? false
+        });
+    }
     catch (Exception ex)
     {
         _logger.LogError(ex, "Create user failed");
         return StatusCode(500, ex.Message);
     }
 }
+
+        private static async Task<int> SoftDeleteUserAsync(
+            NpgsqlConnection conn,
+            string id,
+            bool isGuid,
+            Guid guidId,
+            bool isInt,
+            int intId,
+            bool isLong,
+            long longId)
+        {
+            var columns = await GetUsersColumnsAsync(conn);
+            string? Column(params string[] names) => names.FirstOrDefault(columns.Contains);
+
+            var sets = new List<string>();
+            await using var cmd = new NpgsqlCommand { Connection = conn, CommandType = CommandType.Text };
+
+            void SetText(string param, object? value, params string[] names)
+            {
+                var column = Column(names);
+                if (column == null) return;
+                sets.Add($@"""{column}"" = @{param}");
+                cmd.Parameters.AddWithValue(param, NpgsqlTypes.NpgsqlDbType.Text, value ?? DBNull.Value);
+            }
+
+            void SetBool(string param, bool value, params string[] names)
+            {
+                var column = Column(names);
+                if (column == null) return;
+                sets.Add($@"""{column}"" = @{param}");
+                cmd.Parameters.AddWithValue(param, NpgsqlTypes.NpgsqlDbType.Boolean, value);
+            }
+
+            var shortId = id.Length > 8 ? id.Substring(0, 8) : id;
+            var disabledHash = new Microsoft.AspNetCore.Identity.PasswordHasher<object>()
+                .HashPassword(null, Guid.NewGuid().ToString("N"));
+
+            SetText("deletedUsername", $"deleted_{shortId}", "username");
+            SetText("deletedEmail", null, "email");
+            SetText("deletedPhone", null, "phone");
+            SetText("deletedDisplay", "Deleted User", "displayname");
+            SetText("deletedPhoto", null, "profilephotourl", "ProfilePhotoUrl");
+            SetText("deletedHash", disabledHash, "passwordhash");
+            SetBool("isDeleted", true, "isdeleted", "IsDeleted");
+
+            var deletedAt = Column("deletedat", "DeletedAt");
+            if (deletedAt != null) sets.Add($@"""{deletedAt}"" = NOW()");
+
+            if (sets.Count == 0) return 0;
+
+            if (isGuid)
+            {
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
+            }
+            else if (isInt)
+            {
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
+            }
+            else if (isLong)
+            {
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
+            }
+            else
+            {
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE cast(id as text) = @id";
+                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
+            }
+
+            return await cmd.ExecuteNonQueryAsync();
+        }
+
         // DELETE api/users/{id}
         [HttpDelete("{id:guid}")]
+        [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
             if (string.IsNullOrWhiteSpace(_connectionString))
@@ -743,11 +1063,14 @@ const string sql = @"
 
                 if (blockers.Count > 0)
                 {
-                    return Conflict(new
+                    var softRows = await SoftDeleteUserAsync(conn, id, isGuid, guidId, isInt, intId, isLong, longId);
+                    if (softRows == 0) return NotFound();
+
+                    return Ok(new
                     {
-                        message = "Cannot delete user because other rows reference it.",
-                        references = blockers,
-                        help = "Reassign or delete the referencing rows first, or change the FK to ON DELETE SET NULL/CASCADE if appropriate."
+                        message = "User deleted.",
+                        softDeleted = true,
+                        references = blockers
                     });
                 }
 
@@ -776,7 +1099,7 @@ const string sql = @"
                 var rows = await delCmd.ExecuteNonQueryAsync();
                 if (rows == 0) return NotFound();
 
-                return NoContent();
+                return Ok(new { message = "User deleted.", softDeleted = false });
             }
             catch (Exception ex)
             {
@@ -861,217 +1184,148 @@ const string sql = @"
         }
 
         // Update: accept PUT or PATCH to support different frontend clients
-        [HttpPut("{id:guid}")]
         [HttpPatch("{id:guid}")]
-        public async Task<IActionResult> Update(string id)
+[HttpPut("{id}")]
+public async Task<IActionResult> UpdateUser(string id, [FromBody] JsonElement body)
+{
+Console.WriteLine("🔥 UPDATE API HIT");
+Console.WriteLine(body.ToString());
+
+    if (string.IsNullOrWhiteSpace(_connectionString))
+        return StatusCode(500, "Missing connection string");
+
+    try
+    {
+        // 🔥 FIXED HELPERS (robust)
+        string? Get(JsonElement root, params string[] names)
         {
-            if (string.IsNullOrWhiteSpace(_connectionString))
+            foreach (var prop in root.EnumerateObject())
             {
-                _logger.LogError("Missing connection string 'DefaultConnection'.");
-                return StatusCode(500, "Missing connection string 'DefaultConnection'.");
-            }
-
-            string body;
-            using (var sr = new System.IO.StreamReader(Request.Body))
-            {
-                body = await sr.ReadToEndAsync();
-            }
-
-            if (string.IsNullOrWhiteSpace(body))
-                return BadRequest("Missing payload.");
-
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-
-            bool HasProp(string[] names)
-            {
-                foreach (var p in root.EnumerateObject())
+                foreach (var name in names)
                 {
-                    foreach (var name in names)
+                    if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-                            return true;
+                        if (prop.Value.ValueKind == JsonValueKind.Null)
+                            return null;
+
+                        return prop.Value.ToString();
                     }
                 }
-                return false;
             }
-
-            string? GetString(string[] names)
-            {
-                foreach (var p in root.EnumerateObject())
-                {
-                    foreach (var name in names)
-                    {
-                        if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (p.Value.ValueKind == JsonValueKind.Null) return null;
-                            return p.Value.ToString();
-                        }
-                    }
-                }
-                return null;
-            }
-
-            var wantDisplayName = HasProp(new[] { "displayName", "DisplayName", "name", "Name" });
-            var wantUsername = HasProp(new[] { "username", "Username" });
-            var wantEmail = HasProp(new[] { "email", "Email" });
-            var wantRole = HasProp(new[] { "role", "Role" });
-            var wantPhone = HasProp(new[] { "phone", "Phone" });
-            var wantJoinDate = HasProp(new[] { "joinDate", "JoinDate" });
-
-            if (!wantDisplayName && !wantUsername && !wantEmail && !wantRole && !wantPhone && !wantJoinDate)
-                return BadRequest("Nothing to update.");
-
-            var displayName = GetString(new[] { "displayName", "DisplayName", "name", "Name" });
-            var username = GetString(new[] { "username", "Username" });
-            var email = GetString(new[] { "email", "Email" });
-            var role = GetString(new[] { "role", "Role" });
-            var phone = GetString(new[] { "phone", "Phone" });
-            var joinDateRaw = GetString(new[] { "joinDate", "JoinDate" });
-            DateTime? joinDate = null;
-            if (!string.IsNullOrWhiteSpace(joinDateRaw) && DateTime.TryParse(joinDateRaw, out var jd)) joinDate = jd;
-
-            var setParts = new List<string>();
-            await using var conn = new NpgsqlConnection(_connectionString);
-            await conn.OpenAsync();
-
-            var cmd = new NpgsqlCommand { CommandType = CommandType.Text, Connection = conn };
-
-            if (wantDisplayName)
-            {
-                setParts.Add(@"displayname = @displayName");
-                cmd.Parameters.AddWithValue("displayName", NpgsqlTypes.NpgsqlDbType.Text, (object?)displayName ?? DBNull.Value);
-            }
-            if (wantUsername)
-            {
-                setParts.Add(@"username = @username");
-                cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, (object?)username ?? DBNull.Value);
-            }
-            if (wantEmail)
-            {
-                setParts.Add(@"email = @email");
-                cmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
-            }
-            if (wantRole)
-            {
-                setParts.Add(@"role = @role");
-                cmd.Parameters.AddWithValue("role", NpgsqlTypes.NpgsqlDbType.Text, (object?)role ?? DBNull.Value);
-            }
-            if (wantPhone)
-            {
-                setParts.Add(@"phone = @phone");
-                cmd.Parameters.AddWithValue("phone", NpgsqlTypes.NpgsqlDbType.Text, (object?)phone ?? DBNull.Value);
-            }
-            if (wantJoinDate)
-            {
-                setParts.Add(@"joindate = @joinDate");
-
-                if (joinDate.HasValue)
-                {
-                    var dt = joinDate.Value;
-                    if (dt.Kind == DateTimeKind.Unspecified)
-                    {
-                        dt = DateTime.SpecifyKind(dt, DateTimeKind.Local).ToUniversalTime();
-                    }
-                    else if (dt.Kind == DateTimeKind.Local)
-                    {
-                        dt = dt.ToUniversalTime();
-                    }
-
-                    var p = cmd.Parameters.Add("joinDate", NpgsqlTypes.NpgsqlDbType.TimestampTz);
-                    p.Value = dt;
-                }
-                else
-                {
-                    cmd.Parameters.AddWithValue("joinDate", DBNull.Value);
-                }
-            }
-
-            if (setParts.Count == 0)
-                return BadRequest("Nothing to update.");
-
-            var isGuid = Guid.TryParse(id, out var guidId);
-            var isInt = int.TryParse(id, out var intId);
-            var isLong = long.TryParse(id, out var longId);
-
-            var setClause = string.Join(", ", setParts);
-
-            if (isGuid)
-            {
-                cmd.CommandText = $@"UPDATE users SET {setClause} WHERE id = @id";
-                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
-            }
-            else if (isInt)
-            {
-                cmd.CommandText = $@"UPDATE users SET {setClause} WHERE id = @id";
-                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
-            }
-            else if (isLong)
-            {
-                cmd.CommandText = $@"UPDATE users SET {setClause} WHERE id = @id";
-                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
-            }
-            else
-            {
-                cmd.CommandText = $@"UPDATE users SET {setClause} WHERE cast(id as text) = @id";
-                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
-            }
-
-            try
-            {
-                var rows = await cmd.ExecuteNonQueryAsync();
-                if (rows == 0) return NotFound();
-
-                await using var fetchCmd = new NpgsqlCommand(@"
-                        SELECT
-                            id          AS ""Id"",
-                            username    AS ""Username"",
-                            email       AS ""Email"",
-                            displayname AS ""DisplayName"",
-                            role        AS ""Role"",
-                            phone       AS ""Phone"",
-                            joindate    AS ""JoinDate""
-                        FROM users
-                        WHERE " + (isGuid ? "id = @id" : isInt ? "id = @id" : isLong ? "id = @id" : "cast(id as text) = @id"), conn);
-
-                if (isGuid) fetchCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
-                else if (isInt) fetchCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
-                else if (isLong) fetchCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
-                else fetchCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
-
-                await using var rdr = await fetchCmd.ExecuteReaderAsync();
-                if (await rdr.ReadAsync())
-                {
-                    var idObj = rdr["Id"];
-                    var idString = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
-                    var usernameOut = rdr["Username"] is DBNull ? null : rdr["Username"]?.ToString();
-                    var emailOut = rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString();
-                    var displayOut = rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString();
-                    var roleOut = rdr["Role"] is DBNull ? null : rdr["Role"]?.ToString();
-                    var phoneOut = rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString();
-                    var jOut = rdr["JoinDate"] is DBNull ? null : rdr["JoinDate"]?.ToString();
-
-                    return Ok(new
-                    {
-                        id = idString,
-                        username = usernameOut,
-                        email = emailOut,
-                        displayName = displayOut,
-                        role = roleOut,
-                        phone = phoneOut,
-                        joinDate = jOut
-                    });
-                }
-
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating user {Id}", id);
-                if (_env.IsDevelopment())
-                    return StatusCode(500, $"Error updating user: {ex.GetType().Name} - {ex.Message}");
-                return StatusCode(500, "Error updating user.");
-            }
+            return null;
         }
+
+        int? GetInt(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return int.TryParse(val, out var i) ? i : null;
+        }
+
+        bool? GetBool(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return bool.TryParse(val, out var b) ? b : null;
+        }
+
+        DateTime? GetDate(JsonElement root, params string[] names)
+        {
+            var val = Get(root, names);
+            return ParsePayloadDate(val);
+        }
+
+        // 🔹 BASIC
+        var displayName = Get(body, "DisplayName", "displayName");
+        var profilePhotoUrl = Get(body, "ProfilePhotoUrl", "profilePhotoUrl", "AvatarUrl", "avatarUrl", "PhotoUrl", "photoUrl");
+        var email = Get(body, "Email", "email");
+        var phone = Get(body, "Phone", "phone");
+        var role = Get(body, "Role", "role");
+        var joinDate = GetDate(body, "JoinDate", "joinDate");
+
+        // 🔹 ENRICH
+        var birthday = GetDate(body, "Birthday", "birthday");
+        var maritalStatus = Get(body, "MaritalStatus", "maritalStatus");
+        var sex = Get(body, "Sex", "sex");
+        var isBaptized = GetBool(body, "IsBaptized", "isBaptized");
+        var baptismPlace = Get(body, "BaptismPlace", "baptismPlace");
+        var baptismDate = GetDate(body, "BaptismDate", "baptismDate");
+        var isBornAgain = GetBool(body, "IsBornAgain", "isBornAgain");
+        var isBeliever = GetBool(body, "IsBeliever", "isBeliever");
+        var age = GetInt(body, "Age", "age");
+        var aadhar = Get(body, "AadharNumber", "aadharNumber");
+        var homeAddress = Get(body, "HomeAddress", "homeAddress");
+        var currentAddress = Get(body, "CurrentAddress", "currentAddress");
+        var emergencyPhone = Get(body, "EmergencyContactPhone", "emergencyContactPhone");
+        var isPastor = GetBool(body, "IsPastor", "isPastor");
+        var payrollEnabled = GetBool(body, "PayrollEnabled", "payrollEnabled", "IsPayrollEnabled", "isPayrollEnabled");
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await EnsurePayrollEnabledColumnAsync(conn);
+
+        var sql = @"
+UPDATE users SET
+    displayname = @DisplayName,
+    profilephotourl = @ProfilePhotoUrl,
+    email = @Email,
+    phone = @Phone,
+    role = @Role,
+    joindate = COALESCE(@JoinDate, joindate),
+
+    ""Birthday"" = @Birthday,
+    ""MaritalStatus"" = @MaritalStatus,
+    ""Sex"" = @Sex,
+    ""IsBaptized"" = @IsBaptized,
+    ""BaptismPlace"" = @BaptismPlace,
+    ""BaptismDate"" = @BaptismDate,
+    ""IsBornAgain"" = @IsBornAgain,
+    ""IsBeliever"" = @IsBeliever,
+    ""Age"" = @Age,
+    ""AadharNumber"" = @AadharNumber,
+    ""HomeAddress"" = @HomeAddress,
+    ""CurrentAddress"" = @CurrentAddress,
+    ""EmergencyContactPhone"" = @EmergencyContactPhone,
+    ""IsPastor"" = @IsPastor,
+    payrollenabled = COALESCE(@PayrollEnabled, payrollenabled)
+
+WHERE id = @Id;
+";
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("DisplayName", NpgsqlTypes.NpgsqlDbType.Text, (object?)displayName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("ProfilePhotoUrl", NpgsqlTypes.NpgsqlDbType.Text, (object?)profilePhotoUrl ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("Email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("Phone", NpgsqlTypes.NpgsqlDbType.Text, (object?)phone ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("Role", NpgsqlTypes.NpgsqlDbType.Text, (object?)role ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("JoinDate", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(joinDate));
+
+        cmd.Parameters.AddWithValue("Birthday", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(birthday));
+        cmd.Parameters.AddWithValue("MaritalStatus", NpgsqlTypes.NpgsqlDbType.Text, maritalStatus ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("Sex", NpgsqlTypes.NpgsqlDbType.Text, sex ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("IsBaptized", NpgsqlTypes.NpgsqlDbType.Boolean, isBaptized ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("BaptismPlace", NpgsqlTypes.NpgsqlDbType.Text, baptismPlace ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("BaptismDate", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(baptismDate));
+        cmd.Parameters.AddWithValue("IsBornAgain", NpgsqlTypes.NpgsqlDbType.Boolean, isBornAgain ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("IsBeliever", NpgsqlTypes.NpgsqlDbType.Boolean, isBeliever ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("Age", NpgsqlTypes.NpgsqlDbType.Integer, age ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("AadharNumber", NpgsqlTypes.NpgsqlDbType.Text, aadhar ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("HomeAddress", NpgsqlTypes.NpgsqlDbType.Text, homeAddress ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("CurrentAddress", NpgsqlTypes.NpgsqlDbType.Text, currentAddress ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("EmergencyContactPhone", NpgsqlTypes.NpgsqlDbType.Text, emergencyPhone ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("IsPastor", NpgsqlTypes.NpgsqlDbType.Boolean, isPastor ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("PayrollEnabled", NpgsqlTypes.NpgsqlDbType.Boolean, payrollEnabled ?? (object)DBNull.Value);
+
+        cmd.Parameters.AddWithValue("Id", Guid.Parse(id));
+
+        var rows = await cmd.ExecuteNonQueryAsync();
+
+        return Ok(new { success = true, updated = rows });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Update failed");
+        return StatusCode(500, ex.Message);
+    }
+}
     }
 }

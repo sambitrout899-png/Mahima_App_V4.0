@@ -279,5 +279,65 @@ namespace Mahima.Api.v3.clean.Controllers
 
             return Ok(payload);
         }
+
+        // --------------------------------------------------------------------
+        // 4) ADMIN REPORTS
+        // --------------------------------------------------------------------
+        [HttpGet("reports")]
+        public async Task<IActionResult> GetAdminReports()
+        {
+            var now = DateTime.UtcNow;
+            var from30 = now.AddDays(-30);
+
+            var usersByRole = await _db.Users
+                .GroupBy(u => u.Role ?? "Unassigned")
+                .Select(g => new { role = g.Key, count = g.Count() })
+                .OrderByDescending(x => x.count)
+                .ToListAsync();
+
+            var taskStatus = await _db.Tasks
+                .GroupBy(t => t.Status)
+                .Select(g => new { status = g.Key, count = g.Count() })
+                .ToListAsync();
+
+            var taskPriority = await _db.Tasks
+                .GroupBy(t => t.Priority)
+                .Select(g => new { priority = g.Key, count = g.Count() })
+                .ToListAsync();
+
+            var recentMessages = await _db.Messages.CountAsync(m => m.CreatedAt >= from30);
+            var totalChats = await _db.Chats.CountAsync();
+            var groupChats = await _db.Chats.CountAsync(c => c.IsGroup);
+
+            var journalLines = await _db.JournalLines
+                .Include(l => l.Account)
+                .Include(l => l.JournalEntry)
+                .Where(l => l.JournalEntry.Date >= from30)
+                .ToListAsync();
+
+            var accountingByType = journalLines
+                .GroupBy(l => l.Account != null ? l.Account.Type : "UNKNOWN")
+                .Select(g => new
+                {
+                    type = g.Key,
+                    debit = g.Sum(x => x.Debit),
+                    credit = g.Sum(x => x.Credit),
+                    net = g.Sum(x => x.Debit - x.Credit)
+                })
+                .OrderBy(x => x.type)
+                .ToList();
+
+            var prayer30 = await _db.PrayerRequests.CountAsync(p => p.CreatedAt >= from30);
+
+            return Ok(new
+            {
+                snapshotAt = now,
+                users = new { byRole = usersByRole, total = await _db.Users.CountAsync() },
+                tasks = new { byStatus = taskStatus, byPriority = taskPriority, total = await _db.Tasks.CountAsync() },
+                chats = new { total = totalChats, groupChats, directChats = totalChats - groupChats, recentMessages30d = recentMessages },
+                accounting = new { last30Days = accountingByType },
+                prayers = new { created30d = prayer30 }
+            });
+        }
     }
 }

@@ -357,3 +357,6 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/Release/net8.0/Mahima.Api.v3.clean.pdb
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/Release/net8.0/Mahima.Api.v3.clean.genruntimeconfig.cache
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/Release/net8.0/ref/Mahima.Api.v3.clean.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/BouncyCastle.Cryptography.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/MailKit.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/MimeKit.dll

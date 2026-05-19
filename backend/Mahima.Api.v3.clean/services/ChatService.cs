@@ -1,5 +1,5 @@
 using Mahima.Api.v3.clean.Data;
-﻿// Mahima.Api/Services/ChatService.Full.cs
+// Mahima.Api/Services/ChatService.Full.cs
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -36,6 +36,30 @@ namespace Mahima.Api.v3.clean.Services
             return Task.FromResult(false);
         }
 
+        private static MessageDto ToMessageDto(Message m)
+        {
+            var contentType = string.IsNullOrWhiteSpace(m.ContentType)
+                ? "text"
+                : m.ContentType;
+
+            var attachments = string.IsNullOrWhiteSpace(m.AttachmentUrl)
+                ? null
+                : new List<AttachmentDto>
+                {
+                    new AttachmentDto("", contentType, m.AttachmentUrl)
+                };
+
+            return new MessageDto(
+                m.Id,
+                m.ChatId,
+                m.SenderId,
+                m.Content,
+                m.CreatedAt,
+                contentType,
+                m.AttachmentUrl,
+                attachments);
+        }
+
         // ---------- IChatService implementation ----------
 
         public async Task<IEnumerable<ChatSummaryDto>> GetUserChatsAsync(Guid userId)
@@ -60,17 +84,12 @@ namespace Mahima.Api.v3.clean.Services
             foreach (var c in chats)
             {
                 // last message (Message.Id is Guid)
-                var lastMsg = await _db.Messages
+                var lastMsgEntity = await _db.Messages
                     .AsNoTracking()
                     .Where(m => m.ChatId == c.Id)
                     .OrderByDescending(m => m.CreatedAt)
-                    .Select(m => new MessageDto(
-                        m.Id,            // Guid
-                        m.ChatId,        // Guid
-                        m.SenderId,      // Guid
-                        m.Content,
-                        m.CreatedAt))
                     .FirstOrDefaultAsync();
+                var lastMsg = lastMsgEntity == null ? null : ToMessageDto(lastMsgEntity);
 
                 // unread count: compare MessageRead.MessageId (Guid) with Message.Id (Guid)
                 var unreadCount = await _db.Messages
@@ -79,7 +98,42 @@ namespace Mahima.Api.v3.clean.Services
                     .Where(m => !_db.MessageReads.Any(r => r.MessageId == m.Id && r.UserId == userId))
                     .CountAsync();
 
-                result.Add(new ChatSummaryDto(c.Id, c.Name, c.IsGroup, lastMsg, unreadCount));
+                Guid? otherId = null;
+                string? otherName = null;
+                string? otherUsername = null;
+                string? otherProfilePhotoUrl = null;
+
+                if (!c.IsGroup)
+                {
+                    otherId = await _db.ChatMembers
+                        .AsNoTracking()
+                        .Where(cm => cm.ChatId == c.Id && cm.UserId != userId)
+                        .Select(cm => (Guid?)cm.UserId)
+                        .FirstOrDefaultAsync();
+
+                    if (otherId.HasValue)
+                    {
+                        var otherUser = await _db.Users
+                            .AsNoTracking()
+                            .Where(u => u.Id == otherId.Value)
+                            .Select(u => new { u.DisplayName, u.Username, u.Email, u.ProfilePhotoUrl })
+                            .FirstOrDefaultAsync();
+
+                        if (otherUser != null)
+                        {
+                            otherUsername = otherUser.Username;
+                            otherProfilePhotoUrl = otherUser.ProfilePhotoUrl;
+                            otherName = !string.IsNullOrWhiteSpace(otherUser.DisplayName)
+                                ? otherUser.DisplayName
+                                : !string.IsNullOrWhiteSpace(otherUser.Username)
+                                    ? otherUser.Username
+                                    : otherUser.Email;
+                        }
+                    }
+                }
+
+                var displayName = c.IsGroup ? c.Name : (otherName ?? c.Name);
+                result.Add(new ChatSummaryDto(c.Id, displayName, c.IsGroup, lastMsg, unreadCount, otherId, otherName, otherUsername, otherProfilePhotoUrl));
             }
 
             return result;
@@ -97,17 +151,13 @@ namespace Mahima.Api.v3.clean.Services
 
             var total = await baseQuery.CountAsync();
 
-            var items = await baseQuery
+            var messageEntities = await baseQuery
                 .Skip((page - 1) * size)
                 .Take(size)
                 .OrderBy(m => m.CreatedAt)
-                .Select(m => new MessageDto(
-                    m.Id,          // Guid
-                    m.ChatId,      // Guid
-                    m.SenderId,    // Guid
-                    m.Content,
-                    m.CreatedAt))
                 .ToListAsync();
+
+            var items = messageEntities.Select(ToMessageDto).ToList();
 
             return new PaginatedResult<MessageDto>(items, total, page, size);
         }
@@ -128,13 +178,21 @@ namespace Mahima.Api.v3.clean.Services
             if (!isMember)
                 throw new UnauthorizedAccessException("User is not a member of the chat.");
 
+            await EnsureCanSendDirectChatAsync(chatId, senderId);
+
+            var primaryAttachment = attachments?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a?.Url));
+            var resolvedAttachmentUrl = attachmentUrl ?? primaryAttachment?.Url;
+            var resolvedContentType = !string.IsNullOrWhiteSpace(contentType)
+                ? contentType
+                : primaryAttachment?.Type ?? "text";
+
             var msg = new Message
             {
                 ChatId = chatId,        // Guid
                 SenderId = senderId,    // Guid
                 Content = content ?? string.Empty,
-                ContentType = contentType ?? "text",
-                AttachmentUrl = attachmentUrl,
+                ContentType = resolvedContentType,
+                AttachmentUrl = resolvedAttachmentUrl,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -151,7 +209,14 @@ namespace Mahima.Api.v3.clean.Services
             {
                 ContentType = msg.ContentType ?? "text",
                 AttachmentUrl = msg.AttachmentUrl,
-                Attachments = attachments
+                Attachments = attachments?.Any() == true
+                    ? attachments
+                    : string.IsNullOrWhiteSpace(msg.AttachmentUrl)
+                        ? null
+                        : new List<AttachmentDto>
+                        {
+                            new AttachmentDto("", msg.ContentType ?? "application/octet-stream", msg.AttachmentUrl)
+                        }
             };
 
             return dto;
@@ -199,18 +264,41 @@ namespace Mahima.Api.v3.clean.Services
             }
         }
 
+        public async Task DeleteMessageForEveryoneAsync(Guid chatId, Guid messageId, Guid requestedBy)
+        {
+            var isParticipant = await IsUserParticipantAsync(chatId, requestedBy);
+            if (!isParticipant)
+                throw new UnauthorizedAccessException("User is not a member of the chat.");
+
+            var message = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId && m.ChatId == chatId);
+            if (message == null)
+                return;
+
+            if (message.SenderId != requestedBy)
+                throw new UnauthorizedAccessException("Only the sender can delete this message for everyone.");
+
+            var reads = _db.MessageReads.Where(r => r.MessageId == messageId);
+            _db.MessageReads.RemoveRange(reads);
+            _db.Messages.Remove(message);
+            await _db.SaveChangesAsync();
+        }
+
         public async Task<Chat> CreateOrGetDirectChatAsync(Guid userId, string usernameOrEmail)
         {
             if (string.IsNullOrWhiteSpace(usernameOrEmail))
                 throw new ArgumentException("usernameOrEmail is required", nameof(usernameOrEmail));
 
             var normalized = usernameOrEmail.Trim().ToLowerInvariant();
+            if (Guid.TryParse(normalized, out var parsedUserId))
+                return await CreateOrGetDirectChatAsync(userId, parsedUserId);
 
             var other = await _db.Users
                 .AsNoTracking()
                 .FirstOrDefaultAsync(u =>
                     (u.Username != null && u.Username.ToLower() == normalized) ||
-                    (u.Email != null && u.Email.ToLower() == normalized));
+                    (u.Email != null && u.Email.ToLower() == normalized) ||
+                    (u.Phone != null && u.Phone.ToLower() == normalized) ||
+                    (u.DisplayName != null && u.DisplayName.ToLower() == normalized));
 
             if (other == null)
                 throw new ArgumentException($"User not found: {usernameOrEmail}");
@@ -273,15 +361,20 @@ namespace Mahima.Api.v3.clean.Services
             if (userA == userB)
                 throw new ArgumentException("Cannot create a chat with yourself.");
 
+            var otherUser = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userB);
+            if (otherUser == null)
+                throw new ArgumentException("User not found.");
+
             var smaller = userA.CompareTo(userB) <= 0 ? userA : userB;
             var larger  = userA.CompareTo(userB) <= 0 ? userB : userA;
 
             var existing = await _db.Chats
                 .Include(c => c.Members)
                 .Where(c => !c.IsGroup)
-                .Where(c => c.Members.Count == 2 &&
-                            c.Members.Any(m => m.UserId == smaller) &&
-                            c.Members.Any(m => m.UserId == larger))
+                .Where(c => c.Members.Any(m => m.UserId == smaller))
+                .Where(c => c.Members.Any(m => m.UserId == larger))
                 .FirstOrDefaultAsync();
 
             if (existing != null)
@@ -293,11 +386,11 @@ namespace Mahima.Api.v3.clean.Services
                         var otherMember = existing.Members.FirstOrDefault(m => m.UserId != userA);
                         if (otherMember != null)
                         {
-                            var otherUser = await _db.Users.AsNoTracking()
+                            var existingOtherUser = await _db.Users.AsNoTracking()
                                 .FirstOrDefaultAsync(u => u.Id == otherMember.UserId);
 
                             // Avoid ternary parsing edge cases
-                            var generatedName = otherUser?.Username ?? otherUser?.Email
+                            var generatedName = existingOtherUser?.DisplayName ?? existingOtherUser?.Username ?? existingOtherUser?.Email
                                 ?? $"Direct:{existing.CreatedAt:yyyy-MM-dd}";
                             existing.Name = generatedName;
                             _db.Chats.Update(existing);
@@ -318,7 +411,7 @@ namespace Mahima.Api.v3.clean.Services
                 {
                     var chat = new Chat
                     {
-                        Name = null,
+                        Name = otherUser.DisplayName ?? otherUser.Username ?? otherUser.Email,
                         IsGroup = false,
                         CreatedBy = userA,
                         CreatedAt = DateTime.UtcNow
@@ -357,6 +450,90 @@ namespace Mahima.Api.v3.clean.Services
                 .ToListAsync();
 
             return list;
+        }
+
+        public async Task<ChatBlockStatusDto> GetBlockStatusAsync(Guid chatId, Guid userId)
+        {
+            if (chatId == Guid.Empty || userId == Guid.Empty)
+                throw new UnauthorizedAccessException("Unauthorized");
+
+            var chat = await _db.Chats.AsNoTracking().FirstOrDefaultAsync(c => c.Id == chatId);
+            if (chat == null)
+                throw new ArgumentException("Chat not found", nameof(chatId));
+
+            var memberIds = await _db.ChatMembers
+                .AsNoTracking()
+                .Where(cm => cm.ChatId == chatId)
+                .Select(cm => cm.UserId)
+                .ToListAsync();
+
+            if (!memberIds.Contains(userId))
+                throw new UnauthorizedAccessException("User is not a member of the chat.");
+
+            if (chat.IsGroup)
+                return new ChatBlockStatusDto(chatId, false, null, false, false);
+
+            var otherUserId = memberIds.FirstOrDefault(id => id != userId);
+            if (otherUserId == Guid.Empty)
+                return new ChatBlockStatusDto(chatId, true, null, false, false);
+
+            var iBlockedThem = await _db.UserBlocks
+                .AsNoTracking()
+                .AnyAsync(b => b.BlockerId == userId && b.BlockedId == otherUserId);
+
+            var theyBlockedMe = await _db.UserBlocks
+                .AsNoTracking()
+                .AnyAsync(b => b.BlockerId == otherUserId && b.BlockedId == userId);
+
+            return new ChatBlockStatusDto(chatId, true, otherUserId, iBlockedThem, theyBlockedMe);
+        }
+
+        public async Task<ChatBlockStatusDto> BlockChatUserAsync(Guid chatId, Guid blockerId)
+        {
+            var status = await GetBlockStatusAsync(chatId, blockerId);
+            if (!status.IsDirect || !status.OtherUserId.HasValue)
+                throw new InvalidOperationException("Only direct chats can be blocked.");
+
+            if (!status.IBlockedThem)
+            {
+                _db.UserBlocks.Add(new UserBlock
+                {
+                    BlockerId = blockerId,
+                    BlockedId = status.OtherUserId.Value,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync();
+            }
+
+            return await GetBlockStatusAsync(chatId, blockerId);
+        }
+
+        public async Task<ChatBlockStatusDto> UnblockChatUserAsync(Guid chatId, Guid blockerId)
+        {
+            var status = await GetBlockStatusAsync(chatId, blockerId);
+            if (!status.IsDirect || !status.OtherUserId.HasValue)
+                throw new InvalidOperationException("Only direct chats can be unblocked.");
+
+            var block = await _db.UserBlocks
+                .FirstOrDefaultAsync(b => b.BlockerId == blockerId && b.BlockedId == status.OtherUserId.Value);
+            if (block != null)
+            {
+                _db.UserBlocks.Remove(block);
+                await _db.SaveChangesAsync();
+            }
+
+            return await GetBlockStatusAsync(chatId, blockerId);
+        }
+
+        public async Task EnsureCanSendDirectChatAsync(Guid chatId, Guid senderId)
+        {
+            var status = await GetBlockStatusAsync(chatId, senderId);
+            if (!status.IsDirect || !status.IsBlocked) return;
+
+            if (status.IBlockedThem)
+                throw new InvalidOperationException("You blocked this user. Unblock to send messages.");
+
+            throw new UnauthorizedAccessException("This user has blocked you.");
         }
 
         public async Task<Chat> CreateGroupChatAsync(Guid userId, string name, Guid[] memberIds)
@@ -471,3 +648,4 @@ namespace Mahima.Api.v3.clean.Services
         }
     }
 }
+
