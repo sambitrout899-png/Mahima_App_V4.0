@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import api from "../api";
 
 const TABS = [
+  { key: "all", label: "All", status: "", tone: "#0f172a" },
   { key: "new", label: "New Requests", status: "Requested", tone: "#2563eb" },
   { key: "scheduled", label: "Scheduled", status: "Scheduled", tone: "#c2410c" },
   { key: "completed", label: "Completed", status: "Completed", tone: "#0f766e" },
@@ -65,7 +66,7 @@ function statusBadge(status) {
 }
 
 export default function CounsellingPage() {
-  const [activeTab, setActiveTab] = useState("new");
+  const [activeTab, setActiveTab] = useState("all");
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [error, setError] = useState("");
@@ -119,8 +120,8 @@ export default function CounsellingPage() {
 
   function handleCreated() {
     setCreateModalOpen(false);
-    setActiveTab("new");
-    loadSessions("new");
+    setActiveTab("all");
+    loadSessions("all");
   }
 
   function handleScheduled() {
@@ -223,9 +224,6 @@ export default function CounsellingPage() {
 }
 
 function SessionTable({ items, tab, onSchedule, onComplete }) {
-  const showScheduleAction = tab === "new";
-  const showCompleteAction = tab === "scheduled";
-
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
@@ -245,13 +243,15 @@ function SessionTable({ items, tab, onSchedule, onComplete }) {
           {items.length === 0 && (
             <tr>
               <td colSpan={7} style={styles.emptyCell}>
-                No items in this view.
+                {tab === "all" ? "No counselling sessions found." : "No items in this view."}
               </td>
             </tr>
           )}
 
           {items.map((s) => {
             const badge = statusBadge(s.status);
+            const showScheduleAction = s.status === "Requested";
+            const showCompleteAction = s.status === "Scheduled";
 
             return (
               <tr key={s.sessionId} style={styles.tr}>

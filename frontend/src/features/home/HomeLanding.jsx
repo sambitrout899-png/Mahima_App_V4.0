@@ -121,9 +121,9 @@ export default function HomeLanding() {
       <Background />
       <GlobalStyles />
 
-      <TopNav onDonate={() => setShowDonate(true)} />
+      {!appMode && <TopNav onDonate={() => setShowDonate(true)} />}
 
-      <div className="mx-auto w-full max-w-[1280px] px-4 pb-32 sm:px-6 sm:pb-12">
+      <div className={`mx-auto w-full max-w-[1280px] px-4 sm:px-6 ${appMode ? "pb-8 pt-2" : "pb-32 sm:pb-12"}`}>
         <Hero onDonate={() => setShowDonate(true)} />
         <Services />
         {!appMode && <AboutVisit />}
@@ -134,7 +134,7 @@ export default function HomeLanding() {
         <Footer />
       </div>
 
-      <MobileCTA onDonate={() => setShowDonate(true)} />
+      {!appMode && <MobileCTA onDonate={() => setShowDonate(true)} />}
 
       {showDonate && <DonateModal onClose={() => setShowDonate(false)} />}
     </main>

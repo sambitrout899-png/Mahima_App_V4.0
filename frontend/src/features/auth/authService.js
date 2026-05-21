@@ -109,7 +109,10 @@ export function setSavedUsername(name) {
 
 export function setCurrentUser(user) {
   try {
-    localStorage.setItem(ME_KEY, JSON.stringify(user || {}));
+    const value = JSON.stringify(user || {});
+    localStorage.setItem(ME_KEY, value);
+    localStorage.setItem("mahima_user", value);
+    localStorage.setItem("currentUser", value);
   } catch {}
 }
 

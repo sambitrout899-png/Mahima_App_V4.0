@@ -3,6 +3,7 @@ import { API_BASE } from "../api";
 import { getToken } from "../features/auth/authService";
 
 const TABS = [
+  { key: "", label: "All", tone: "#0f172a" },
   { key: "PendingReview", label: "New Applications", tone: "#2563eb" },
   { key: "Approved", label: "Approved", tone: "#0f766e" },
   { key: "Scheduled", label: "Scheduled", tone: "#c2410c" },
@@ -69,7 +70,7 @@ function statusStyle(status) {
 }
 
 export default function MarriagePage() {
-  const [activeTab, setActiveTab] = useState("PendingReview");
+  const [activeTab, setActiveTab] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -160,8 +161,8 @@ export default function MarriagePage() {
 
       setShowNewModal(false);
       resetNewForm();
-      setActiveTab("PendingReview");
-      await loadItems("PendingReview");
+      setActiveTab("");
+      await loadItems("");
     } catch (err) {
       console.error(err);
       alert("Error submitting application.");
@@ -377,19 +378,19 @@ export default function MarriagePage() {
       </button>
     );
 
-    if (activeTab === "PendingReview") {
+    if (item.status === "PendingReview" || item.status === "Pending" || item.status === "New") {
       return btn("Approve", () => handleApprove(item.id), "#0f766e");
     }
 
-    if (activeTab === "Approved") {
+    if (item.status === "Approved") {
       return btn("Schedule", () => openScheduleModal(item), "#c2410c");
     }
 
-    if (activeTab === "Scheduled") {
+    if (item.status === "Scheduled") {
       return btn("Mark Completed", () => handleComplete(item.id), "#123a63");
     }
 
-    if (activeTab === "Completed") {
+    if (item.status === "Completed" || item.status === "Closed") {
       return btn("Certificate", () => setCertificateItem(item), "#4f46e5");
     }
 
@@ -464,7 +465,7 @@ export default function MarriagePage() {
                 {items.length === 0 && (
                   <tr>
                     <td colSpan={8} style={styles.emptyCell}>
-                      No items found for this tab.
+                      {activeTab ? "No items found for this tab." : "No marriage applications found."}
                     </td>
                   </tr>
                 )}

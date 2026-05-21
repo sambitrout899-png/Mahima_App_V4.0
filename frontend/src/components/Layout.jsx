@@ -65,6 +65,7 @@ import CallOverlay from "./CallOverlay";
 import useChatCall from "../hooks/useChatCall";
 import { requestNotificationPermission, unlockAudio, preloadVoices, notifyIncomingMessage } from "../utils/chatNotifications";
 import { registerMobilePushNotifications } from "../utils/mobilePushNotifications";
+import { useLanguage } from "../i18n/LanguageContext";
 
 /* ======================================================================== */
 /*  Navigation                                                               */
@@ -129,6 +130,45 @@ const NAV_GROUPS = [
 
 const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items);
 
+const NAV_LABEL_KEYS = {
+  DASHBOARD: "nav.home",
+  PASTOR: "nav.aiPastor",
+  README: "nav.readMe",
+  APP_DOWNLOADS: "nav.appDownloads",
+  SERMONS: "nav.sermons",
+  PRAYER_REQUESTS: "nav.prayerRequests",
+  TASKS: "nav.tasks",
+  USERS: "nav.users",
+  TEAMS: "nav.teams",
+  ROLES: "nav.roles",
+  PAGES: "nav.pages",
+  ATTENDANCE: "nav.attendance",
+  PAYROLL: "nav.payroll",
+  COSTS: "nav.costs",
+  MARRIAGE: "nav.marriage",
+  BAPTISM: "nav.baptism",
+  COUNSELLING: "nav.counselling",
+  ADMIN_DASHBOARD: "nav.adminDashboard",
+  LIVE_USERS: "nav.liveUsers",
+  MESSAGE_CENTER: "nav.messageCenter",
+  LANGUAGES: "nav.languages",
+  EMAIL_CLIENT: "nav.emailClient",
+  GOOGLE_DRIVE: "nav.googleDrive",
+  SERVER_FILES: "nav.serverFiles",
+};
+
+const GROUP_LABEL_KEYS = {
+  General: "nav.general",
+  Community: "nav.community",
+  Operations: "nav.operations",
+  Ministry: "nav.ministry",
+  Admin: "nav.admin",
+};
+
+function navLabel(item, t) {
+  return t(NAV_LABEL_KEYS[item?.key] || item?.label || "");
+}
+
 // Default keys per role when the user has no `pages` claim of their own.
 const ROLE_DEFAULT_KEYS = {
   admin: ALL_NAV.map((n) => n.key),
@@ -163,6 +203,32 @@ function resolveProfilePhoto(url = "") {
   return `${origin}${value.startsWith("/") ? "" : "/"}${value}`;
 }
 
+function readStoredLayoutUser() {
+  const keys = ["mahima_user", "me", "mahima:user", "currentUser", "mahima_currentUser", "user"];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const user = parsed?.user || parsed?.data?.user || parsed;
+      if (user && (user.id || user.Id || user.userId || user.username || user.email || user.displayName)) {
+        return user;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function storeLayoutUser(user) {
+  if (!user) return;
+  try {
+    const value = JSON.stringify(user);
+    localStorage.setItem("mahima_user", value);
+    localStorage.setItem("me", value);
+    localStorage.setItem("currentUser", value);
+  } catch {}
+}
+
 function incomingMessagePreview(msg) {
   const text = msg?.text ?? msg?.content ?? msg?.body ?? "";
   if (String(text).trim()) return String(text).trim();
@@ -179,11 +245,11 @@ function incomingSenderName(msg) {
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { lang, setLang, languages, t } = useLanguage();
   const mobileAppMode = isMobileAppMode();
 
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mahima_user") || "null"); }
-    catch { return null; }
+    return readStoredLayoutUser();
   });
   const [allowedKeys, setAllowedKeys] = useState(new Set());
   const [permissionRefreshKey, setPermissionRefreshKey] = useState(0);
@@ -259,6 +325,29 @@ export default function Layout() {
   }, [location.pathname]);
 
   useEffect(() => {
+    if (!user?.id && !user?.Id && !user?.userId) return;
+
+    const token = getToken();
+    const path = `${location.pathname || ""}${location.search || ""}${location.hash || ""}` || "/home";
+
+    fetch(`${API_BASE}/admin/daily-routines/page-visit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      keepalive: true,
+      body: JSON.stringify({
+        path,
+        title: document?.title || "Mahima",
+        referrer: document?.referrer || "",
+      }),
+    }).catch(() => {});
+  }, [location.pathname, location.search, location.hash, user?.id, user?.Id, user?.userId]);
+
+  useEffect(() => {
     const refresh = () => setPermissionRefreshKey((value) => value + 1);
     window.addEventListener("mahima:permissions-changed", refresh);
     return () => window.removeEventListener("mahima:permissions-changed", refresh);
@@ -300,10 +389,9 @@ export default function Layout() {
       const fromApi = await getCurrentUser().catch(() => null);
       let finalUser = fromApi;
       if (fromApi) {
-        try { localStorage.setItem("mahima_user", JSON.stringify(fromApi)); } catch {}
+        storeLayoutUser(fromApi);
       } else {
-        try { finalUser = JSON.parse(localStorage.getItem("mahima_user") || "null"); }
-        catch { finalUser = null; }
+        finalUser = readStoredLayoutUser();
       }
       if (cancelled || !finalUser) return;
 
@@ -344,7 +432,7 @@ export default function Layout() {
             profilePhotoUrl: profile?.profilePhotoUrl || current?.profilePhotoUrl,
             status: profile?.status ?? current?.status,
           };
-          try { localStorage.setItem("mahima_user", JSON.stringify(next)); } catch {}
+          storeLayoutUser(next);
           return next;
         });
       } catch {}
@@ -382,7 +470,7 @@ export default function Layout() {
           status: data?.status || "",
         });
       } catch (err) {
-        if (!cancelled) setProfileMessage("Could not load profile. You can still update and save.");
+        if (!cancelled) setProfileMessage(t("layout.profileLoadFailed"));
       } finally {
         if (!cancelled) setProfileLoading(false);
       }
@@ -442,11 +530,11 @@ export default function Layout() {
         status: updated?.status ?? profileForm.status,
       };
       setUser(nextUser);
-      try { localStorage.setItem("mahima_user", JSON.stringify(nextUser)); } catch {}
-      setProfileMessage("Profile updated.");
+      storeLayoutUser(nextUser);
+      setProfileMessage(t("layout.profileUpdated"));
       window.setTimeout(() => setProfileOpen(false), 450);
     } catch (err) {
-      setProfileMessage(err?.message || "Could not save profile.");
+      setProfileMessage(err?.message || t("layout.profileSaveFailed"));
     } finally {
       setProfileSaving(false);
     }
@@ -469,9 +557,9 @@ const visibleGroups = NAV_GROUPS
   const currentNav = [...ALL_NAV]
     .sort((a, b) => b.to.length - a.to.length)
     .find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`));
-  const pageTitle = currentNav?.label || "Mahima";
+  const pageTitle = currentNav ? navLabel(currentNav, t) : "Mahima";
 
-  const role = String(user?.role || "").toLowerCase();
+  const role = String(user?.role || user?.Role || "").toLowerCase();
   const canUsePastor = allowedKeys.has("PASTOR");
   const showTodayUpdate = location.pathname === "/home" || location.pathname === "/home/";
   const isFullBleedPage = location.pathname.startsWith("/home/chat");
@@ -482,8 +570,26 @@ const visibleGroups = NAV_GROUPS
     meId: user?.id || user?.Id || user?.userId || null,
     enabled: globalCallsEnabled,
   });
-  const displayName = user?.displayName || user?.username || user?.email || "User";
-  const profilePhoto = resolveProfilePhoto(user?.profilePhotoUrl || user?.ProfilePhotoUrl || "");
+  const displayName =
+    user?.displayName ||
+    user?.DisplayName ||
+    user?.name ||
+    user?.Name ||
+    user?.username ||
+    user?.userName ||
+    user?.UserName ||
+    user?.email ||
+    "User";
+  const profilePhoto = resolveProfilePhoto(
+    user?.profilePhotoUrl ||
+    user?.ProfilePhotoUrl ||
+    user?.avatarUrl ||
+    user?.AvatarUrl ||
+    user?.photoUrl ||
+    user?.PhotoUrl ||
+    user?.picture ||
+    ""
+  );
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -521,12 +627,12 @@ const visibleGroups = NAV_GROUPS
             <div key={g.label} className="mb-3">
               {!collapsed && (
                 <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  {g.label}
+                  {t(GROUP_LABEL_KEYS[g.label] || g.label)}
                 </div>
               )}
               <ul className="space-y-0.5">
                 {g.items.map((item) => (
-                  <SidebarLink key={item.to} item={item} collapsed={collapsed} />
+                  <SidebarLink key={item.to} item={item} collapsed={collapsed} label={navLabel(item, t)} />
                 ))}
               </ul>
             </div>
@@ -568,7 +674,7 @@ const visibleGroups = NAV_GROUPS
               <button
                 onClick={() => setMobileOpen(false)}
                 className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center"
-                aria-label="Close menu"
+                aria-label={t("layout.closeMenu")}
               >
                 <X className="w-5 h-5 text-slate-600" />
               </button>
@@ -577,11 +683,11 @@ const visibleGroups = NAV_GROUPS
               {visibleGroups.map((g) => (
                 <div key={g.label} className="mb-3">
                   <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    {g.label}
+                    {t(GROUP_LABEL_KEYS[g.label] || g.label)}
                   </div>
                   <ul className="space-y-0.5">
                     {g.items.map((item) => (
-                      <SidebarLink key={item.to} item={item} collapsed={false} />
+                      <SidebarLink key={item.to} item={item} collapsed={false} label={navLabel(item, t)} />
                     ))}
                   </ul>
                 </div>
@@ -595,26 +701,31 @@ const visibleGroups = NAV_GROUPS
       <div className="flex-1 flex flex-col min-w-0">
         {/* Topbar */}
         <header
-          className="mahima-topbar sticky top-0 z-30 h-14 bg-white border-b border-slate-200 flex items-center gap-3 px-3 sm:px-5"
-          style={mobileAppMode ? { height: "calc(3.5rem + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" } : undefined}
+          className={`mahima-topbar ${mobileAppMode ? "mahima-native-topbar" : ""} sticky top-0 z-[90] min-h-14 bg-white border-b border-slate-200 flex flex-wrap items-center gap-2 px-2 sm:gap-3 sm:px-5 md:flex-nowrap`}
+          style={mobileAppMode ? {
+            minHeight: "calc(6.75rem + env(safe-area-inset-top))",
+            paddingTop: "env(safe-area-inset-top)",
+            paddingLeft: "max(0.5rem, env(safe-area-inset-left))",
+            paddingRight: "max(0.5rem, env(safe-area-inset-right))",
+          } : undefined}
         >
           {/* Mobile hamburger */}
           <button
             onClick={() => setMobileOpen(true)}
             className="md:hidden w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center"
-            aria-label="Open menu"
+            aria-label={t("layout.openMenu")}
           >
             <MenuIcon className="w-5 h-5 text-slate-700" />
           </button>
 
           {/* Mobile-only mini brand */}
-          <Link to="/home" className="md:hidden flex items-center gap-2">
+          <Link to="/home" className="md:hidden flex min-w-0 items-center gap-1.5">
             <img
               src={mahimaLogo}
               alt=""
-              className="w-10 h-10 rounded-full mahima-logo-spin-y"
+              className="w-9 h-9 rounded-full mahima-logo-spin-y"
             />
-            <span className="text-sm font-bold text-slate-900">Mahima</span>
+            <span className="mahima-mobile-brand-text text-sm font-bold text-slate-900">Mahima</span>
           </Link>
 
           {/* Page title */}
@@ -622,79 +733,99 @@ const visibleGroups = NAV_GROUPS
             {pageTitle}
           </h1>
 
-          <div className="flex-1" />
+          <div className="mahima-topbar-spacer flex-1" />
 
-          {/* AI Pastor shortcut */}
-          {canUsePastor && (
+          <div className="mahima-topbar-actions">
+            <label className="mahima-language-picker" title={t("layout.language")} data-no-auto-translate>
+              <Languages className="h-4 w-4 text-emerald-700" />
+              <select
+                value={lang}
+                onChange={(event) => setLang(event.target.value)}
+                aria-label={t("layout.language")}
+              >
+                {languages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.nativeName || language.name || language.code.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* AI Pastor shortcut */}
+            {canUsePastor && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("ai-pastor:open"))}
+                className={`mahima-topbar-action inline-flex w-9 h-9 rounded-lg hover:bg-emerald-50 items-center justify-center transition ${
+                  location.pathname.startsWith("/home/pastor")
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "text-slate-600"
+                }`}
+                aria-label={t("layout.openPastor")}
+                title={t("layout.openPastor")}
+              >
+                <Bot className="w-5 h-5" />
+                <span className="mahima-action-label">Pastor</span>
+              </button>
+            )}
+
+            {/* Chat shortcut */}
             <button
-              onClick={() => window.dispatchEvent(new CustomEvent("ai-pastor:open"))}
-              className={`inline-flex w-9 h-9 rounded-lg hover:bg-emerald-50 items-center justify-center transition ${
-                location.pathname.startsWith("/home/pastor")
-                  ? "bg-emerald-50 text-emerald-700"
+              onClick={() => navigate("/home/chat")}
+              className={`mahima-topbar-action inline-flex w-9 h-9 rounded-lg hover:bg-amber-50 items-center justify-center transition ${
+                location.pathname.startsWith("/home/chat")
+                  ? "bg-amber-50 text-amber-700"
                   : "text-slate-600"
               }`}
-              aria-label="Open AI Pastor"
-              title="Open AI Pastor"
+              aria-label={t("layout.openChat")}
+              title={t("layout.openChat")}
             >
-              <Bot className="w-5 h-5" />
+              <MessageSquare className="w-5 h-5" />
+              <span className="mahima-action-label">Chat</span>
             </button>
-          )}
 
-          {/* Chat shortcut */}
-          <button
-            onClick={() => navigate("/home/chat")}
-            className={`inline-flex w-9 h-9 rounded-lg hover:bg-amber-50 items-center justify-center transition ${
-              location.pathname.startsWith("/home/chat")
-                ? "bg-amber-50 text-amber-700"
-                : "text-slate-600"
-            }`}
-            aria-label="Open chat"
-            title="Open chat"
-          >
-            <MessageSquare className="w-5 h-5" />
-          </button>
-
-          {/* Notifications (placeholder) */}
-          <button
-            className="hidden sm:inline-flex w-9 h-9 rounded-lg hover:bg-slate-100 items-center justify-center text-slate-600"
-            aria-label="Notifications"
-            title="Notifications"
-          >
-            <Bell className="w-5 h-5" />
-          </button>
+            {/* Notifications (placeholder) */}
+            <button
+              className="mahima-topbar-action inline-flex w-9 h-9 rounded-lg hover:bg-slate-100 items-center justify-center text-slate-600"
+              aria-label={t("layout.notifications")}
+              title={t("layout.notifications")}
+            >
+              <Bell className="w-5 h-5" />
+              <span className="mahima-action-label">Alerts</span>
+            </button>
+          </div>
 
           {/* User menu */}
-          <div className="relative" ref={userMenuRef}>
+          <div className="mahima-user-menu relative" ref={userMenuRef}>
             <button
               onClick={() => setUserMenuOpen((v) => !v)}
-              className="flex items-center gap-2 pl-1 pr-2 sm:pr-3 py-1 rounded-full hover:bg-slate-100 transition"
+              className="mahima-user-button flex items-center gap-2 pl-1 pr-2 sm:pr-3 py-1 rounded-full hover:bg-slate-100 transition"
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
             >
               {profilePhoto ? (
-                <img src={profilePhoto} alt="" className="w-8 h-8 rounded-full object-cover shadow-sm" />
+                <img src={profilePhoto} alt="" className="w-8 h-8 shrink-0 rounded-full object-cover shadow-sm" />
               ) : (
-                <span className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
+                <span className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
                   {initials}
                 </span>
               )}
-              <span className="hidden sm:flex flex-col items-start leading-tight">
-                <span className="text-xs font-semibold text-slate-800 max-w-[140px] truncate">
+              <span className="mahima-user-info flex min-w-0 flex-col items-start leading-tight">
+                <span className="mahima-user-name text-xs font-semibold text-slate-800 max-w-[140px] truncate">
                   {displayName}
                 </span>
                 {role && (
-                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                  <span className="mahima-user-role text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
                     {role}
                   </span>
                 )}
               </span>
-              <ChevronDown className="hidden sm:block w-3.5 h-3.5 text-slate-400" />
+              <ChevronDown className="mahima-user-chevron w-3.5 h-3.5 text-slate-400" />
             </button>
 
             {userMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 w-60 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden"
+                className="mahima-user-dropdown absolute right-0 z-[120] mt-2 w-60 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden"
               >
                 <div className="px-4 py-3 border-b border-slate-100">
                   <div className="text-sm font-semibold text-slate-900 truncate">{displayName}</div>
@@ -716,7 +847,7 @@ const visibleGroups = NAV_GROUPS
                   role="menuitem"
                 >
                   <UserCircle className="w-4 h-4" />
-                  Profile photo & status
+                  {t("layout.profile")}
                 </button>
                 <button
                   onClick={onLogout}
@@ -724,7 +855,7 @@ const visibleGroups = NAV_GROUPS
                   role="menuitem"
                 >
                   <LogOut className="w-4 h-4" />
-                  {mobileAppMode ? "Log out / switch account" : "Log out"}
+                  {mobileAppMode ? t("layout.logoutSwitch") : t("layout.logout")}
                 </button>
               </div>
             )}
@@ -748,14 +879,14 @@ const visibleGroups = NAV_GROUPS
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div>
-                <div className="text-lg font-bold text-slate-900">Profile</div>
-                <div className="text-xs font-semibold text-slate-500">Update your display photo and WhatsApp-style status.</div>
+                <div className="text-lg font-bold text-slate-900">{t("layout.profileTitle")}</div>
+                <div className="text-xs font-semibold text-slate-500">{t("layout.profileSubtitle")}</div>
               </div>
               <button
                 type="button"
                 onClick={() => setProfileOpen(false)}
                 className="grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100"
-                aria-label="Close profile"
+                aria-label={t("common.close")}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -773,7 +904,7 @@ const visibleGroups = NAV_GROUPS
                 <div className="min-w-0 flex-1">
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-800">
                     {profileUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                    Upload DP
+                    {t("layout.uploadDp")}
                     <input
                       type="file"
                       accept="image/*"
@@ -781,12 +912,12 @@ const visibleGroups = NAV_GROUPS
                       onChange={(e) => uploadProfilePhoto(e.target.files?.[0])}
                     />
                   </label>
-                  <p className="mt-2 text-xs font-semibold text-slate-500">Square photos look best in chat and the app header.</p>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">{t("layout.photoHint")}</p>
                 </div>
               </div>
 
               <label className="mt-5 block text-sm font-bold text-slate-700">
-                Display name
+                {t("layout.displayName")}
                 <input
                   value={profileForm.displayName}
                   onChange={(e) => setProfileForm((current) => ({ ...current, displayName: e.target.value }))}
@@ -795,13 +926,13 @@ const visibleGroups = NAV_GROUPS
               </label>
 
               <label className="mt-4 block text-sm font-bold text-slate-700">
-                Status
+                {t("layout.status")}
                 <textarea
                   value={profileForm.status}
                   onChange={(e) => setProfileForm((current) => ({ ...current, status: e.target.value }))}
                   rows={3}
                   maxLength={160}
-                  placeholder="Available, praying, serving, or a short testimony..."
+                  placeholder={t("layout.statusPlaceholder")}
                   className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-emerald-600"
                 />
               </label>
@@ -822,7 +953,7 @@ const visibleGroups = NAV_GROUPS
                 onClick={() => setProfileOpen(false)}
                 className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -831,7 +962,7 @@ const visibleGroups = NAV_GROUPS
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
               >
                 {profileSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save
+                {t("common.save")}
               </button>
             </div>
           </div>
@@ -866,7 +997,7 @@ const visibleGroups = NAV_GROUPS
 /*  Single sidebar link                                                      */
 /* ======================================================================== */
 
-function SidebarLink({ item, collapsed }) {
+function SidebarLink({ item, collapsed, label }) {
   const Icon = item.icon || FileText;
   return (
     <li>
@@ -882,12 +1013,12 @@ function SidebarLink({ item, collapsed }) {
               : "text-slate-700 hover:bg-slate-50 hover:text-slate-950"
           }`
         }
-        title={collapsed ? item.label : undefined}
+        title={collapsed ? label : undefined}
       >
         {({ isActive }) => (
           <>
             <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-emerald-700" : "text-slate-500 group-hover:text-slate-700"}`} />
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {!collapsed && <span className="truncate">{label}</span>}
           </>
         )}
       </NavLink>

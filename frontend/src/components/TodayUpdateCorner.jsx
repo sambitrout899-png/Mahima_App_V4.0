@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CloudSun, ExternalLink, MapPin, Newspaper, RefreshCw, Sparkles } from "lucide-react";
+import { CloudSun, ExternalLink, MapPin, Newspaper, Radio, RefreshCw, Sparkles, Zap } from "lucide-react";
 import { apiFetch } from "../utils/fetch-auth-shim";
 
 const CACHE_KEY = "mahima_today_update_v1";
@@ -46,9 +46,22 @@ function roundValue(value) {
   return Math.round(Number(value));
 }
 
+function articleTitle(article) {
+  return String(article?.title || article?.Title || article?.headline || "").trim();
+}
+
+function articleUrl(article) {
+  return String(article?.url || article?.Url || "").trim();
+}
+
+function articleSource(article) {
+  return String(article?.source || article?.Source || "").trim();
+}
+
 export default function TodayUpdateCorner() {
-  const [data, setData] = useState(() => getCachedUpdate());
-  const [loading, setLoading] = useState(!getCachedUpdate());
+  const initialCache = getCachedUpdate();
+  const [data, setData] = useState(() => initialCache);
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState("");
 
   const timezone = useMemo(() => {
@@ -110,70 +123,123 @@ export default function TodayUpdateCorner() {
   const temp = roundValue(weather?.temperatureC);
   const feelsLike = roundValue(weather?.feelsLikeC);
   const articles = Array.isArray(data?.christianUpdate?.articles) ? data.christianUpdate.articles : [];
-  const topArticle = articles.find((article) => article?.url);
+  const topArticle = articles.find((article) => articleUrl(article));
+
+  const tickerItems = useMemo(() => {
+    const items = [];
+
+    if (weather) {
+      items.push({
+        key: "weather",
+        tone: "weather",
+        label: `Local weather: ${temp ?? "--"} C, ${weather.summary || "weather update"} in ${location}${feelsLike !== null ? `, feels ${feelsLike} C` : ""}`,
+      });
+    } else {
+      items.push({
+        key: "weather-fallback",
+        tone: "weather",
+        label: loading ? "Finding your local weather and ministry context..." : "Enable location for local weather and regional Christian updates",
+      });
+    }
+
+    const summary = String(data?.christianUpdate?.summary || "").trim();
+    items.push({
+      key: "summary",
+      tone: "faith",
+      label: loading && !data ? "Preparing today's Christian update..." : summary || "Christian update: keep watch for ministry news, prayer needs, and local church announcements today",
+    });
+
+    articles.slice(0, 6).forEach((article, index) => {
+      const title = articleTitle(article);
+      if (!title) return;
+      const source = articleSource(article);
+      items.push({
+        key: `article-${index}`,
+        tone: "news",
+        label: `${title}${source ? ` - ${source}` : ""}`,
+        url: articleUrl(article),
+      });
+    });
+
+    if (error) {
+      items.push({
+        key: "error",
+        tone: "alert",
+        label: `Update notice: ${error}`,
+      });
+    }
+
+    return items.filter((item) => item.label);
+  }, [articles, data, error, feelsLike, loading, location, temp, weather]);
+
+  const marqueeItems = tickerItems.length ? [...tickerItems, ...tickerItems] : [];
 
   return (
-    <section className="border-b border-amber-100 bg-gradient-to-r from-amber-50 via-white to-emerald-50 px-4 py-3 sm:px-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid gap-3 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.4fr)] xl:flex-1">
-          <div className="rounded-xl border border-amber-100 bg-white/90 p-3 shadow-sm">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                <CloudSun className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Local Weather</p>
-                <p className="text-sm font-bold text-slate-900">
-                  {loading && !data ? "Loading..." : weather ? `${temp ?? "--"} C - ${weather.summary}` : "Location needed"}
-                </p>
-                <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{location}</span>
-                  {feelsLike !== null && <span className="shrink-0">- feels {feelsLike} C</span>}
-                </p>
-              </div>
-            </div>
-          </div>
+    <section className="today-ribbon" aria-label="Weather and Christian news updates">
+      <div className="today-ribbon__glow" />
+      <div className="today-ribbon__inner">
+        <div className="today-ribbon__badge">
+          <Radio className="h-4 w-4" />
+          <span>Live Faith Wire</span>
+        </div>
 
-          <div className="rounded-xl border border-emerald-100 bg-white/90 p-3 shadow-sm">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                <Sparkles className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Christian Update Today</p>
-                  {topArticle?.url && (
-                    <a
-                      href={topArticle.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-200"
-                    >
-                      <Newspaper className="h-3 w-3" />
-                      Source
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-                <p className="mt-1 text-sm leading-5 text-slate-700">
-                  {loading && !data ? "Preparing a local ministry update..." : data?.christianUpdate?.summary || "No update available yet."}
-                </p>
-                {error && <p className="mt-1 text-xs font-semibold text-rose-600">{error}</p>}
-              </div>
-            </div>
+        <div className="today-ribbon__viewport">
+          <div className="today-ribbon__track">
+            {marqueeItems.map((item, index) => {
+              const Icon = item.tone === "weather" ? CloudSun : item.tone === "news" ? Newspaper : item.tone === "alert" ? Zap : Sparkles;
+              const content = (
+                <>
+                  <span className={`today-ribbon__icon today-ribbon__icon--${item.tone}`}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="today-ribbon__text">{item.label}</span>
+                  {item.url && <ExternalLink className="h-3.5 w-3.5 opacity-80" />}
+                </>
+              );
+
+              return item.url ? (
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="today-ribbon__item"
+                  key={`${item.key}-${index}`}
+                >
+                  {content}
+                </a>
+              ) : (
+                <span className="today-ribbon__item" key={`${item.key}-${index}`}>
+                  {content}
+                </span>
+              );
+            })}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => loadUpdate({ force: true })}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-60"
-          disabled={loading}
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="today-ribbon__meta">
+          <span className="today-ribbon__location" title={location}>
+            <MapPin className="h-3.5 w-3.5" />
+            <span>{location}</span>
+          </span>
+
+          {topArticle?.url && (
+            <a className="today-ribbon__source" href={articleUrl(topArticle)} target="_blank" rel="noreferrer">
+              Source
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+
+          <button
+            type="button"
+            onClick={() => loadUpdate({ force: true })}
+            className="today-ribbon__refresh"
+            disabled={loading}
+            aria-label="Refresh weather and Christian updates"
+            title="Refresh updates"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
     </section>
   );

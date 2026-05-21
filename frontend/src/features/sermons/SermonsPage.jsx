@@ -1,4 +1,4 @@
-// src/pages/SermonsPage.jsx
+ï»¿// src/pages/SermonsPage.jsx
 //
 // Modern resource library: Sermons, Books, Articles.
 // - Lucide icons everywhere (no mojibake from emoji glyphs)
@@ -17,6 +17,7 @@ import React, {
   useCallback,
 } from "react";
 import axios from "axios";
+import * as sermonsApiModule from "../../api/sermons";
 import {
   Headphones,
   BookOpen,
@@ -64,7 +65,7 @@ function extractYouTubeId(url) {
       if (sm) return sm[1];
     }
   } catch {
-    // not a URL — fall through
+    // not a URL â€” fall through
   }
   const maybe = String(url).trim();
   if (/^[A-Za-z0-9_-]{11}$/.test(maybe)) return maybe;
@@ -157,6 +158,10 @@ const resolveApi = (mod, name) => {
   const obj = mod.sermonsApi ?? mod.default ?? mod;
   if (obj && typeof obj[name] === "function") return obj[name];
   return undefined;
+};
+
+const sermonsApis = {
+  list: resolveApi(sermonsApiModule, "list"),
 };
 
 /* ======================================================================== */
@@ -359,28 +364,11 @@ export default function SermonsPage() {
   const [editTarget, setEditTarget] = useState(null);
   const [detailTarget, setDetailTarget] = useState(null);
   const [confirm, setConfirm] = useState(null);
-
-  // dynamic API import (preserved from original)
-  const moduleRef = useRef(null);
-  const apisRef = useRef({ list: null, create: null, update: null, remove: null });
-
-  const ensureApis = useCallback(async () => {
-    if (!moduleRef.current) {
-      moduleRef.current = await import("../../api/sermons");
-      const mod = moduleRef.current;
-      apisRef.current.list   = resolveApi(mod, "list");
-      apisRef.current.create = resolveApi(mod, "create");
-      apisRef.current.update = resolveApi(mod, "update");
-      apisRef.current.remove = resolveApi(mod, "remove");
-    }
-  }, []);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      await ensureApis();
-      const listApi = apisRef.current.list;
+      const listApi = sermonsApis.list;
       if (typeof listApi !== "function") {
         setError("sermons API: 'list' not available.");
         setItems([]);
@@ -396,7 +384,7 @@ export default function SermonsPage() {
     } finally {
       setLoading(false);
     }
-  }, [ensureApis]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -484,7 +472,7 @@ export default function SermonsPage() {
 
     try {
       if (isEdit) {
-        // PUT /api/sermons/{id} — id MUST be in URL
+        // PUT /api/sermons/{id} â€” id MUST be in URL
         await axios.put(`/api/sermons/${form.id}`, payload);
       } else {
         await axios.post(`/api/sermons`, payload);
@@ -531,7 +519,7 @@ export default function SermonsPage() {
     const url = id ? watchUrlFromId(id) : null;
     if (!url) { toastError("No shareable link."); return; }
 
-    // 1) Modern Web Share — only works in HTTPS / secure contexts. We
+    // 1) Modern Web Share â€” only works in HTTPS / secure contexts. We
     //    explicitly check `isSecureContext` because some browsers expose
     //    `navigator.share` on http:// but throw at call time.
     if (window.isSecureContext && typeof navigator.share === "function") {
@@ -540,13 +528,13 @@ export default function SermonsPage() {
         toastSuccess("Shared.");
         return;
       } catch (err) {
-        // User cancelled the share sheet — that's not an error.
+        // User cancelled the share sheet â€” that's not an error.
         if (err?.name === "AbortError") return;
         // Otherwise fall through to clipboard.
       }
     }
 
-    // 2) Async clipboard — also requires secure context.
+    // 2) Async clipboard â€” also requires secure context.
     if (window.isSecureContext && navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(url);
@@ -561,7 +549,7 @@ export default function SermonsPage() {
     if (legacyCopyToClipboard(url)) {
       toastSuccess("Link copied.");
     } else {
-      // 4) Last resort — show the URL so the user can copy it manually.
+      // 4) Last resort â€” show the URL so the user can copy it manually.
       window.prompt("Copy this link:", url);
     }
   };
@@ -954,7 +942,7 @@ function ResourceCard({
 }
 
 /* ======================================================================== */
-/*  Detail modal — full embedded player                                      */
+/*  Detail modal â€” full embedded player                                      */
 /* ======================================================================== */
 
 function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare }) {
@@ -1199,7 +1187,7 @@ function EmptyState({ tab, query, showingBookmarksOnly, canAdd, onAdd }) {
           : `No ${tab.label.toLowerCase()} yet.`}
       </h3>
       <p className="mt-1 text-xs text-slate-500">
-        {canAdd ? "Add the first one to get started." : "Check back later — new content arrives regularly."}
+        {canAdd ? "Add the first one to get started." : "Check back later â€” new content arrives regularly."}
       </p>
       {canAdd && (
         <button onClick={onAdd}
@@ -1235,3 +1223,4 @@ function Field({ label, children }) {
     </label>
   );
 }
+

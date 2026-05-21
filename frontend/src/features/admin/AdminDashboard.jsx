@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Ban,
   CalendarCheck,
   CheckCircle2,
   Clock3,
@@ -53,6 +54,7 @@ const moduleLabels = {
   counselling: "Counselling",
   payrollRuns: "Payroll",
   prayerRequests: "Prayer requests",
+  dailyRoutines: "Daily routines",
 };
 
 function getCurrentUserSync() {
@@ -183,6 +185,7 @@ function buildDashboard(results) {
   const payrollRuns = arrayFrom(r.payrollRuns?.data);
   const balances = arrayFrom(r.balances?.data);
   const pnl = r.pnl?.data || {};
+  const dailyRoutines = r.dailyRoutines?.data || {};
 
   const userStats = {
     total: number(overview?.users?.total ?? reports?.users?.total ?? r.users?.data?.total ?? users.length),
@@ -327,6 +330,7 @@ function buildDashboard(results) {
       ok: x.ok,
       detail: x.ok ? "Live" : x.error,
     })),
+    dailyRoutines,
     pipelines: [
       { name: "Baptism", total: baptisms.length, active: baptisms.filter((x) => !/complete/i.test(String(x.status))).length },
       { name: "Marriage", total: marriage.length, active: marriage.filter((x) => !/complete/i.test(String(x.status))).length },
@@ -370,6 +374,7 @@ export default function AdminDashboard() {
       safeGet("counselling", "/counselling/admin/sessions"),
       safeGet("payrollRuns", "/payroll/runs"),
       safeGet("prayerRequests", "/prayerrequests", { params: { includeResponses: true } }),
+      safeGet("dailyRoutines", "/admin/daily-routines", { params: { date: today } }),
     ];
 
     try {
@@ -384,6 +389,19 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (canAccess) loadDashboard();
   }, [canAccess]);
+
+  async function blockRoutineUser(userId, reason = "Blocked by admin from Daily Routines dashboard") {
+    if (!userId) return;
+    const ok = window.confirm("Block this user's access to Mahima App?");
+    if (!ok) return;
+
+    const res = await api.post(`/admin/daily-routines/users/${userId}/block`, { reason });
+    if (!res.ok) {
+      setError(res.error || "Unable to block user.");
+      return;
+    }
+    await loadDashboard();
+  }
 
   if (!canAccess) {
     return (
@@ -453,6 +471,8 @@ export default function AdminDashboard() {
             <AttentionCard key={item.label} item={item} />
           ))}
         </div>
+
+        <DailyRoutinesPanel data={dashboard.dailyRoutines} onBlockUser={blockRoutineUser} />
 
         <div className="grid gap-5 xl:grid-cols-3">
           <Panel title="People & Roles" icon={Users} className="xl:col-span-1">
@@ -616,6 +636,215 @@ function Panel({ title, icon: Icon, children, className = "" }) {
       </div>
       {children}
     </section>
+  );
+}
+
+function DailyRoutinesPanel({ data, onBlockUser }) {
+  const attendance = data?.attendance || {};
+  const siteUsage = data?.siteUsage || {};
+  const security = data?.security || {};
+  const newActivity = data?.newActivity || {};
+  const malpractice = data?.malpractice || {};
+  const blockedUsers = arrayFrom(data?.blockedUsers);
+  const flaggedMessages = arrayFrom(malpractice?.flaggedMessages);
+  const flaggedUploads = arrayFrom(malpractice?.flaggedUploads);
+  const manipulation = arrayFrom(malpractice?.dataManipulationFlags);
+  const cyberEvents = arrayFrom(security?.events);
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
+            <CalendarCheck className="w-4 h-4" />
+          </span>
+          <div>
+            <h2 className="font-bold text-slate-900">Automated Daily Routines</h2>
+            <p className="text-xs text-slate-500">Attendance, site activity, cyber signals, new records, and conduct review for today.</p>
+          </div>
+        </div>
+        <div className="text-xs rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">
+          Report date: {data?.date || "Today"}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+        <RoutineMetric title="Attendance logged" value={attendance.present} tone="emerald" />
+        <RoutineMetric title="Attendance missing" value={attendance.missing} tone={attendance.missing ? "rose" : "emerald"} />
+        <RoutineMetric title="Site visitors" value={siteUsage.uniqueVisitors} tone="blue" />
+        <RoutineMetric title="Page views" value={siteUsage.pageViews} tone="violet" />
+        <RoutineMetric title="Cyber signals" value={security.cyberSignals} tone={security.cyberSignals ? "rose" : "emerald"} />
+        <RoutineMetric title="Misuse flags" value={malpractice.totalFlags} tone={malpractice.totalFlags ? "amber" : "emerald"} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <RoutineList
+          title="Attendance Present"
+          rows={arrayFrom(attendance.presentUsers)}
+          empty="No attendance logged yet."
+          render={(row) => (
+            <>
+              <span className="font-semibold text-slate-800 truncate">{row.name || row.username || "User"}</span>
+              <span className="text-xs text-slate-500">{row.role || row.detail || ""}</span>
+            </>
+          )}
+        />
+        <RoutineList
+          title="Attendance Missing"
+          rows={arrayFrom(attendance.missingUsers)}
+          empty="Everyone in the attendance population has logged attendance."
+          render={(row) => (
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{row.name || row.username || "User"}</div>
+                <div className="text-xs text-slate-500">{row.role || row.detail || ""}</div>
+              </div>
+              {row.userId && (
+                <button
+                  onClick={() => onBlockUser?.(row.userId, "Blocked from attendance exception review")}
+                  className="shrink-0 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  title="Block user access"
+                >
+                  <Ban className="inline h-3.5 w-3.5 mr-1" />
+                  Block
+                </button>
+              )}
+            </div>
+          )}
+        />
+        <RoutineList
+          title="Top Pages Today"
+          rows={arrayFrom(siteUsage.topPages)}
+          empty="No page visits captured yet. Activity will appear after users navigate pages."
+          render={(row) => (
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold text-slate-800 truncate">{row.path || "Page"}</span>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{row.views || 0}</span>
+            </div>
+          )}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3 mt-4">
+        <RoutineList
+          title="Cyber Attack Signals"
+          rows={cyberEvents}
+          empty={security.note || "No cyber signals captured today."}
+          render={(row) => (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{row.eventType || "Security event"}</div>
+                <div className="text-xs text-slate-500 truncate">{row.path || row.details || row.username || "Application security telemetry"}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${row.severity === "high" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>
+                {row.severity || "watch"}
+              </span>
+            </div>
+          )}
+        />
+        <RoutineList
+          title="New Users, Tasks, Team Members"
+          rows={[
+            ...arrayFrom(newActivity.newUsers).map((x) => ({ kind: "User", label: x.name || x.username, detail: x.role })),
+            ...arrayFrom(newActivity.newTasks).map((x) => ({ kind: "Task", label: x.title, detail: x.status })),
+            ...arrayFrom(newActivity.newTeamMembers).map((x) => ({ kind: "Team", label: x.userName, detail: x.teamName })),
+          ]}
+          empty="No new users, tasks, or team member joins captured today."
+          render={(row) => (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{row.label || "New activity"}</div>
+                <div className="text-xs text-slate-500 truncate">{row.detail || ""}</div>
+              </div>
+              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">{row.kind}</span>
+            </div>
+          )}
+        />
+        <RoutineList
+          title="Misuse & Moderation"
+          rows={[
+            ...flaggedMessages.map((x) => ({ ...x, kind: "Chat", label: x.userName || x.userId, detail: x.preview, userId: x.userId })),
+            ...flaggedUploads.map((x) => ({ ...x, kind: "Upload", label: x.fileName || x.contentType, detail: x.reason, userId: x.userId })),
+            ...manipulation.map((x) => ({ ...x, kind: "Data", label: x.userName || x.userId, detail: `${x.totalChanges} changes`, userId: x.userId })),
+          ]}
+          empty={malpractice.moderationNote || "No misuse flags found today."}
+          render={(row) => (
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{row.label || "Flag"}</div>
+                <div className="text-xs text-slate-500 truncate">{row.detail || row.reason || ""}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">{row.kind}</span>
+                {row.userId && (
+                  <button
+                    onClick={() => onBlockUser?.(row.userId, `Blocked after ${row.kind} moderation flag`)}
+                    className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  >
+                    Block
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        />
+      </div>
+
+      {blockedUsers.length > 0 && (
+        <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50 p-3">
+          <div className="text-sm font-bold text-rose-800 mb-2">Currently Blocked Users</div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {blockedUsers.slice(0, 9).map((row) => (
+              <div key={row.userId || row.username} className="rounded-md bg-white/80 border border-rose-100 px-3 py-2 text-sm">
+                <div className="font-semibold text-slate-800">{row.name || row.username}</div>
+                <div className="text-xs text-rose-700 truncate">{row.reason || "Blocked"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RoutineMetric({ title, value, tone = "slate" }) {
+  const toneMap = {
+    emerald: "bg-emerald-50 text-emerald-800 border-emerald-100",
+    rose: "bg-rose-50 text-rose-800 border-rose-100",
+    blue: "bg-blue-50 text-blue-800 border-blue-100",
+    violet: "bg-violet-50 text-violet-800 border-violet-100",
+    amber: "bg-amber-50 text-amber-800 border-amber-100",
+    slate: "bg-slate-50 text-slate-800 border-slate-100",
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${toneMap[tone] || toneMap.slate}`}>
+      <div className="text-2xl font-bold">{compactNumber(value || 0)}</div>
+      <div className="text-xs font-semibold">{title}</div>
+    </div>
+  );
+}
+
+function RoutineList({ title, rows, empty, render }) {
+  const allRows = arrayFrom(rows);
+  const items = allRows.slice(0, 8);
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-slate-800">{title}</h3>
+        <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-600">{allRows.length}</span>
+      </div>
+      {items.length ? (
+        <div className="space-y-2">
+          {items.map((row, index) => (
+            <div key={row.id || row.userId || row.messageId || row.attachmentId || `${title}-${index}`} className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm">
+              {render(row)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-sm text-slate-500">{empty}</div>
+      )}
+    </div>
   );
 }
 
