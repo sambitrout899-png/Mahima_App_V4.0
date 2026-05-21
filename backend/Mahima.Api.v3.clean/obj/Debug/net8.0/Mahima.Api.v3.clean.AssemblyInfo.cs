@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cf99a3087fa41eb8c4ce505fa01fc6d59c303760")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e32589003e5e86196e9495c471024b06b170ece2")]
 [assembly: System.Reflection.AssemblyProductAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

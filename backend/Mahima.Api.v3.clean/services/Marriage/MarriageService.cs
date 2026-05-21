@@ -94,11 +94,12 @@ namespace Mahima.Api.v3.clean.services.Marriage
             string? status,
             CancellationToken ct = default)
         {
-            IQueryable<MarriageApplication> q = _db.MarriageApplications;
+            IQueryable<MarriageApplication> q = _db.MarriageApplications.AsNoTracking();
+            var statusAliases = NormalizeStatusAliases(status);
 
-            if (!string.IsNullOrWhiteSpace(status))
+            if (statusAliases.Count > 0)
             {
-                q = q.Where(m => m.Status == status);
+                q = q.Where(m => statusAliases.Contains(m.Status));
             }
 
             var list = await q
@@ -107,6 +108,23 @@ namespace Mahima.Api.v3.clean.services.Marriage
                 .ToListAsync(ct);
 
             return list.Select(Map).ToList();
+        }
+
+        private static IReadOnlyList<string> NormalizeStatusAliases(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return Array.Empty<string>();
+
+            var key = status.Trim().Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant();
+            return key switch
+            {
+                "all" or "any" => Array.Empty<string>(),
+                "new" or "pending" or "pendingreview" => new[] { MarriageApplicationStatuses.PendingReview, "Pending", "New" },
+                "approved" => new[] { MarriageApplicationStatuses.Approved },
+                "scheduled" => new[] { MarriageApplicationStatuses.Scheduled },
+                "completed" or "complete" => new[] { MarriageApplicationStatuses.Completed, "Closed" },
+                "rejected" => new[] { MarriageApplicationStatuses.Rejected },
+                _ => new[] { status.Trim() }
+            };
         }
 
         public async Task<MarriageApplicationSummaryDto> ApproveAsync(
@@ -187,12 +205,22 @@ namespace Mahima.Api.v3.clean.services.Marriage
                 BridePhone = m.BridePhone,
                 GroomEmail = m.GroomEmail,
                 BrideEmail = m.BrideEmail,
+                Address = m.Address,
+                GroomIsMember = m.GroomIsMember,
+                BrideIsMember = m.BrideIsMember,
+                GroomMemberId = m.GroomMemberId,
+                BrideMemberId = m.BrideMemberId,
                 Status = m.Status,
                 PreferredDate = m.PreferredDate,
+                PreferredService = m.PreferredService,
                 ScheduledAt = m.ScheduledAt,
                 CeremonyLocation = m.CeremonyLocation,
                 Token = m.Token,
-                CreatedAt = m.CreatedAt
+                Notes = m.Notes,
+                CreatedAt = m.CreatedAt,
+                UpdatedAt = m.UpdatedAt,
+                ApprovedAt = m.ApprovedAt,
+                CompletedAt = m.CompletedAt
             };
         }
     }

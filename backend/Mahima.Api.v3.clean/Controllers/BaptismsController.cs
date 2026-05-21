@@ -1,5 +1,6 @@
 using Mahima.Api.v3.clean.Data;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -30,24 +31,26 @@ namespace Mahima.Api.v3.clean.Controllers
         public int Id { get; set; }
         public string? Token { get; set; }
         public string FullName { get; set; } = string.Empty;
-        public string? ContactNumber { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public bool ChurchVerified { get; set; }
-        public bool ConsentSigned { get; set; }
-        public string? CertificatePdfUrl { get; set; }
-    }
-
-    public class BaptismRequestDetailDto : BaptismRequestListItemDto
-    {
         public string? FatherName { get; set; }
         public string? MotherName { get; set; }
         public DateTime? DateOfBirth { get; set; }
+        public string? ContactNumber { get; set; }
         public string? Email { get; set; }
         public string? Address { get; set; }
         public DateTime? PreferredDate { get; set; }
         public string? PreferredService { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public bool ChurchVerified { get; set; }
+        public bool ConsentSigned { get; set; }
+        public string? CertificatePdfUrl { get; set; }
         public DateTime? BaptismDate { get; set; }
         public string? BaptismPlace { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class BaptismRequestDetailDto : BaptismRequestListItemDto
+    {
         public DateTime? ChurchVerifiedAt { get; set; }
         public DateTime? ConsentSignedAt { get; set; }
     }
@@ -104,11 +107,22 @@ namespace Mahima.Api.v3.clean.Controllers
                 Id = e.Id,
                 Token = e.Token,
                 FullName = e.FullName,
+                FatherName = e.FatherName,
+                MotherName = e.MotherName,
+                DateOfBirth = e.DateOfBirth,
                 ContactNumber = e.ContactNumber,
+                Email = e.Email,
+                Address = e.Address,
+                PreferredDate = e.PreferredDate,
+                PreferredService = e.PreferredService,
                 Status = e.Status,
                 ChurchVerified = e.ChurchVerified,
                 ConsentSigned = e.ConsentSigned,
-                CertificatePdfUrl = e.CertificatePdfUrl
+                CertificatePdfUrl = e.CertificatePdfUrl,
+                BaptismDate = e.BaptismDate,
+                BaptismPlace = e.BaptismPlace,
+                CreatedAt = e.CreatedAt,
+                UpdatedAt = e.UpdatedAt
             };
 
         private static BaptismRequestDetailDto ToDetail(BaptismRequest e) =>
@@ -135,16 +149,35 @@ namespace Mahima.Api.v3.clean.Controllers
                 ConsentSignedAt = e.ConsentSignedAt
             };
 
+        private static IReadOnlyList<string> NormalizeStatusAliases(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return Array.Empty<string>();
+
+            var key = status.Trim().Replace(" ", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal).ToLowerInvariant();
+            return key switch
+            {
+                "all" or "any" => Array.Empty<string>(),
+                "pending" or "new" => new[] { "Pending", "New" },
+                "churchverified" or "verified" => new[] { "ChurchVerified", "Verified" },
+                "awaitingverification" or "awaitingchurchverification" => new[] { "AwaitingChurchVerification", "AwaitingVerification" },
+                "readyfortoken" => new[] { "ReadyForToken" },
+                "tokengenerated" or "tokenissued" => new[] { "TokenGenerated", "TokenIssued" },
+                "completed" or "complete" => new[] { "Completed", "Closed" },
+                _ => new[] { status.Trim() }
+            };
+        }
+
         // ---------- endpoints ----------
 
         // GET /api/baptisms?status=Pending
         [HttpGet]
         public async Task<ActionResult> GetList([FromQuery] string? status = null)
         {
-            var query = _db.BaptismRequests.AsQueryable();
+            var query = _db.BaptismRequests.AsNoTracking().AsQueryable();
+            var statusAliases = NormalizeStatusAliases(status);
 
-            if (!string.IsNullOrWhiteSpace(status))
-                query = query.Where(b => b.Status == status);
+            if (statusAliases.Count > 0)
+                query = query.Where(b => statusAliases.Contains(b.Status));
 
             var list = await query
                 .OrderByDescending(b => b.CreatedAt)

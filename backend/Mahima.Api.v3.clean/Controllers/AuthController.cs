@@ -119,6 +119,78 @@ LIMIT 1;", conn);
         return $"MHN{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000:D8}";
     }
 
+    private static async Task EnsureAuthSecurityTablesAsync(NpgsqlConnection conn)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.security_events (
+    id bigserial PRIMARY KEY,
+    event_type text NOT NULL,
+    severity text NOT NULL DEFAULT 'medium',
+    username text NULL,
+    user_id uuid NULL,
+    path text NULL,
+    ip_address text NULL,
+    user_agent text NULL,
+    details text NULL,
+    created_at_utc timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_security_events_created_at
+    ON public.security_events(created_at_utc);
+
+CREATE TABLE IF NOT EXISTS public.user_access_blocks (
+    user_id uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    reason text NULL,
+    blocked_by uuid NULL,
+    blocked_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    is_active boolean NOT NULL DEFAULT true
+);", conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task RecordSecurityEventAsync(
+        NpgsqlConnection conn,
+        string eventType,
+        string severity,
+        string? username,
+        Guid? userId,
+        string details)
+    {
+        try
+        {
+            await using var cmd = new NpgsqlCommand(@"
+INSERT INTO public.security_events
+    (event_type, severity, username, user_id, path, ip_address, user_agent, details)
+VALUES
+    (@event_type, @severity, @username, @user_id, @path, @ip_address, @user_agent, @details);", conn);
+            cmd.Parameters.AddWithValue("event_type", NpgsqlTypes.NpgsqlDbType.Text, eventType);
+            cmd.Parameters.AddWithValue("severity", NpgsqlTypes.NpgsqlDbType.Text, severity);
+            cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, (object?)username ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId.HasValue ? (object)userId.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("path", NpgsqlTypes.NpgsqlDbType.Text, HttpContext?.Request?.Path.ToString() ?? "/api/auth/login");
+            cmd.Parameters.AddWithValue("ip_address", NpgsqlTypes.NpgsqlDbType.Text, HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("user_agent", NpgsqlTypes.NpgsqlDbType.Text, HttpContext?.Request?.Headers.UserAgent.ToString() ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("details", NpgsqlTypes.NpgsqlDbType.Text, details);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Security event logging failed for {EventType}", eventType);
+        }
+    }
+
+    private static async Task<string?> GetActiveUserBlockReasonAsync(NpgsqlConnection conn, Guid userId)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+SELECT reason
+FROM public.user_access_blocks
+WHERE user_id = @user_id AND is_active = true
+LIMIT 1;", conn);
+        cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+        var value = await cmd.ExecuteScalarAsync();
+        return value == null || value == DBNull.Value ? null : value.ToString();
+    }
+
     // ============================
     // 🔥 GET CURRENT USER (FIXED)
     // ============================
@@ -138,6 +210,14 @@ LIMIT 1;", conn);
 
             using var conn = new NpgsqlConnection(_connStr);
             await conn.OpenAsync();
+            await EnsureAuthSecurityTablesAsync(conn);
+
+            var blockReason = await GetActiveUserBlockReasonAsync(conn, userId);
+            if (!string.IsNullOrWhiteSpace(blockReason))
+            {
+                await RecordSecurityEventAsync(conn, "BlockedSession", "high", null, userId, blockReason);
+                return StatusCode(423, new { message = "Your access is blocked. Please contact Mahima Ministry admin.", reason = blockReason });
+            }
 
             var sql = @"
 SELECT
@@ -337,6 +417,7 @@ public async Task<IActionResult> Login([FromBody] LoginDto dto)
     {
         using var conn = new NpgsqlConnection(_connStr);
         await conn.OpenAsync();
+        await EnsureAuthSecurityTablesAsync(conn);
 
        var sql = @"
 SELECT 
@@ -364,6 +445,8 @@ LIMIT 1;
         if (!await rdr.ReadAsync())
         {
             _logger.LogWarning("Login failed: user not found {User}", dto.UsernameOrEmail);
+            await rdr.CloseAsync();
+            await RecordSecurityEventAsync(conn, "LoginFailed", "medium", dto.UsernameOrEmail, null, "User not found.");
             return Unauthorized(new { message = "Invalid credentials" });
         }
 
@@ -403,13 +486,24 @@ LIMIT 1;
         if (result != PasswordVerificationResult.Success && result != PasswordVerificationResult.SuccessRehashNeeded)
 		{
             _logger.LogWarning("Login failed: invalid password for {User}", dto.UsernameOrEmail);
+            await rdr.CloseAsync();
+            Guid? failedUserId = Guid.TryParse(id?.ToString(), out var parsedFailedUserId) ? parsedFailedUserId : null;
+            await RecordSecurityEventAsync(conn, "LoginFailed", "medium", dto.UsernameOrEmail, failedUserId, "Invalid password.");
             return Unauthorized(new { message = "Invalid credentials" });
         }
 
         await rdr.CloseAsync(); // safe now
 
        // var token = _jwtService.GenerateToken(Guid.NewGuid(), username, display, role);
-	var token = _jwtService.GenerateToken(Guid.Parse(id.ToString()), username, display, role);
+        var userGuid = Guid.Parse(id.ToString());
+        var blockReason = await GetActiveUserBlockReasonAsync(conn, userGuid);
+        if (!string.IsNullOrWhiteSpace(blockReason))
+        {
+            await RecordSecurityEventAsync(conn, "BlockedLogin", "high", username, userGuid, blockReason);
+            return StatusCode(423, new { message = "Your access is blocked. Please contact Mahima Ministry admin.", reason = blockReason });
+        }
+
+	var token = _jwtService.GenerateToken(userGuid, username, display, role);
         var pages = await LoadPermissions(conn, role);
 
         return Ok(new
