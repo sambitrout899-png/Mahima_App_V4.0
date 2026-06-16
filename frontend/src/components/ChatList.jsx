@@ -1,4 +1,4 @@
-// src/components/chat/ChatList.jsx
+﻿// src/components/chat/ChatList.jsx
 //
 // WhatsApp-style chat list for Jai Masih.
 // - Lucide icons (no mojibake)
@@ -202,16 +202,16 @@ export default function ChatList({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex h-full flex-col bg-white">
       {/* Search bar */}
-      <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2">
+      <div className="flex items-center gap-2 border-b border-slate-100 bg-white/95 px-4 py-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search"
-            className="w-full pl-9 pr-8 py-2 bg-slate-100 rounded-full text-sm focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+            className="w-full rounded-xl border border-transparent bg-slate-100 py-2.5 pl-9 pr-8 text-sm outline-none transition focus:border-emerald-200 focus:bg-white focus:ring-4 focus:ring-emerald-100"
           />
           {q && (
             <button
@@ -248,7 +248,7 @@ export default function ChatList({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto bg-white">
         {loading && (
           <div className="px-4 py-6 text-center text-sm text-slate-500">Loading chats...</div>
         )}
@@ -293,18 +293,18 @@ export default function ChatList({
           return (
             <div
               key={id}
-              className={`flex items-center gap-3 px-3 border-b border-slate-100 transition ${
-                isActive ? "bg-emerald-50" : "hover:bg-slate-50"
+              className={`group flex min-h-[82px] items-center gap-3 border-b border-slate-100 px-4 transition ${
+                isActive ? "border-l-4 border-l-emerald-500 bg-emerald-50/90" : "border-l-4 border-l-transparent hover:bg-slate-50"
               }`}
             >
               <button
                 type="button"
                 onClick={() => onSelect(chat)}
-                className="flex-1 min-w-0 flex items-center gap-3 py-3 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left"
                 aria-label={`Open chat with ${name}`}
               >
                 <div
-                  className="relative w-12 h-12 rounded-full text-white font-semibold flex items-center justify-center shrink-0 shadow-sm"
+                  className="relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-base font-black text-white shadow-sm ring-2 ring-white"
                   style={{ background: colorFromId(id) }}
                 >
                   {avatarUrl ? (
@@ -325,20 +325,20 @@ export default function ChatList({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between gap-2">
-                    <div className="font-semibold text-sm text-slate-900 truncate">{name}</div>
+                    <div className="truncate text-[15px] font-black text-slate-900">{name}</div>
                     {time && (
                       <div className={`text-[11px] shrink-0 ${unread ? "text-emerald-600 font-semibold" : "text-slate-400"}`}>
                         {time}
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 mt-0.5">
+                  <div className="mt-1 flex min-w-0 items-center gap-1">
                     {lmFromMe && (
                       lmRead
                         ? <CheckCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                         : <Check className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     )}
-                    <div className="text-xs text-slate-500 truncate flex-1">
+                    <div className="min-w-0 flex-1 truncate text-xs text-slate-500">
                       {last || (
                         !chat.isGroup && peerId
                           ? <span className={peerOnline ? "text-emerald-600 font-medium" : "text-slate-400"}>{peerOnline ? "Online" : "Offline"}</span>
@@ -357,7 +357,7 @@ export default function ChatList({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onDelete(id); }}
-                className="w-9 h-9 rounded-full hover:bg-red-50 active:bg-red-100 flex items-center justify-center text-slate-400 hover:text-red-600 shrink-0"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
                 title="Delete chat"
                 aria-label={`Delete chat with ${name}`}
               >
@@ -370,3 +370,5 @@ export default function ChatList({
     </div>
   );
 }
+
+

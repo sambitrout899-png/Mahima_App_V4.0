@@ -15,6 +15,7 @@ import TeamsPage from "./features/teams/TeamsPage";
 import TasksPage from "./features/tasks/Page";
 import RolesPage from "./features/roles/RolesPage";
 import PagesPage from "./features/pages/PagesPage";
+import PositionsPage from "./features/positions/PositionsPage";
 import PayrollPage from "./pages/PayrollPage";
 import AdminDashboard from "./features/admin/AdminDashboard";
 import MinistryAutomationPage from "./features/admin/MinistryAutomationPage";
@@ -23,6 +24,8 @@ import EmailClientPage from "./features/admin/EmailClientPage";
 import GoogleDrivePage from "./features/admin/GoogleDrivePage";
 import AdminLanguages from "./features/admin/AdminLanguages";
 import ServerFilesPage from "./features/admin/ServerFilesPage";
+import ReportsPage from "./features/admin/ReportsPage";
+import AuditTrailPage from "./features/admin/AuditTrailPage";
 import PastorPage from "./features/pastor/PastorPage";
 import ReadMePage from "./features/pastor/ReadMePage";
 import AppDownloadsPage from "./features/downloads/AppDownloadsPage";
@@ -161,7 +164,14 @@ export default function App() {
         {/* Default */}
         <Route index element={<HomeLanding />} />
         <Route path="home" element={<HomeLanding />} />
-        <Route path="app-downloads" element={<AppDownloadsPage />} />
+        <Route
+          path="app-downloads"
+          element={
+            <RequireRole requiredPage="APP_DOWNLOADS" strictPage>
+              <AppDownloadsPage />
+            </RequireRole>
+          }
+        />
 
         {/* Admin */}
         <Route
@@ -235,6 +245,14 @@ export default function App() {
           }
         />
         <Route
+          path="positions"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="POSITIONS">
+              <PositionsPage />
+            </RequireRole>
+          }
+        />
+        <Route
           path="payroll"
           element={
             <RequireRole allowedRoles={["admin"]} requiredPage="PAYROLL">
@@ -269,7 +287,7 @@ export default function App() {
         <Route
           path="admin/email"
           element={
-            <RequireRole allowedRoles={["admin"]} requiredPage="EMAIL_CLIENT">
+            <RequireRole requiredPage="EMAIL_CLIENT" strictPage>
               <EmailClientPage />
             </RequireRole>
           }
@@ -287,6 +305,22 @@ export default function App() {
           element={
             <RequireRole allowedRoles={["admin"]} requiredPage="SERVER_FILES">
               <ServerFilesPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/reports"
+          element={
+            <RequireRole requiredPage="REPORTS" strictPage>
+              <ReportsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/audit-trail"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="AUDIT_TRAIL">
+              <AuditTrailPage />
             </RequireRole>
           }
         />
@@ -409,6 +443,7 @@ export default function App() {
       <Route path="/baptism"        element={<Navigate to="/home/baptism"        replace />} />
       <Route path="/counselling"    element={<Navigate to="/home/counselling"    replace />} />
       <Route path="/pages"          element={<Navigate to="/home/pages"          replace />} />
+      <Route path="/positions"      element={<Navigate to="/home/positions"      replace />} />
       <Route path="/costs"          element={<Navigate to="/home/costs"          replace />} />
       <Route path="/attendance"     element={<Navigate to="/home/attendance"     replace />} />
       <Route path="/payroll"        element={<Navigate to="/home/payroll"        replace />} />
@@ -422,3 +457,4 @@ export default function App() {
     </>
   );
 }
+

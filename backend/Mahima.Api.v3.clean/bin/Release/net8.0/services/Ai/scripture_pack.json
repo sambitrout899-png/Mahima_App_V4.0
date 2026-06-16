@@ -1,0 +1,195 @@
+{
+  "_comment": "Curated verse pack used by ScriptureService to ground the AI Pastor. References are language-independent and are the anti-hallucination anchor. English text is authoritative; Hindi/Punjabi are pastoral renderings. Extend freely — add objects to 'verses'.",
+  "verses": [
+    {
+      "theme": "anxiety",
+      "reference": "Philippians 4:6-7",
+      "keywords": ["anxiety","anxious","worry","worried","stress","tension","overwhelmed","chinta","fikar","pareshan"],
+      "text": {
+        "en": "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.",
+        "hi": "किसी भी बात की चिन्ता मत करो, परन्तु हर एक बात में तुम्हारे निवेदन, प्रार्थना और धन्यवाद के साथ परमेश्वर के सम्मुख उपस्थित किए जाएं। तब परमेश्वर की शान्ति जो सारी समझ से परे है, तुम्हारे हृदय और विचारों की रक्षा करेगी।",
+        "pa": "ਕਿਸੇ ਗੱਲ ਦੀ ਚਿੰਤਾ ਨਾ ਕਰੋ, ਸਗੋਂ ਹਰ ਗੱਲ ਵਿੱਚ ਅਰਦਾਸ ਅਤੇ ਪ੍ਰਾਰਥਨਾ ਨਾਲ, ਧੰਨਵਾਦ ਸਹਿਤ, ਆਪਣੀਆਂ ਮੰਗਾਂ ਪਰਮੇਸ਼ੁਰ ਅੱਗੇ ਰੱਖੋ। ਤਦ ਪਰਮੇਸ਼ੁਰ ਦੀ ਸ਼ਾਂਤੀ ਤੁਹਾਡੇ ਦਿਲਾਂ ਦੀ ਰਾਖੀ ਕਰੇਗੀ।"
+      }
+    },
+    {
+      "theme": "fear",
+      "reference": "Isaiah 41:10",
+      "keywords": ["fear","afraid","scared","terrified","dar","darr","bhay"],
+      "text": {
+        "en": "So do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you; I will uphold you with my righteous right hand.",
+        "hi": "मत डर, क्योंकि मैं तेरे साथ हूँ; इधर-उधर मत ताक, क्योंकि मैं तेरा परमेश्वर हूँ; मैं तुझे दृढ़ करूँगा और तेरी सहायता करूँगा, और अपने धर्ममय दाहिने हाथ से तुझे सम्भाले रहूँगा।",
+        "pa": "ਨਾ ਡਰ, ਕਿਉਂ ਜੋ ਮੈਂ ਤੇਰੇ ਨਾਲ ਹਾਂ; ਨਾ ਘਬਰਾ, ਕਿਉਂ ਜੋ ਮੈਂ ਤੇਰਾ ਪਰਮੇਸ਼ੁਰ ਹਾਂ। ਮੈਂ ਤੈਨੂੰ ਤਕੜਾ ਕਰਾਂਗਾ, ਮੈਂ ਤੇਰੀ ਸਹਾਇਤਾ ਕਰਾਂਗਾ।"
+      }
+    },
+    {
+      "theme": "peace",
+      "reference": "John 14:27",
+      "keywords": ["peace","calm","restless","unsettled","shanti","aman","sukoon"],
+      "text": {
+        "en": "Peace I leave with you; my peace I give you. I do not give to you as the world gives. Do not let your hearts be troubled and do not be afraid.",
+        "hi": "मैं तुम्हें शान्ति देता जाता हूँ; अपनी शान्ति तुम्हें देता हूँ; जैसे संसार देता है, मैं तुम्हें नहीं देता। तुम्हारा मन न घबराए और न डरे।",
+        "pa": "ਮੈਂ ਤੁਹਾਨੂੰ ਸ਼ਾਂਤੀ ਦੇ ਜਾਂਦਾ ਹਾਂ; ਆਪਣੀ ਸ਼ਾਂਤੀ ਤੁਹਾਨੂੰ ਦਿੰਦਾ ਹਾਂ। ਤੁਹਾਡਾ ਦਿਲ ਨਾ ਘਬਰਾਏ ਅਤੇ ਨਾ ਡਰੇ।"
+      }
+    },
+    {
+      "theme": "forgiveness",
+      "reference": "Colossians 3:13",
+      "keywords": ["forgive","forgiveness","anger","angry","hurt","resentment","bitter","grudge","maafi","kshama"],
+      "text": {
+        "en": "Bear with each other and forgive one another if any of you has a grievance against someone. Forgive as the Lord forgave you.",
+        "hi": "एक दूसरे की सह लो, और यदि किसी को किसी पर दोष देने का कोई कारण हो, तो एक दूसरे को क्षमा कर दो; जैसे प्रभु ने तुम्हें क्षमा किया, वैसे ही तुम भी करो।",
+        "pa": "ਇੱਕ ਦੂਜੇ ਦੀ ਸਹਿ ਲਓ ਅਤੇ ਜੇ ਕਿਸੇ ਨੂੰ ਕਿਸੇ ਉੱਤੇ ਕੋਈ ਸ਼ਿਕਾਇਤ ਹੋਵੇ ਤਾਂ ਇੱਕ ਦੂਜੇ ਨੂੰ ਮਾਫ਼ ਕਰੋ; ਜਿਵੇਂ ਪ੍ਰਭੂ ਨੇ ਤੁਹਾਨੂੰ ਮਾਫ਼ ਕੀਤਾ।"
+      }
+    },
+    {
+      "theme": "healing",
+      "reference": "Psalm 147:3",
+      "keywords": ["heal","healing","sick","illness","disease","pain","broken","wound","bimari","dard"],
+      "text": {
+        "en": "He heals the brokenhearted and binds up their wounds.",
+        "hi": "वह खेदित मनवालों को चंगा करता है, और उनके घावों पर पट्टी बाँधता है।",
+        "pa": "ਉਹ ਟੁੱਟੇ ਦਿਲ ਵਾਲਿਆਂ ਨੂੰ ਚੰਗਾ ਕਰਦਾ ਹੈ ਅਤੇ ਉਨ੍ਹਾਂ ਦੇ ਜ਼ਖ਼ਮਾਂ ਉੱਤੇ ਪੱਟੀ ਬੰਨ੍ਹਦਾ ਹੈ।"
+      }
+    },
+    {
+      "theme": "grief",
+      "reference": "Psalm 34:18",
+      "keywords": ["grief","grieving","loss","death","died","mourn","sad","sorrow","depressed","dukh","gham","udaas"],
+      "text": {
+        "en": "The Lord is close to the brokenhearted and saves those who are crushed in spirit.",
+        "hi": "यहोवा टूटे मनवालों के समीप रहता है, और पिसे हुए मनवालों का उद्धार करता है।",
+        "pa": "ਯਹੋਵਾਹ ਟੁੱਟੇ ਦਿਲ ਵਾਲਿਆਂ ਦੇ ਨੇੜੇ ਹੈ ਅਤੇ ਕੁਚਲੇ ਹੋਏ ਮਨ ਵਾਲਿਆਂ ਨੂੰ ਬਚਾਉਂਦਾ ਹੈ।"
+      }
+    },
+    {
+      "theme": "guidance",
+      "reference": "Proverbs 3:5-6",
+      "keywords": ["guidance","direction","decision","confused","lost","choice","path","what should i do","margdarshan","raasta","faisla"],
+      "text": {
+        "en": "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
+        "hi": "तू अपनी समझ का सहारा न लेना, वरन सम्पूर्ण मन से यहोवा पर भरोसा रखना। उसी को स्मरण करके सब काम करना, तब वह तेरे लिए सीधा मार्ग निकालेगा।",
+        "pa": "ਆਪਣੇ ਸਾਰੇ ਦਿਲ ਨਾਲ ਯਹੋਵਾਹ ਉੱਤੇ ਭਰੋਸਾ ਰੱਖ ਅਤੇ ਆਪਣੀ ਸਮਝ ਉੱਤੇ ਟੇਕ ਨਾ ਰੱਖ। ਆਪਣੇ ਸਾਰੇ ਰਾਹਾਂ ਵਿੱਚ ਉਸ ਨੂੰ ਮੰਨ, ਤਾਂ ਉਹ ਤੇਰੇ ਰਾਹ ਸਿੱਧੇ ਕਰੇਗਾ।"
+      }
+    },
+    {
+      "theme": "strength",
+      "reference": "Isaiah 40:31",
+      "keywords": ["strength","weak","tired","exhausted","weary","give up","cannot go on","shakti","thaka","kamzor"],
+      "text": {
+        "en": "But those who hope in the Lord will renew their strength. They will soar on wings like eagles; they will run and not grow weary, they will walk and not be faint.",
+        "hi": "परन्तु जो यहोवा की बाट जोहते हैं, वे नया बल प्राप्त करते जाएँगे, वे उकाब के समान उड़ेंगे, वे दौड़ेंगे और थकित न होंगे, चलेंगे और श्रमित न होंगे।",
+        "pa": "ਪਰ ਜਿਹੜੇ ਯਹੋਵਾਹ ਦੀ ਉਡੀਕ ਕਰਦੇ ਹਨ, ਉਹ ਨਵਾਂ ਬਲ ਪਾਉਣਗੇ; ਉਹ ਉਕਾਬਾਂ ਵਾਂਗ ਖੰਭਾਂ ਉੱਤੇ ਉੱਡਣਗੇ, ਉਹ ਦੌੜਨਗੇ ਅਤੇ ਨਾ ਥੱਕਣਗੇ।"
+      }
+    },
+    {
+      "theme": "hope",
+      "reference": "Jeremiah 29:11",
+      "keywords": ["hope","hopeless","future","despair","no way out","ummeed","aasha","bhavishya"],
+      "text": {
+        "en": "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.",
+        "hi": "यहोवा की वाणी है, जो योजनाएँ मैं तुम्हारे विषय में करता हूँ उन्हें मैं जानता हूँ, वे हानि की नहीं वरन कुशल ही की हैं, और अन्त में तुम्हारी आशा पूरी करूँगा।",
+        "pa": "ਯਹੋਵਾਹ ਦਾ ਵਾਕ ਹੈ, ਜਿਹੜੀਆਂ ਯੋਜਨਾਵਾਂ ਮੈਂ ਤੁਹਾਡੇ ਲਈ ਸੋਚਦਾ ਹਾਂ ਉਨ੍ਹਾਂ ਨੂੰ ਮੈਂ ਜਾਣਦਾ ਹਾਂ — ਉਹ ਸ਼ਾਂਤੀ ਦੀਆਂ ਹਨ, ਤੁਹਾਨੂੰ ਆਸ ਅਤੇ ਭਵਿੱਖ ਦੇਣ ਲਈ।"
+      }
+    },
+    {
+      "theme": "provision",
+      "reference": "Matthew 6:33",
+      "keywords": ["money","finance","job","work","provision","need","poverty","bills","paisa","naukri","zaroorat"],
+      "text": {
+        "en": "But seek first his kingdom and his righteousness, and all these things will be given to you as well.",
+        "hi": "इसलिए पहले तुम परमेश्वर के राज्य और उसके धर्म की खोज करो, तब ये सब वस्तुएँ भी तुम्हें मिल जाएँगी।",
+        "pa": "ਪਰ ਪਹਿਲਾਂ ਪਰਮੇਸ਼ੁਰ ਦੇ ਰਾਜ ਅਤੇ ਉਸ ਦੀ ਧਾਰਮਿਕਤਾ ਦੀ ਖੋਜ ਕਰੋ, ਤਾਂ ਇਹ ਸਾਰੀਆਂ ਚੀਜ਼ਾਂ ਵੀ ਤੁਹਾਨੂੰ ਮਿਲ ਜਾਣਗੀਆਂ।"
+      }
+    },
+    {
+      "theme": "family",
+      "reference": "Joshua 24:15",
+      "keywords": ["family","marriage","children","parents","home","spouse","household","parivar","ghar","shaadi"],
+      "text": {
+        "en": "But as for me and my household, we will serve the Lord.",
+        "hi": "परन्तु मैं तो अपने घराने समेत यहोवा की उपासना करूँगा।",
+        "pa": "ਪਰ ਮੈਂ ਅਤੇ ਮੇਰਾ ਘਰਾਣਾ, ਅਸੀਂ ਯਹੋਵਾਹ ਦੀ ਉਪਾਸਨਾ ਕਰਾਂਗੇ।"
+      }
+    },
+    {
+      "theme": "loneliness",
+      "reference": "Hebrews 13:5",
+      "keywords": ["lonely","alone","loneliness","abandoned","isolated","no one","akela","tanhai"],
+      "text": {
+        "en": "Never will I leave you; never will I forsake you.",
+        "hi": "मैं तुझे कभी न छोड़ूँगा, और न कभी तुझे त्यागूँगा।",
+        "pa": "ਮੈਂ ਤੈਨੂੰ ਕਦੇ ਨਾ ਛੱਡਾਂਗਾ ਅਤੇ ਕਦੇ ਤੈਨੂੰ ਨਾ ਤਿਆਗਾਂਗਾ।"
+      }
+    },
+    {
+      "theme": "temptation",
+      "reference": "1 Corinthians 10:13",
+      "keywords": ["temptation","tempted","sin","struggle","addiction","habit","cannot stop","pareeksha","lalach"],
+      "text": {
+        "en": "No temptation has overtaken you except what is common to mankind. And God is faithful; he will not let you be tempted beyond what you can bear. But when you are tempted, he will also provide a way out so that you can endure it.",
+        "hi": "तुम किसी ऐसी परीक्षा में नहीं पड़े जो मनुष्य के सहने से बाहर हो; और परमेश्वर विश्वासयोग्य है, वह तुम्हें सामर्थ्य से बाहर परीक्षा में न पड़ने देगा, वरन परीक्षा के साथ निकास भी करेगा।",
+        "pa": "ਤੁਹਾਡੇ ਉੱਤੇ ਕੋਈ ਅਜਿਹੀ ਪਰੀਖਿਆ ਨਹੀਂ ਆਈ ਜੋ ਮਨੁੱਖ ਦੀ ਸਹਿਣ ਤੋਂ ਬਾਹਰ ਹੋਵੇ; ਪਰਮੇਸ਼ੁਰ ਵਫ਼ਾਦਾਰ ਹੈ, ਉਹ ਪਰੀਖਿਆ ਨਾਲ ਨਿਕਲਣ ਦਾ ਰਾਹ ਵੀ ਬਣਾਏਗਾ।"
+      }
+    },
+    {
+      "theme": "thanksgiving",
+      "reference": "1 Thessalonians 5:18",
+      "keywords": ["thanks","thankful","gratitude","grateful","praise","blessing","dhanyavad","shukar"],
+      "text": {
+        "en": "Give thanks in all circumstances; for this is God's will for you in Christ Jesus.",
+        "hi": "हर बात में धन्यवाद करो, क्योंकि तुम्हारे लिये मसीह यीशु में परमेश्वर की यही इच्छा है।",
+        "pa": "ਹਰ ਹਾਲ ਵਿੱਚ ਧੰਨਵਾਦ ਕਰੋ, ਕਿਉਂ ਜੋ ਮਸੀਹ ਯਿਸੂ ਵਿੱਚ ਤੁਹਾਡੇ ਲਈ ਪਰਮੇਸ਼ੁਰ ਦੀ ਇਹੀ ਇੱਛਾ ਹੈ।"
+      }
+    },
+    {
+      "theme": "faith",
+      "reference": "Hebrews 11:1",
+      "keywords": ["faith","doubt","believe","unbelief","trust","vishwas","yakeen","shak"],
+      "text": {
+        "en": "Now faith is confidence in what we hope for and assurance about what we do not see.",
+        "hi": "अब विश्वास आशा की हुई वस्तुओं का निश्चय, और अनदेखी वस्तुओं का प्रमाण है।",
+        "pa": "ਨਿਹਚਾ ਆਸ ਕੀਤੀਆਂ ਚੀਜ਼ਾਂ ਦਾ ਭਰੋਸਾ ਅਤੇ ਅਣਡਿੱਠ ਚੀਜ਼ਾਂ ਦਾ ਪਰਮਾਣ ਹੈ।"
+      }
+    },
+    {
+      "theme": "rest",
+      "reference": "Matthew 11:28",
+      "keywords": ["rest","weary","burden","heavy","exhausted","burnout","aaram","bojh","thakan"],
+      "text": {
+        "en": "Come to me, all you who are weary and burdened, and I will give you rest.",
+        "hi": "हे सब परिश्रम करनेवालो और बोझ से दबे हुए लोगो, मेरे पास आओ; मैं तुम्हें विश्राम दूँगा।",
+        "pa": "ਹੇ ਸਾਰੇ ਥੱਕੇ ਹੋਏ ਅਤੇ ਭਾਰ ਹੇਠ ਦੱਬੇ ਹੋਏ ਲੋਕੋ, ਮੇਰੇ ਕੋਲ ਆਓ, ਮੈਂ ਤੁਹਾਨੂੰ ਅਰਾਮ ਦਿਆਂਗਾ।"
+      }
+    },
+    {
+      "theme": "protection",
+      "reference": "Psalm 91:1-2",
+      "keywords": ["protection","safe","safety","danger","shelter","refuge","raksha","suraksha","bachao"],
+      "text": {
+        "en": "Whoever dwells in the shelter of the Most High will rest in the shadow of the Almighty. I will say of the Lord, He is my refuge and my fortress, my God, in whom I trust.",
+        "hi": "जो परमप्रधान के छाये हुए स्थान में बसा रहे, वह सर्वशक्तिमान की छाया में ठहरेगा। मैं यहोवा के विषय कहूँगा, वह मेरा शरणस्थान और गढ़ है, मेरा परमेश्वर जिस पर मैं भरोसा रखता हूँ।",
+        "pa": "ਜਿਹੜਾ ਅੱਤ ਮਹਾਨ ਦੇ ਓਟ ਵਿੱਚ ਵੱਸਦਾ ਹੈ, ਉਹ ਸਰਬ ਸ਼ਕਤੀਮਾਨ ਦੇ ਸਾਯੇ ਹੇਠ ਟਿਕੇਗਾ। ਯਹੋਵਾਹ ਮੇਰੀ ਪਨਾਹ ਅਤੇ ਮੇਰਾ ਗੜ੍ਹ ਹੈ।"
+      }
+    },
+    {
+      "theme": "new-life",
+      "reference": "2 Corinthians 5:17",
+      "keywords": ["new life","change","born again","fresh start","past","guilt","shame","naya jeevan","badlav"],
+      "text": {
+        "en": "Therefore, if anyone is in Christ, the new creation has come: The old has gone, the new is here!",
+        "hi": "इसलिये यदि कोई मसीह में है तो वह नई सृष्टि है: पुरानी बातें बीत गई हैं; देखो, वे सब नई हो गई हैं।",
+        "pa": "ਇਸ ਲਈ ਜੇ ਕੋਈ ਮਸੀਹ ਵਿੱਚ ਹੈ ਤਾਂ ਉਹ ਨਵੀਂ ਸ੍ਰਿਸ਼ਟੀ ਹੈ; ਪੁਰਾਣੀਆਂ ਗੱਲਾਂ ਬੀਤ ਗਈਆਂ, ਵੇਖੋ, ਸਭ ਕੁਝ ਨਵਾਂ ਹੋ ਗਿਆ ਹੈ।"
+      }
+    },
+    {
+      "theme": "general",
+      "reference": "Psalm 119:105",
+      "keywords": ["word","bible","scripture","guidance","light","general","vachan"],
+      "text": {
+        "en": "Your word is a lamp for my feet, a light on my path.",
+        "hi": "तेरा वचन मेरे पाँव के लिये दीपक, और मेरे मार्ग के लिये उजियाला है।",
+        "pa": "ਤੇਰਾ ਬਚਨ ਮੇਰੇ ਪੈਰਾਂ ਲਈ ਦੀਵਾ ਅਤੇ ਮੇਰੇ ਰਾਹ ਲਈ ਚਾਨਣ ਹੈ।"
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -43,11 +43,19 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var ct = HttpContext.RequestAborted;
             var client = _httpClientFactory.CreateClient("PastorBot");
-            client.Timeout = TimeSpan.FromSeconds(18);
+            client.Timeout = TimeSpan.FromSeconds(7);
 
             var location = await ResolveLocationAsync(client, lat, lon, timezone, ct);
-            var weather = await ResolveWeatherAsync(client, lat, lon, ct);
-            var articles = await FetchChristianArticlesAsync(client, location, ct);
+
+            var weatherTask = ResolveWeatherAsync(client, lat, lon, ct);
+            var articlesTask = FetchChristianArticlesAsync(client, location, ct);
+            var israelWatchTask = FetchIsraelWatchArticlesAsync(client, ct);
+
+            await Task.WhenAll(weatherTask, articlesTask, israelWatchTask);
+
+            var weather = await weatherTask;
+            var articles = await articlesTask;
+            var israelWatch = await israelWatchTask;
             var christianUpdate = await BuildChristianUpdateAsync(location, articles, ct);
 
             return Ok(new TodayUpdateResponse
@@ -55,6 +63,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 Location = location,
                 Weather = weather,
                 ChristianUpdate = christianUpdate,
+                IsraelWatch = israelWatch,
                 GeneratedAtUtc = DateTime.UtcNow
             });
         }
@@ -139,14 +148,15 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             try
             {
-                var terms = new List<string> { "(christian OR church OR pastor OR believers)" };
+                var terms = new List<string> { "christian", "church", "pastor", "believers", "ministry", "prayer" };
+                if (!string.IsNullOrWhiteSpace(location.City)) terms.Add($"\"{location.City}\"");
                 if (!string.IsNullOrWhiteSpace(location.State)) terms.Add($"\"{location.State}\"");
                 if (!string.IsNullOrWhiteSpace(location.Country)) terms.Add($"\"{location.Country}\"");
 
-                var query = string.Join(" ", terms);
+                var query = string.Join(" OR ", terms);
                 var url = "https://api.gdeltproject.org/api/v2/doc/doc"
                     + $"?query={Uri.EscapeDataString(query)}"
-                    + "&mode=ArtList&format=json&maxrecords=5&sort=HybridRel";
+                    + "&mode=ArtList&format=json&maxrecords=8&sort=HybridRel";
 
                 var json = await client.GetStringAsync(url, ct);
                 using var doc = JsonDocument.Parse(json);
@@ -161,7 +171,9 @@ namespace Mahima.Api.v3.clean.Controllers
                         Source = GetString(article, "domain") ?? GetString(article, "sourcecountry"),
                         SeenDate = GetString(article, "seendate")
                     })
-                    .Where(article => !string.IsNullOrWhiteSpace(article.Title))
+                    .Where(article => IsChristianCommunityUpdate(article.Title))
+                    .GroupBy(article => article.Title, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
                     .Take(5)
                     .ToList();
             }
@@ -170,6 +182,59 @@ namespace Mahima.Api.v3.clean.Controllers
                 _logger.LogDebug(ex, "Christian update lookup failed.");
                 return Array.Empty<ArticleDto>();
             }
+        }
+
+
+        private static bool IsChristianCommunityUpdate(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            var faith = new[] { "christian", "church", "pastor", "ministry", "mission", "believers", "prayer", "bible", "gospel", "worship" };
+            return faith.Any(t.Contains);
+        }
+        private async Task<IReadOnlyList<ArticleDto>> FetchIsraelWatchArticlesAsync(HttpClient client, CancellationToken ct)
+        {
+            try
+            {
+                var query = @"(Israel OR Jerusalem OR ""Middle East"") (""second coming"" OR prophecy OR prophetic OR ""end times"" OR eschatology OR Bible OR Christian)";
+                var url = "https://api.gdeltproject.org/api/v2/doc/doc"
+                    + $"?query={Uri.EscapeDataString(query)}"
+                    + "&mode=ArtList&format=json&maxrecords=12&sort=HybridRel";
+
+                var json = await client.GetStringAsync(url, ct);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("articles", out var articles) || articles.ValueKind != JsonValueKind.Array)
+                    return Array.Empty<ArticleDto>();
+
+                return articles.EnumerateArray()
+                    .Select(article => new ArticleDto
+                    {
+                        Title = GetString(article, "title") ?? "Israel watch update",
+                        Url = GetString(article, "url"),
+                        Source = GetString(article, "domain") ?? GetString(article, "sourcecountry"),
+                        SeenDate = GetString(article, "seendate")
+                    })
+                    .Where(article => IsIsraelSecondComingWatch(article.Title))
+                    .GroupBy(article => article.Title, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .Take(3)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Israel watch lookup failed.");
+                return Array.Empty<ArticleDto>();
+            }
+        }
+
+        private static bool IsIsraelSecondComingWatch(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            var israel = new[] { "israel", "jerusalem", "temple mount", "middle east" };
+            var watch = new[] { "second coming", "prophecy", "prophetic", "end times", "eschatology", "bible", "christian", "messiah", "revelation" };
+            var critical = new[] { "war", "attack", "ceasefire", "hostage", "missile", "nuclear", "iran", "gaza", "hezbollah", "hamas", "crisis", "peace" };
+            return israel.Any(t.Contains) && watch.Any(t.Contains) && critical.Any(t.Contains);
         }
 
         private async Task<ChristianUpdateDto> BuildChristianUpdateAsync(LocationDto location, IReadOnlyList<ArticleDto> articles, CancellationToken ct)
@@ -196,7 +261,9 @@ Use only these verified public headlines; do not invent details:
 Write 2 concise sentences and one prayer focus. Keep it pastoral, careful, and factual.";
 
                 var userId = User.GetUserIdGuid();
-                var reply = await _pastorBot.AskAsync(userId, prompt, false, "en", "english-teaching-guide", null, ct);
+                using var summaryTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                summaryTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+                var reply = await _pastorBot.AskAsync(userId, prompt, false, "en", "english-teaching-guide", null, summaryTimeout.Token);
                 return new ChristianUpdateDto
                 {
                     Summary = string.IsNullOrWhiteSpace(reply.Answer) ? FallbackUpdate(region, articles) : reply.Answer,
@@ -257,6 +324,7 @@ Write 2 concise sentences and one prayer focus. Keep it pastoral, careful, and f
             public LocationDto Location { get; set; } = new();
             public WeatherDto? Weather { get; set; }
             public ChristianUpdateDto ChristianUpdate { get; set; } = new();
+            public IReadOnlyList<ArticleDto> IsraelWatch { get; set; } = Array.Empty<ArticleDto>();
             public DateTime GeneratedAtUtc { get; set; }
         }
 
@@ -294,3 +362,7 @@ Write 2 concise sentences and one prayer focus. Keep it pastoral, careful, and f
         }
     }
 }
+
+
+
+

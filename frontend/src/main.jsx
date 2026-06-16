@@ -1,4 +1,8 @@
 ﻿// src/main.jsx
+// Native Android bootstrap: create notification channels + register FCM.
+// Must run before anything else so channels exist before any notification fires.
+import { initNativeApp } from "./utils/initNativeApp";
+initNativeApp(); // fire-and-forget; returns a Promise, intentionally not awaited
 import "./utils/fetch-auth-shim";   // <-- add this line first
 import "./mobileUI.css";
 import React from 'react'

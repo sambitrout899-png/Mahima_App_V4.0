@@ -71,6 +71,22 @@ function StatusPill({ enabled }) {
   );
 }
 
+function welcomeUserName(user) {
+  const candidates = [user?.displayName, user?.name, user?.username, user?.email]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const visible = candidates.find((value) => !/^deleted\s+user$/i.test(value));
+  return visible || "New member";
+}
+
+function welcomeUserInitials(user) {
+  return welcomeUserName(user)
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "U";
+}
+
 export default function MinistryAutomationPage() {
   const [settings, setSettings] = useState(defaults);
   const [runs, setRuns] = useState([]);
@@ -580,10 +596,10 @@ export default function MinistryAutomationPage() {
                       className="h-5 w-5 accent-emerald-700"
                     />
                     <span className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-sm font-black text-emerald-800">
-                      {(user.displayName || user.username || "U").slice(0, 2).toUpperCase()}
+                      {welcomeUserInitials(user)}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-black text-slate-900">{user.displayName || user.username || "New member"}</span>
+                      <span className="block truncate font-black text-slate-900">{welcomeUserName(user)}</span>
                       <span className="block text-xs font-semibold text-slate-500">
                         Joined {user.joinDate ? new Date(user.joinDate).toLocaleDateString() : "-"}
                       </span>

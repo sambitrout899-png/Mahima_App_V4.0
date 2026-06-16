@@ -1,4 +1,5 @@
 // src/utils/fetch-auth-shim.js
+import { activePositionHeaderValue } from "./positionContext";
 
 /* ---------------- API BASE ---------------- */
 function resolveApiBase() {
@@ -142,6 +143,45 @@ function makeHttpError(res, body) {
   return err;
 }
 
+function readDownloadFilename(headers) {
+  const disposition = headers.get("content-disposition") || "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].replace(/"/g, "").trim());
+    } catch {}
+  }
+
+  const plain = disposition.match(/filename="?([^";]+)"?/i);
+  return plain?.[1]?.trim() || "";
+}
+
+async function fetchWithOptionalTimeout(urlToCall, options, timeoutMs) {
+  if (!timeoutMs || options.signal) {
+    return fetch(urlToCall, options);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(urlToCall, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      const timeoutError = new Error(
+        `Request timed out calling ${urlToCall}. Please check the server or connectivity settings.`
+      );
+      timeoutError.status = 408;
+      timeoutError.statusText = "TIMEOUT";
+      timeoutError.body = "";
+      throw timeoutError;
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 /* ---------------- MAIN FETCH ---------------- */
 export async function apiFetch(input, init = {}) {
   const url = typeof input === "string" ? input : input?.url || "";
@@ -157,6 +197,10 @@ export async function apiFetch(input, init = {}) {
 
   if (token && !skipAuth) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  const activePositionId = activePositionHeaderValue();
+  if (activePositionId && !headers.has("X-Mahima-Position-Id")) {
+    headers.set("X-Mahima-Position-Id", activePositionId);
   }
 
   if (!headers.has("Accept")) {
@@ -177,29 +221,7 @@ export async function apiFetch(input, init = {}) {
   console.log("API CALL:", options.method || "GET", finalUrl);
 
   async function fetchOnce(urlToCall) {
-    if (!timeoutMs || fetchInit.signal) {
-      return fetch(urlToCall, options);
-    }
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      return await fetch(urlToCall, { ...options, signal: controller.signal });
-    } catch (err) {
-      if (err?.name === "AbortError") {
-        const timeoutError = new Error(
-          `Request timed out calling ${urlToCall}. Please check the server or connectivity settings.`
-        );
-        timeoutError.status = 408;
-        timeoutError.statusText = "TIMEOUT";
-        timeoutError.body = "";
-        throw timeoutError;
-      }
-      throw err;
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
+    return fetchWithOptionalTimeout(urlToCall, options, timeoutMs);
   }
 
   let res;
@@ -258,6 +280,83 @@ export async function apiFetch(input, init = {}) {
   }
 }
 
+export async function apiFetchBlob(input, init = {}) {
+  const url = typeof input === "string" ? input : input?.url || "";
+  const {
+    skipAuth = false,
+    retryPublicApi = true,
+    timeoutMs = 0,
+    ...fetchInit
+  } = init || {};
+  const finalUrl = buildUrl(url);
+  const headers = new Headers(fetchInit.headers || {});
+  const token = readToken();
+
+  if (token && !skipAuth) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const activePositionId = activePositionHeaderValue();
+  if (activePositionId && !headers.has("X-Mahima-Position-Id")) {
+    headers.set("X-Mahima-Position-Id", activePositionId);
+  }
+
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "*/*");
+  }
+
+  const options = {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...fetchInit,
+    headers,
+  };
+
+  async function fetchOnce(urlToCall) {
+    return fetchWithOptionalTimeout(urlToCall, options, timeoutMs);
+  }
+
+  let res;
+  try {
+    res = await fetchOnce(finalUrl);
+  } catch (err) {
+    if (retryPublicApi && isNativeAppMode() && !finalUrl.startsWith(PUBLIC_API_BASE)) {
+      const fallbackUrl = buildUrlWithBase(url, PUBLIC_API_BASE);
+      try {
+        res = await fetchOnce(fallbackUrl);
+      } catch (fallbackErr) {
+        if (fallbackErr?.status === 408) throw fallbackErr;
+        const networkError = new Error(
+          `Network error calling ${fallbackUrl}. Please check internet, HTTPS, and CORS.`
+        );
+        networkError.status = 0;
+        networkError.statusText = "NETWORK_ERROR";
+        networkError.body = fallbackErr?.message || err?.message || "";
+        throw networkError;
+      }
+    } else {
+      if (err?.status === 408) throw err;
+      const networkError = new Error(
+        `Network error calling ${finalUrl}. Please check internet, HTTPS, and CORS.`
+      );
+      networkError.status = 0;
+      networkError.statusText = "NETWORK_ERROR";
+      networkError.body = err?.message || "";
+      throw networkError;
+    }
+  }
+
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw makeHttpError(res, body);
+  }
+
+  return {
+    blob: await res.blob(),
+    fileName: readDownloadFilename(res.headers),
+    contentType: res.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
 /* ---------------- JSON WRAPPER ---------------- */
 export async function apiFetchJson(input, init = {}) {
   try {
@@ -305,3 +404,5 @@ export function login(data) {
     body: JSON.stringify(data),
   });
 }
+
+

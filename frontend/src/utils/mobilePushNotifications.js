@@ -1,16 +1,34 @@
 import { apiFetch } from "./fetch-auth-shim";
 import { getToken } from "./auth";
 import { showSystemNotification } from "./chatNotifications";
-import { optionalImportModule } from "./speech";
+
+const FCM_TOKEN_KEY = "mahima_fcm_token";
 
 let registrationStarted = false;
 let listenersAttached = false;
 
+function getCapacitor() {
+  try {
+    return typeof window !== "undefined" ? window.Capacitor : null;
+  } catch {
+    return null;
+  }
+}
+
+function getNativePlatform(fallback = "mobile") {
+  try {
+    return getCapacitor()?.getPlatform?.() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function isNativeApp() {
   try {
+    const cap = getCapacitor();
     return (
       import.meta.env.MODE === "mobile" ||
-      Boolean(window.Capacitor?.isNativePlatform?.()) ||
+      Boolean(cap?.isNativePlatform?.()) ||
       window.location?.protocol === "capacitor:"
     );
   } catch {
@@ -30,31 +48,52 @@ function currentUserId(user) {
 }
 
 async function resolvePushPlugin() {
-  const imported = await optionalImportModule("@capacitor/push-notifications").catch(() => null);
-  return imported?.PushNotifications || window.Capacitor?.Plugins?.PushNotifications || null;
+  return getCapacitor()?.Plugins?.PushNotifications || null;
 }
 
 async function saveDeviceToken(pushToken, user) {
-  const tokenValue = pushToken?.value || pushToken?.token || pushToken;
-  if (!tokenValue || !getToken()) return;
+  const tokenValue = String(pushToken?.value || pushToken?.token || pushToken || "").trim();
+  if (!tokenValue) return false;
 
-  await apiFetch("/device-tokens", {
+  try {
+    localStorage.setItem(FCM_TOKEN_KEY, tokenValue);
+  } catch {}
+
+  if (!getToken()) {
+    window.__pendingFcmToken = tokenValue;
+    return false;
+  }
+
+  return apiFetch("/device-tokens", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      token: String(tokenValue),
-      platform: window.Capacitor?.getPlatform?.() || "mobile",
-      appVersion: import.meta.env.VITE_APP_VERSION || "web",
+      token: tokenValue,
+      platform: getNativePlatform("mobile"),
+      appVersion: import.meta.env.VITE_APP_VERSION || "4.0",
       userId: currentUserId(user),
     }),
-  }).catch((err) => {
-    console.warn("[push] device token registration failed", err);
-  });
+  })
+    .then(() => {
+      window.__pendingFcmToken = null;
+      return true;
+    })
+    .catch((err) => {
+      window.__pendingFcmToken = tokenValue;
+      console.warn("[push] device token registration failed", err);
+      return false;
+    });
 }
 
 export async function registerMobilePushNotifications(user = null) {
-  if (!isNativeApp() || registrationStarted || !getToken()) return false;
-  registrationStarted = true;
+  if (!isNativeApp()) return false;
+
+  const cachedToken = (() => {
+    try { return localStorage.getItem(FCM_TOKEN_KEY); } catch { return ""; }
+  })();
+  if (cachedToken && getToken()) {
+    await saveDeviceToken(cachedToken, user);
+  }
 
   const PushNotifications = await resolvePushPlugin();
   if (!PushNotifications?.requestPermissions || !PushNotifications?.register) {
@@ -71,9 +110,11 @@ export async function registerMobilePushNotifications(user = null) {
 
     PushNotifications.addListener?.("registrationError", (err) => {
       console.warn("[push] registration error", err);
+      registrationStarted = false;
     });
 
     PushNotifications.addListener?.("pushNotificationReceived", (notification) => {
+      if (window.__mahimaNativePushInitialized) return;
       const data = notification?.data || {};
       showSystemNotification("Jai Masih Di", {
         body: notification?.body || data.preview || data.message || "New chat message",
@@ -85,17 +126,29 @@ export async function registerMobilePushNotifications(user = null) {
     PushNotifications.addListener?.("pushNotificationActionPerformed", (action) => {
       const data = action?.notification?.data || {};
       if (data.chatId || data.kind === "message") {
-        window.location.hash = "/home/chat";
+        window.location.hash = "#/home/chat";
       }
     });
   }
 
-  const permission = await PushNotifications.requestPermissions().catch(() => null);
-  if (permission?.receive !== "granted" && permission?.receive !== "prompt") {
+  const permission = await PushNotifications.requestPermissions().catch((err) => {
+    console.warn("[push] permission request failed", err);
+    return null;
+  });
+
+  if (permission?.receive !== "granted") {
     console.warn("[push] notification permission not granted", permission);
     return false;
   }
 
-  await PushNotifications.register();
-  return true;
+  try {
+    registrationStarted = true;
+    window.__mahimaFcmRegistrationAttemptAt = new Date().toISOString();
+    await PushNotifications.register();
+    return true;
+  } catch (err) {
+    registrationStarted = false;
+    console.warn("[push] register failed", err);
+    return false;
+  }
 }

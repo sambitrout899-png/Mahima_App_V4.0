@@ -1,5 +1,6 @@
 using Mahima.Api.v3.clean.Data;
 // Controllers/MessagesController.cs
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
@@ -17,24 +18,29 @@ using System.Net;
 using System.Net.Mail;
 using Mahima.Api.v3.clean.Hubs;
 using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services;
+using Mahima.Api.v3.clean.Extensions;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class MessagesController : ControllerBase
     {
         private readonly IConfiguration _config;
         private readonly ILogger<MessagesController> _logger;
         private readonly MahimaDbContext _db;
         private readonly IHubContext<ChatHub> _hub;
+        private readonly IChatService _chatService;
 
-        public MessagesController(IConfiguration config, ILogger<MessagesController> logger, MahimaDbContext db, IHubContext<ChatHub> hub)
+        public MessagesController(IConfiguration config, ILogger<MessagesController> logger, MahimaDbContext db, IHubContext<ChatHub> hub, IChatService chatService)
         {
             _config = config;
             _logger = logger;
             _db = db;
             _hub = hub;
+            _chatService = chatService;
         }
 
         // DTO used for message posting
@@ -58,20 +64,23 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             try
             {
-                var messages = await _db.Messages
-                    .Where(m => m.ChatId == chatId)
-                    .OrderBy(m => m.CreatedAt)
-                    .Select(m => new
-                    {
-                        id = m.Id,
-                        chatId = m.ChatId,
-                        senderId = m.SenderId,
-                        content = m.Content,
-                        contentType = m.ContentType,
-                        attachmentUrl = m.AttachmentUrl,
-                        createdAt = m.CreatedAt
-                    })
-                    .ToListAsync();
+                var userId = User.GetUserIdGuid();
+                if (userId == Guid.Empty) return Unauthorized();
+
+                var memberIds = (await _chatService.GetChatMemberIdsAsync(chatId)).Distinct().ToList();
+                if (!memberIds.Contains(userId)) return Forbid();
+
+                var page = await _chatService.GetMessagesAsync(chatId, page: 1, size: 100);
+                var messages = page.Items.Select(m => new
+                {
+                    id = m.Id,
+                    chatId = m.ChatId,
+                    senderId = m.SenderId,
+                    content = m.Content,
+                    contentType = m.ContentType,
+                    attachmentUrl = m.AttachmentUrl,
+                    createdAt = m.CreatedAt
+                });
 
                 return Ok(messages);
             }
@@ -102,71 +111,33 @@ namespace Mahima.Api.v3.clean.Controllers
                 if (string.IsNullOrWhiteSpace(content))
                     return BadRequest("Message content is required.");
 
-                // Try to extract senderId from JWT / Claims
-                Guid senderId = Guid.Empty;
-                try
-                {
-                    var subClaim = User?.Claims?.FirstOrDefault(c =>
-                        string.Equals(c.Type, "sub", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(c.Type, "id", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(c.Type, "userid", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(c.Type, "userId", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(c.Type, System.Security.Claims.ClaimTypes.NameIdentifier, StringComparison.OrdinalIgnoreCase)
-                    );
+                var senderId = User.GetUserIdGuid();
+                if (senderId == Guid.Empty) return Unauthorized();
 
-                    if (subClaim != null && Guid.TryParse(subClaim.Value, out var parsed))
-                    {
-                        senderId = parsed;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Claim parsing failed while extracting senderId.");
-                }
+                var memberIds = (await _chatService.GetChatMemberIdsAsync(chatId)).Distinct().ToList();
+                if (!memberIds.Contains(senderId)) return Forbid();
 
-                if (senderId == Guid.Empty)
-                {
-                    // Fallback for local/dev: generate a GUID so messages still save.
-                    // In production you might want to return Unauthorized instead.
-                    senderId = Guid.NewGuid();
-                    _logger.LogWarning("senderId not found in token claims. Using fallback senderId {SenderId}.", senderId);
-                }
+                var created = await _chatService.AddMessageAsync(
+                    chatId,
+                    senderId,
+                    content,
+                    dto.ContentType ?? "text",
+                    dto.AttachmentUrl);
 
-                // Ensure chat exists and user is a member (optional: if you want to enforce membership)
-                var chatExists = await _db.Chats.AnyAsync(c => c.Id == chatId);
-                if (!chatExists)
-                    return NotFound($"Chat {chatId} not found.");
-
-                // IMPORTANT: Do NOT set Message.Id here. Message.Id is a long (bigint) generated by the DB.
-                var msg = new Message
-                {
-                    ChatId = chatId,
-                    SenderId = senderId,
-                    Content = content,
-                    ContentType = dto.ContentType ?? "text",
-                    AttachmentUrl = dto.AttachmentUrl,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _db.Messages.Add(msg);
-                await _db.SaveChangesAsync(); // after this, msg.Id (long) will be populated
-
-                // Prepare a response object (avoid returning EF tracked entity directly)
                 var responseObj = new
                 {
-                    id = msg.Id,
-                    chatId = msg.ChatId,
-                    senderId = msg.SenderId,
-                    content = msg.Content,
-                    contentType = msg.ContentType,
-                    attachmentUrl = msg.AttachmentUrl,
-                    createdAt = msg.CreatedAt
+                    id = created.Id,
+                    chatId = created.ChatId,
+                    senderId = created.SenderId,
+                    content = created.Content,
+                    contentType = created.ContentType,
+                    attachmentUrl = created.AttachmentUrl,
+                    createdAt = created.CreatedAt
                 };
 
-                // Broadcast new message to SignalR group (live update)
                 try
                 {
-                    await _hub.Clients.Group(chatId.ToString()).SendAsync("ReceiveMessage", responseObj);
+                    await _hub.Clients.Users(memberIds.Select(id => id.ToString()).Distinct()).SendAsync("ReceiveMessage", responseObj);
                 }
                 catch (Exception hubEx)
                 {
@@ -244,10 +215,11 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                 await using var conn = new NpgsqlConnection(connStr);
                 await conn.OpenAsync();
 
-                var sql = @"SELECT ""Id"", ""Email"", ""Phone"", ""DisplayName""
-                            FROM ""Users""
-                            WHERE CAST(""Id"" AS text) = ANY(@ids)";
-                await using var cmd = new NpgsqlCommand(sql, conn);
+		var sql = @"SELECT id, email, phone, displayname
+            	FROM ""Users""
+            	WHERE CAST(id AS text) = ANY(@ids)";	                
+		
+		await using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text, req.UserIds.ToArray());
 
                 var recipients = new List<(string Id, string? Email, string? Phone, string? DisplayName)>();
@@ -255,14 +227,14 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                 {
                     while (await rdr.ReadAsync())
                     {
-                        var idObj = rdr["Id"];
+                        var idObj = rdr["id"];
                         var id = idObj is Guid g ? g.ToString() : idObj?.ToString() ?? string.Empty;
 
                         recipients.Add((
                             id,
-                            rdr["Email"] is DBNull ? null : rdr["Email"]?.ToString(),
-                            rdr["Phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
-                            rdr["DisplayName"] is DBNull ? null : rdr["DisplayName"]?.ToString()
+                            rdr["email"] is DBNull ? null : rdr["Email"]?.ToString(),
+                            rdr["phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
+                            rdr["displayname"] is DBNull ? null : rdr["DisplayName"]?.ToString()
                         ));
                     }
                 }

@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -63,6 +63,63 @@ button {
   background: rgba(5, 150, 105, 0.18);
 }
 
+.ministry-workflow-page button,
+.ministry-workflow-page a,
+.ministry-workflow-page input,
+.ministry-workflow-page select,
+.ministry-workflow-page textarea {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    background-color 160ms ease;
+}
+
+.ministry-workflow-page button:not(:disabled):hover,
+.ministry-workflow-page a:hover {
+  transform: translateY(-1px);
+}
+
+.ministry-workflow-page button:disabled {
+  cursor: not-allowed !important;
+  opacity: 0.62;
+}
+
+.ministry-workflow-page input:focus,
+.ministry-workflow-page select:focus,
+.ministry-workflow-page textarea:focus {
+  border-color: rgba(14, 165, 233, 0.72) !important;
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+}
+
+.ministry-workflow-page tbody tr:hover td {
+  background: #f8fafc;
+}
+
+@media (max-width: 760px) {
+  .ministry-workflow-page {
+    border-radius: 0 !important;
+    padding: 12px !important;
+  }
+
+  .ministry-workflow-page > div:first-child {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .ministry-workflow-page > div:first-child button {
+    width: 100%;
+  }
+
+  .ministry-workflow-page table {
+    min-width: 860px !important;
+  }
+
+  .ministry-workflow-page [style*="justify-content: flex-end"] {
+    justify-content: flex-start !important;
+  }
+}
+
 .mahima-app-shell {
   background:
     linear-gradient(135deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.88)),
@@ -114,6 +171,81 @@ button {
 
 .mahima-language-picker select:focus {
   box-shadow: none !important;
+}
+
+.mahima-position-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 12.5rem;
+  max-width: min(21rem, 38vw);
+  height: 2.45rem;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.96), rgba(255, 255, 255, 0.94));
+  padding: 0.28rem 0.45rem 0.28rem 0.75rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: #064e3b;
+}
+
+.mahima-position-picker-switchable {
+  cursor: pointer;
+}
+
+.mahima-position-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.mahima-position-eyebrow {
+  color: #047857;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mahima-position-picker select {
+  width: 100%;
+  min-width: 0;
+  border: 0 !important;
+  background: transparent;
+  color: #0f172a;
+  font-size: 0.78rem !important;
+  font-weight: 850;
+  outline: none;
+  box-shadow: none !important;
+  cursor: pointer;
+  padding: 0;
+}
+
+.mahima-position-readonly {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mahima-position-scope {
+  flex: 0 0 auto;
+  max-width: 6.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 0.22rem 0.5rem;
+  color: #475569;
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.95);
 }
 
 .mahima-topbar-spacer {
@@ -243,10 +375,15 @@ button {
   border-radius: 999px !important;
 }
 
-.mahima-native-topbar .mahima-language-picker {
+.mahima-native-topbar .mahima-language-picker,
+.mahima-native-topbar .mahima-position-picker {
   max-width: none;
   padding-left: 0.65rem;
   padding-right: 0.45rem;
+}
+
+.mahima-native-topbar .mahima-position-scope {
+  display: none;
 }
 
 .mahima-native-topbar .mahima-language-picker select {
@@ -664,7 +801,8 @@ button {
     line-height: 1;
   }
 
-  .mahima-language-picker {
+  .mahima-language-picker,
+  .mahima-position-picker {
     flex: 1.35 0 8.35rem;
     height: 2.35rem;
     max-width: none;
@@ -673,7 +811,12 @@ button {
     padding-right: 0.45rem;
   }
 
-  .mahima-language-picker select {
+  .mahima-position-scope {
+    display: none;
+  }
+
+  .mahima-language-picker select,
+  .mahima-position-picker select {
     width: 100%;
     min-width: 0;
   }
@@ -781,7 +924,8 @@ button {
     display: none;
   }
 
-  .mahima-language-picker {
+  .mahima-language-picker,
+  .mahima-position-picker {
     flex-basis: 7.15rem;
     min-width: 7.15rem;
   }
@@ -826,3 +970,6 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .mahima-logo-spin-y { animation: none; }
 }
+
+
+

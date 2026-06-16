@@ -221,6 +221,9 @@ namespace Mahima.Api.v3.clean.Controllers
         public async Task<IActionResult> CreateChat([FromBody] JsonElement body)
         {
             string? identifier = null;
+            string? groupName = null;
+            var isGroup = false;
+            var groupMemberIds = new List<Guid>();
             Guid targetUserId = Guid.Empty;
 
             try
@@ -242,11 +245,113 @@ namespace Mahima.Api.v3.clean.Controllers
                         break;
                     }
                 }
+
+                foreach (var key in new[] { "isGroup", "IsGroup", "group", "Group" })
+                {
+                    if (body.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True)
+                    {
+                        isGroup = true;
+                        break;
+                    }
+                }
+
+                foreach (var key in new[] { "name", "Name", "groupName", "GroupName", "title", "Title" })
+                {
+                    if (body.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
+                    {
+                        groupName = v.GetString()?.Trim();
+                        break;
+                    }
+                }
+
+                foreach (var key in new[] { "memberIds", "MemberIds", "members", "Members", "userIds", "UserIds", "participantIds", "ParticipantIds" })
+                {
+                    if (!body.TryGetProperty(key, out var members) || members.ValueKind != JsonValueKind.Array)
+                        continue;
+
+                    foreach (var item in members.EnumerateArray())
+                    {
+                        Guid parsed;
+                        if (item.ValueKind == JsonValueKind.String && Guid.TryParse(item.GetString(), out parsed))
+                        {
+                            groupMemberIds.Add(parsed);
+                            continue;
+                        }
+
+                        if (item.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        foreach (var idKey in new[] { "id", "Id", "userId", "UserId" })
+                        {
+                            if (item.TryGetProperty(idKey, out var idValue)
+                                && idValue.ValueKind == JsonValueKind.String
+                                && Guid.TryParse(idValue.GetString(), out parsed))
+                            {
+                                groupMemberIds.Add(parsed);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (groupMemberIds.Count > 0) break;
+                }
+
+                if (!isGroup && !string.IsNullOrWhiteSpace(groupName) && groupMemberIds.Count > 0)
+                    isGroup = true;
             }
             catch { }
 
             var currentUserId = User.GetUserIdGuid();
             if (currentUserId == Guid.Empty) return Unauthorized();
+
+            if (isGroup)
+            {
+                groupName = groupName?.Trim();
+                if (string.IsNullOrWhiteSpace(groupName))
+                    return BadRequest("Group name is required.");
+
+                var distinctMemberIds = groupMemberIds
+                    .Where(id => id != Guid.Empty && id != currentUserId)
+                    .Distinct()
+                    .ToArray();
+
+                if (distinctMemberIds.Length == 0)
+                    return BadRequest("At least one group member is required.");
+
+                Chat createdGroupChat;
+                try
+                {
+                    createdGroupChat = await _chatService.CreateGroupChatAsync(currentUserId, groupName, distinctMemberIds);
+                }
+                catch (ArgumentException ex)
+                {
+                    return BadRequest(ex.Message);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return BadRequest(ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create group chat for {UserId} with {MemberCount} members", currentUserId, distinctMemberIds.Length);
+                    return StatusCode(500, "Failed to create group chat.");
+                }
+
+                var groupSummary = await GetChatSummaryForUserAsync(currentUserId, createdGroupChat.Id)
+                    ?? new ChatSummaryDto(createdGroupChat.Id, createdGroupChat.Name, createdGroupChat.IsGroup, null, 0);
+
+                try
+                {
+                    var memberIds = await _chatService.GetChatMemberIdsAsync(createdGroupChat.Id);
+                    await NotifyChatMembersAsync(memberIds.Where(id => id != currentUserId), "ChatCreated", groupSummary);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "ChatCreated notification failed for group chat {ChatId}", createdGroupChat.Id);
+                }
+
+                return Ok(groupSummary);
+            }
 
             if (targetUserId == Guid.Empty && !string.IsNullOrWhiteSpace(identifier) && Guid.TryParse(identifier, out var parsedIdentifierId))
                 targetUserId = parsedIdentifierId;
@@ -306,6 +411,60 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var messages = await _chatService.GetMessagesAsync(chatId, page, size);
             return Ok(messages);
+        }
+
+        [HttpGet("{chatId:guid}/members")]
+        public async Task<IActionResult> GetChatMembers(Guid chatId)
+        {
+            var userId = User.GetUserIdGuid();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            var authorizedMemberIds = await GetAuthorizedMemberIdsAsync(chatId, userId);
+            if (authorizedMemberIds == null) return Forbid();
+
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Name,
+                    c.IsGroup,
+                    c.CreatedBy,
+                    c.CreatedAt
+                })
+                .FirstOrDefaultAsync();
+
+            if (chat == null) return NotFound();
+
+            var members = await _db.ChatMembers
+                .AsNoTracking()
+                .Where(cm => cm.ChatId == chatId)
+                .OrderByDescending(cm => cm.UserId == chat.CreatedBy || (cm.Role != null && cm.Role.ToLower() == "admin"))
+                .ThenBy(cm => cm.User != null ? cm.User.DisplayName ?? cm.User.Username ?? cm.User.Email : null)
+                .Select(cm => new
+                {
+                    userId = cm.UserId,
+                    displayName = cm.User != null ? cm.User.DisplayName : null,
+                    username = cm.User != null ? cm.User.Username : null,
+                    email = cm.User != null ? cm.User.Email : null,
+                    profilePhotoUrl = cm.User != null ? cm.User.ProfilePhotoUrl : null,
+                    role = cm.Role,
+                    isAdmin = cm.UserId == chat.CreatedBy || (cm.Role != null && cm.Role.ToLower() == "admin"),
+                    joinedAt = cm.JoinedAt
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                chatId = chat.Id,
+                name = chat.Name,
+                isGroup = chat.IsGroup,
+                adminUserId = chat.CreatedBy,
+                createdAt = chat.CreatedAt,
+                memberCount = members.Count,
+                members
+            });
         }
 
         [HttpPost("{chatId}/messages")]

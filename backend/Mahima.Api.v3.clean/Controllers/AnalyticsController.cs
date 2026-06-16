@@ -1,4 +1,4 @@
-using Mahima.Api.v3.clean.Data;
+﻿using Mahima.Api.v3.clean.Data;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,7 +21,7 @@ namespace Mahima.Api.v3.clean.Controllers
         }
 
         // --------------------------------------------------------------------
-        // 1) REBUILD ANALYTICS (placeholder – using live data)
+        // 1) REBUILD ANALYTICS (placeholder â€“ using live data)
         // --------------------------------------------------------------------
         [HttpPost("rebuild")]
         public IActionResult RebuildAnalytics()
@@ -228,6 +228,57 @@ namespace Mahima.Api.v3.clean.Controllers
             return Ok(overview);
         }
 
+        private static string NormalizeRoleLabel(string? role, IReadOnlyDictionary<string, string> rolesLookup)
+        {
+            var raw = string.IsNullOrWhiteSpace(role) ? "Unassigned" : role.Trim();
+            if (rolesLookup.TryGetValue(raw, out var mapped) && !string.IsNullOrWhiteSpace(mapped))
+                return mapped;
+            return raw;
+        }
+        private static string NormalizeTaskStatusLabel(object? status)
+        {
+            if (status == null) return "Pending";
+            var raw = status.ToString()?.Trim() ?? "";
+            if (int.TryParse(raw, out var code))
+            {
+                return code switch
+                {
+                    1 => "In Progress",
+                    2 => "Completed",
+                    3 => "Completed",
+                    _ => "Pending"
+                };
+            }
+
+            return raw.ToLowerInvariant() switch
+            {
+                "in_progress" => "In Progress",
+                "in progress" => "In Progress",
+                "review" => "In Progress",
+                "closed" => "Completed",
+                "complete" => "Completed",
+                "completed" => "Completed",
+                "done" => "Completed",
+                _ => "Pending"
+            };
+        }
+
+        private static int TaskStatusSort(string status) => status switch
+        {
+            "Pending" => 0,
+            "In Progress" => 1,
+            "Completed" => 2,
+            _ => 9
+        };
+
+        private static string NormalizeTaskPriorityLabel(int priority) => priority switch
+        {
+            3 => "Critical",
+            2 => "High",
+            1 => "Medium",
+            0 => "Low",
+            _ => "None"
+        };
         // --------------------------------------------------------------------
         // 3) PRAYERS
         // --------------------------------------------------------------------
@@ -289,21 +340,40 @@ namespace Mahima.Api.v3.clean.Controllers
             var now = DateTime.UtcNow;
             var from30 = now.AddDays(-30);
 
-            var usersByRole = await _db.Users
+            var rolesLookup = await _db.Roles
+                .Select(r => new { r.Id, r.Name })
+                .ToDictionaryAsync(r => r.Id.ToString(), r => r.Name ?? string.Empty);
+
+            var rawUsersByRole = await _db.Users
                 .GroupBy(u => u.Role ?? "Unassigned")
                 .Select(g => new { role = g.Key, count = g.Count() })
-                .OrderByDescending(x => x.count)
                 .ToListAsync();
 
-            var taskStatus = await _db.Tasks
+            var usersByRole = rawUsersByRole
+                .GroupBy(x => NormalizeRoleLabel(x.role, rolesLookup))
+                .Select(g => new { role = g.Key, count = g.Sum(x => x.count) })
+                .OrderByDescending(x => x.count)
+                .ToList();
+
+            var rawTaskStatus = await _db.Tasks
                 .GroupBy(t => t.Status)
                 .Select(g => new { status = g.Key, count = g.Count() })
                 .ToListAsync();
 
-            var taskPriority = await _db.Tasks
+            var taskStatus = rawTaskStatus
+                .GroupBy(x => NormalizeTaskStatusLabel(x.status))
+                .Select(g => new { status = g.Key, count = g.Sum(x => x.count) })
+                .OrderBy(x => TaskStatusSort(x.status))
+                .ToList();
+
+            var rawTaskPriority = await _db.Tasks
                 .GroupBy(t => t.Priority)
                 .Select(g => new { priority = g.Key, count = g.Count() })
                 .ToListAsync();
+
+            var taskPriority = rawTaskPriority
+                .Select(x => new { priority = NormalizeTaskPriorityLabel(x.priority), count = x.count })
+                .ToList();
 
             var recentMessages = await _db.Messages.CountAsync(m => m.CreatedAt >= from30);
             var totalChats = await _db.Chats.CountAsync();
@@ -341,3 +411,5 @@ namespace Mahima.Api.v3.clean.Controllers
         }
     }
 }
+
+

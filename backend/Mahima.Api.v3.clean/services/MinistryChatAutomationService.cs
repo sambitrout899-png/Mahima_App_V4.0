@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -69,12 +69,15 @@ namespace Mahima.Api.v3.clean.Services
             if (!GetBool(settings, "Enabled", true)) return;
 
             var nowLocal = GetLocalNow(settings);
+            var pastorBot = scope.ServiceProvider.GetRequiredService<IPastorBotService>();
+
+            await ProcessBirthdayGreetingsAsync(db, pastorBot, settings, nowLocal, ct);
+
             var candidates = BuildSchedules(nowLocal, settings)
                 .Where(s => IsDue(nowLocal, s, settings))
                 .ToList();
             if (candidates.Count == 0) return;
 
-            var pastorBot = scope.ServiceProvider.GetRequiredService<IPastorBotService>();
             foreach (var schedule in candidates)
             {
                 if (await AlreadySentAsync(db, schedule.Key, nowLocal.Date, ct)) continue;
@@ -85,6 +88,49 @@ namespace Mahima.Api.v3.clean.Services
                 await NotifyChatAsync(db, sent, ct);
 
                 _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for {LocalDate}", schedule.Key, nowLocal.Date);
+            }
+        }
+
+        private async Task ProcessBirthdayGreetingsAsync(
+            MahimaDbContext db,
+            IPastorBotService pastorBot,
+            IReadOnlyDictionary<string, string> settings,
+            DateTime nowLocal,
+            CancellationToken ct)
+        {
+            if (!GetBool(settings, "BirthdayGreetingEnabled", true))
+                return;
+
+            var users = await db.Users
+                .AsNoTracking()
+                .Where(u => u.Birthday.HasValue)
+                .Select(u => new { u.Id, u.DisplayName, u.Username, u.Birthday })
+                .ToListAsync(ct);
+
+            var birthdayUsers = users
+                .Where(u => u.Birthday.HasValue
+                    && u.Birthday.Value.Month == nowLocal.Month
+                    && u.Birthday.Value.Day == nowLocal.Day)
+                .ToList();
+
+            foreach (var user in birthdayUsers)
+            {
+                var key = $"birthday-greeting:{user.Id}";
+                if (await AlreadySentAsync(db, key, nowLocal.Date, ct)) continue;
+
+                var name = string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
+                var content =
+                    $"Birthday Blessings - {name}\n\n" +
+                    $"Jai Masih Di, {name}. The Mahima family thanks God for your life today. " +
+                    "May the Lord bless you, keep you, strengthen your faith, and fill this new year with wisdom, peace, and fruitfulness.\n\n" +
+                    "Scripture: \"The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.\" - Numbers 6:24-25\n\n" +
+                    "With love and prayers,\nAI Counseller";
+
+                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
+                await RecordSentAsync(db, key, nowLocal.Date, ct);
+                await NotifyChatAsync(db, sent, ct);
+
+                _logger.LogInformation("Sent birthday Jai Masih greeting for {UserId} on {LocalDate}", user.Id, nowLocal.Date);
             }
         }
 
@@ -256,4 +302,5 @@ namespace Mahima.Api.v3.clean.Services
             public HashSet<DayOfWeek>? DaysOfWeek { get; set; }
         }
     }
+
 }

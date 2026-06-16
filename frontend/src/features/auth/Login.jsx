@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { login, register } from "../../utils/fetch-auth-shim";
 import { API_BASE } from "../../api";
 import mahimaLogo from "../../assets/mahima-logo.png";
+import { initNativeApp, flushPendingFcmToken, ensurePushTokenRegistered } from "../../utils/initNativeApp";
+import { registerMobilePushNotifications } from "../../utils/mobilePushNotifications";
 
 const REMEMBER_LOGIN_KEY = "mahima_remember_login";
 
@@ -117,6 +119,26 @@ export default function Login() {
     }
   }
 
+  async function syncNativePushAfterAuth(user = null) {
+    if (!isMobileAppMode()) return;
+    try {
+      await initNativeApp();
+      await flushPendingFcmToken();
+      await registerMobilePushNotifications(user);
+
+      for (const delayMs of [1000, 3000, 7000]) {
+        window.setTimeout(() => {
+          ensurePushTokenRegistered()
+            .then(() => registerMobilePushNotifications(user))
+            .then(() => flushPendingFcmToken())
+            .catch((err) => console.warn("[login] delayed native push sync failed", err));
+        }, delayMs);
+      }
+    } catch (err) {
+      console.warn("[login] native push sync failed", err);
+    }
+  }
+
   function updateRememberMe(checked) {
     setRememberMe(checked);
     if (!checked) {
@@ -164,6 +186,7 @@ export default function Login() {
         localStorage.setItem("user", JSON.stringify(user));
       }
 
+      await syncNativePushAfterAuth(user);
       navigate("/home", { replace: true });
     } catch (err) {
       setError(
@@ -228,6 +251,7 @@ export default function Login() {
         localStorage.setItem("user", JSON.stringify(user));
       }
 
+      await syncNativePushAfterAuth(user);
       navigate("/home", { replace: true });
     } catch (err) {
       setError(err.message || "Account creation failed");

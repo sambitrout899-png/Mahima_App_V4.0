@@ -84,5 +84,14 @@ namespace Mahima.Api.v3.clean.Controllers
             await _service.CompleteAsync(id, dto, ct);
             return NoContent();
         }
+
+        // ---- Admin delete existing record ----
+        [HttpDelete("admin/applications/{id:guid}")]
+        [Authorize(Roles = "ADMIN,Admin,admin")]
+        public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+        {
+            await _service.DeleteAsync(id, ct);
+            return NoContent();
+        }
     }
 }

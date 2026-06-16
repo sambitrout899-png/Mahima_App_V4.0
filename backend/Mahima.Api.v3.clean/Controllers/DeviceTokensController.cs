@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -6,10 +7,13 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Data;
+using Mahima.Api.v3.clean.Dtos;
 using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -20,10 +24,17 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         private const string KeyPrefix = "DeviceToken:";
         private readonly MahimaDbContext _db;
+        private readonly IMobilePushNotificationService? _mobilePush;
+        private readonly IConfiguration _configuration;
 
-        public DeviceTokensController(MahimaDbContext db)
+        public DeviceTokensController(
+            MahimaDbContext db,
+            IEnumerable<IMobilePushNotificationService> mobilePushServices,
+            IConfiguration configuration)
         {
             _db = db;
+            _mobilePush = mobilePushServices?.FirstOrDefault();
+            _configuration = configuration;
         }
 
         public class RegisterDeviceTokenDto
@@ -95,6 +106,74 @@ namespace Mahima.Api.v3.clean.Controllers
             }));
         }
 
+        [HttpGet("status")]
+        public async Task<IActionResult> Status()
+        {
+            var userId = CurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            var tokenPrefix = $"{KeyPrefix}{userId}:";
+            var savedTokens = await _db.MinistryAutomationSettings
+                .CountAsync(s => s.Key.StartsWith(tokenPrefix));
+
+            var firebaseProjectId = FirstNonEmpty(
+                _configuration["MobilePush:FirebaseProjectId"],
+                _configuration["Firebase:ProjectId"],
+                Environment.GetEnvironmentVariable("MAHIMA_FIREBASE_PROJECT_ID"),
+                Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID"));
+            var serviceAccount = FirstNonEmpty(
+                _configuration["MobilePush:ServiceAccountJson"],
+                _configuration["Firebase:ServiceAccountJson"],
+                Environment.GetEnvironmentVariable("MAHIMA_FIREBASE_SERVICE_ACCOUNT_JSON"),
+                Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON"),
+                Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS"));
+            var serviceAccountIsFile = !string.IsNullOrWhiteSpace(serviceAccount)
+                && !serviceAccount.TrimStart().StartsWith("{", StringComparison.Ordinal)
+                && System.IO.File.Exists(serviceAccount);
+
+            return Ok(new
+            {
+                userId,
+                mobilePushServiceRegistered = _mobilePush != null,
+                savedTokens,
+                firebaseProjectConfigured = !string.IsNullOrWhiteSpace(firebaseProjectId),
+                serviceAccountConfigured = !string.IsNullOrWhiteSpace(serviceAccount),
+                serviceAccountFileExists = serviceAccountIsFile
+            });
+        }
+
+        public class TestPushDto
+        {
+            public string? Message { get; set; }
+        }
+
+        [HttpPost("test")]
+        public async Task<IActionResult> SendTestPush([FromBody] TestPushDto? dto)
+        {
+            var userId = CurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized();
+
+            if (_mobilePush == null)
+                return StatusCode(503, new { message = "Mobile push service is not registered." });
+
+            var message = new MessageDto
+            {
+                Id = Guid.NewGuid(),
+                ChatId = Guid.Empty,
+                SenderId = Guid.Empty,
+                Content = string.IsNullOrWhiteSpace(dto?.Message)
+                    ? "Test notification from Mahima Ministry"
+                    : dto!.Message!.Trim(),
+                ContentType = "text",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _mobilePush.NotifyChatMessageAsync(Guid.Empty, Guid.Empty, new[] { userId }, message);
+            return Ok(new { sent = true });
+        }
+
         private Guid CurrentUserId()
         {
             return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
@@ -124,6 +203,17 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             if (string.IsNullOrWhiteSpace(token)) return "";
             return token.Length <= 12 ? "********" : $"{token.Substring(0, 6)}...{token.Substring(token.Length - 6)}";
+        }
+
+        private static string? FirstNonEmpty(params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return null;
         }
     }
 }

@@ -48,6 +48,7 @@ const moduleLabels = {
   timesheets: "Timesheets",
   pnl: "Accounting P&L",
   balances: "Account balances",
+  balanceSheet: "Balance sheet",
   sermons: "Sermons",
   baptisms: "Baptism",
   marriage: "Marriage",
@@ -100,6 +101,9 @@ function arrayFrom(value) {
   if (Array.isArray(value?.records)) return value.records;
   return [];
 }
+function totalFrom(value, rows = arrayFrom(value)) {
+  return number(value?.total ?? value?.count ?? value?.totalCount ?? value?.recordsTotal ?? rows.length);
+}
 
 function countBy(rows, picker, fallback = "Unassigned") {
   const map = new Map();
@@ -131,26 +135,92 @@ function compactNumber(value) {
 function pct(value) {
   return `${Math.round(number(value))}%`;
 }
+function normalizeTaskStatusCode(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return 0;
+  if (/^-?\d+$/.test(raw)) return Number(raw);
+  if (/complete|done|closed|close|finished/.test(raw)) return 2;
+  if (/progress|review/.test(raw)) return 1;
+  return 0;
+}
+
+function taskStatusLabel(value) {
+  const code = normalizeTaskStatusCode(value);
+  if (code === 2) return "Completed";
+  if (code === 3) return "On Hold";
+  if (code === 1) return "In Progress";
+  return "Pending";
+}
+
+function taskPriorityLabel(value) {
+  const code = Number(value);
+  if (code === 3) return "Critical";
+  if (code === 2) return "High";
+  if (code === 1) return "Medium";
+  if (code === 0) return "Low";
+  return String(value || "None");
+}
+function roleLabel(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Unassigned";
+  const lower = raw.toLowerCase();
+  if (lower === "1") return "Admin";
+  if (lower === "2") return "Member";
+  if (lower === "10") return "Volunteer";
+  if (lower === "11") return "Staff";
+  if (lower === "12") return "Pastor";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function userRoleOf(user) {
+  return roleLabel(user?.role ?? user?.Role ?? user?.roleName ?? user?.RoleName ?? user?.roleId ?? user?.RoleId ?? user?.role_code ?? user?.roleCode);
+}
+
+function amountFrom(value, ...keys) {
+  for (const key of keys) {
+    if (value?.[key] !== undefined && value?.[key] !== null) return number(value[key]);
+  }
+  return 0;
+}
+function positiveRows(rows) {
+  return arrayFrom(rows).filter((row) => number(row?.value ?? row?.count ?? row?.Count) > 0);
+}
+
+function rowsTotal(rows, valueKey = "value") {
+  return arrayFrom(rows).reduce((sum, row) => sum + number(row?.[valueKey] ?? row?.count ?? row?.Count), 0);
+}
+
+function compactMetric(value) {
+  return typeof value === "number" ? compactNumber(value) : String(value ?? "");
+}
+
+function taskDueDate(task) {
+  return task?.dueDate || task?.DueDate || task?.due || task?.Due;
+}
+
+function isTaskCompleted(task) {
+  return normalizeTaskStatusCode(task?.status ?? task?.Status ?? task?.statusCode ?? task?.StatusCode) === 2;
+}
+
+function isTaskOverdue(task) {
+  const due = taskDueDate(task);
+  return Boolean(due && !isTaskCompleted(task) && new Date(due).getTime() < Date.now());
+}
 
 function safeDate(daysBack = 0) {
   const d = new Date();
   d.setDate(d.getDate() - daysBack);
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function safeGet(key, url, config = {}) {
   try {
-    const res = await api.get(url, config);
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return {
-        key,
-        ok: false,
-        data: null,
-        error: text || res.statusText || "Unavailable",
-      };
-    }
-    return { key, ok: true, data: res.data, error: null };
+    const data = await api.get(url, config);
+    return { key, ok: true, data, error: null };
   } catch (error) {
     return {
       key,
@@ -184,42 +254,59 @@ function buildDashboard(results) {
   const prayerRequests = arrayFrom(r.prayerRequests?.data);
   const payrollRuns = arrayFrom(r.payrollRuns?.data);
   const balances = arrayFrom(r.balances?.data);
+  const balanceSheet = r.balanceSheet?.data || {};
+  const balanceSheetAssets = arrayFrom(balanceSheet.assets ?? balanceSheet.Assets);
   const pnl = r.pnl?.data || {};
   const dailyRoutines = r.dailyRoutines?.data || {};
 
+  const userRoleRows = countBy(users, userRoleOf);
+  const userRoleValue = (label) => userRoleRows.find((row) => row.name.toLowerCase() === label.toLowerCase())?.value || 0;
   const userStats = {
-    total: number(overview?.users?.total ?? reports?.users?.total ?? r.users?.data?.total ?? users.length),
-    admins: number(overview?.users?.admins ?? users.filter((u) => /admin/i.test(String(u.role))).length),
-    members: number(overview?.users?.members ?? users.filter((u) => /member/i.test(String(u.role))).length),
-    staff: number(overview?.users?.staff ?? users.filter((u) => /staff/i.test(String(u.role))).length),
-    volunteers: number(overview?.users?.volunteers ?? users.filter((u) => /volunteer/i.test(String(u.role))).length),
+    total: number(overview?.users?.total ?? reports?.users?.total ?? totalFrom(r.users?.data, users)),
+    admins: number(overview?.users?.admins) || userRoleValue("Admin"),
+    members: number(overview?.users?.members) || userRoleValue("Member"),
+    staff: number(overview?.users?.staff) || userRoleValue("Staff"),
+    volunteers: number(overview?.users?.volunteers) || userRoleValue("Volunteer"),
     new30: number(overview?.users?.newMembers30d),
   };
 
-  const taskStatus = reports?.tasks?.byStatus?.length
-    ? reports.tasks.byStatus.map((x) => ({ name: x.status || "Unassigned", value: number(x.count) }))
-    : countBy(tasks, (t) => t.status || t.Status);
-  const taskPriority = reports?.tasks?.byPriority?.length
-    ? reports.tasks.byPriority.map((x) => ({ name: x.priority || "None", value: number(x.count) }))
-    : countBy(tasks, (t) => t.priority || t.Priority);
-  const taskTotal = number(reports?.tasks?.total ?? overview?.tasks?.total ?? tasks.length);
-  const openTasks = taskStatus
-    .filter((x) => !/complete|done|closed/i.test(x.name))
-    .reduce((sum, x) => sum + x.value, 0);
-  const completedTasks = taskStatus
-    .filter((x) => /complete|done|closed/i.test(x.name))
-    .reduce((sum, x) => sum + x.value, 0);
-  const overdueTasks = number(
-    overview?.tasks?.byRole?.reduce?.((sum, row) => sum + number(row.overdue), 0) ??
-      tasks.filter((t) => {
-        const due = t.dueDate || t.DueDate;
-        return due && new Date(due) < new Date() && !/complete|done|closed/i.test(String(t.status));
-      }).length
-  );
+  const liveTaskRows = tasks.length ? tasks : arrayFrom(reports?.tasks?.items);
+  const taskTotal = liveTaskRows.length || number(reports?.tasks?.total ?? overview?.tasks?.total);
+
+  const taskStatus = liveTaskRows.length
+    ? ["Pending", "In Progress", "Completed", "On Hold"]
+        .map((name) => ({ name, value: liveTaskRows.filter((task) => taskStatusLabel(task?.status ?? task?.Status ?? task?.statusCode ?? task?.StatusCode) === name).length }))
+        .filter((row) => row.value > 0)
+    : reports?.tasks?.byStatus?.length
+      ? reports.tasks.byStatus
+          .map((x) => ({ name: taskStatusLabel(x.status), value: number(x.count) }))
+          .reduce((rows, row) => {
+            const existing = rows.find((item) => item.name === row.name);
+            if (existing) existing.value += row.value;
+            else rows.push(row);
+            return rows;
+          }, [])
+      : [];
+
+  const taskPriority = liveTaskRows.length
+    ? ["Critical", "High", "Medium", "Low", "None"]
+        .map((name) => ({ name, value: liveTaskRows.filter((task) => taskPriorityLabel(task?.priority ?? task?.Priority) === name).length }))
+        .filter((row) => row.value > 0)
+    : reports?.tasks?.byPriority?.length
+      ? reports.tasks.byPriority.map((x) => ({ name: taskPriorityLabel(x.priority), value: number(x.count) }))
+      : [];
+
+  const completedTasks = liveTaskRows.length
+    ? liveTaskRows.filter(isTaskCompleted).length
+    : taskStatus.filter((x) => /complete|done|closed/i.test(x.name)).reduce((sum, x) => sum + x.value, 0);
+  const openTasks = Math.max(0, taskTotal - completedTasks);
+  const overdueTasks = liveTaskRows.length
+    ? liveTaskRows.filter(isTaskOverdue).length
+    : number(overview?.tasks?.byRole?.reduce?.((sum, row) => sum + number(row.overdue), 0));
 
   const chats = reports?.chats || {};
   const chatStats = {
-    total: number(chats.total ?? r.chats?.data?.length),
+    total: number(chats.total ?? totalFrom(r.chats?.data, arrayFrom(r.chats?.data))),
     groups: number(chats.groupChats),
     direct: number(chats.directChats),
     messages30: number(chats.recentMessages30d),
@@ -232,6 +319,15 @@ function buildDashboard(results) {
   const prayerResponded30 =
     number(r.prayers?.data?.counts?.["30"]?.responded) ||
     prayerRequests.filter((p) => /respond|closed|answered|testified/i.test(String(p.status))).length;
+  const prayerReminderTotal = prayerRequests.reduce((sum, p) => sum + number(p.reminderCount ?? p.ReminderCount), 0);
+  const prayerReminderToday = prayerRequests.reduce((sum, p) => sum + number(p.reminderTodayCount ?? p.ReminderTodayCount), 0);
+  const prayerRequestsWithReminders = prayerRequests.filter((p) => number(p.reminderCount ?? p.ReminderCount) > 0).length;
+  const prayerRagRed = prayerRequests.filter((p) => String(p.ragStatus ?? p.RagStatus).toLowerCase() === "red").length;
+  const prayerRagAmber = prayerRequests.filter((p) => String(p.ragStatus ?? p.RagStatus).toLowerCase() === "amber").length;
+  const prayerRagGreen = prayerRequests.filter((p) => {
+    const status = String((p.ragStatus ?? p.RagStatus) || "green").toLowerCase();
+    return status === "green";
+  }).length;
 
   const ministryStatus = [
     ...countBy(baptisms, (x) => `Baptism: ${x.status || x.Status || "Pending"}`),
@@ -241,31 +337,39 @@ function buildDashboard(results) {
 
   const accountingRows = reports?.accounting?.last30Days || [];
   const income =
-    number(pnl.income ?? pnl.totalIncome) ||
-    accountingRows.filter((x) => /income|revenue/i.test(String(x.type))).reduce((sum, x) => sum + Math.abs(number(x.credit || x.net)), 0);
+    amountFrom(pnl, "income", "Income", "totalIncome", "TotalIncome") ||
+    accountingRows.filter((x) => /income|revenue/i.test(String(x.type ?? x.Type))).reduce((sum, x) => sum + Math.abs(amountFrom(x, "credit", "Credit", "net", "Net", "amount", "Amount")), 0);
   const expense =
-    number(pnl.expense ?? pnl.expenses ?? pnl.totalExpense) ||
-    accountingRows.filter((x) => /expense/i.test(String(x.type))).reduce((sum, x) => sum + Math.abs(number(x.debit || x.net)), 0);
-  const net = number(pnl.net ?? pnl.netIncome ?? income - expense);
-  const cashBank = balances
-    .filter((x) => /cash|bank/i.test(`${x.name || x.accountName || ""} ${x.type || ""}`))
-    .reduce((sum, x) => sum + number(x.balance ?? x.closingBalance ?? x.amount), 0);
+    amountFrom(pnl, "expense", "Expense", "expenses", "Expenses", "totalExpense", "TotalExpense") ||
+    accountingRows.filter((x) => /expense/i.test(String(x.type ?? x.Type))).reduce((sum, x) => sum + Math.abs(amountFrom(x, "debit", "Debit", "net", "Net", "amount", "Amount")), 0);
+  const net = amountFrom(pnl, "net", "Net", "netIncome", "NetIncome", "netSurplus", "NetSurplus") || income - expense;
+  const cashBankRows = balances.length ? balances : balanceSheetAssets;
+  const cashBank = cashBankRows
+    .filter((x) => /cash|bank/i.test(`${x.name || x.Name || x.accountName || x.AccountName || ""} ${x.type || x.Type || ""}`))
+    .reduce((sum, x) => sum + amountFrom(x, "balance", "Balance", "closingBalance", "ClosingBalance", "amount", "Amount"), 0);
 
   const attendanceRate = attendance.length && userStats.staff
     ? Math.min(100, (attendance.length / (Math.max(userStats.staff, 1) * 30)) * 100)
     : number(overview?.teams?.productivity?.[0]?.attendanceRate);
   const totalHours = timesheets.reduce((sum, x) => sum + number(x.hours ?? x.Hours), 0);
-  const avgHours = number(overview?.teams?.productivity?.[0]?.avgHours) || (userStats.staff ? totalHours / userStats.staff : 0);
+  const timesheetUsers = new Set(timesheets.map((x) => x.userId ?? x.UserId ?? x.user?.id ?? x.User?.Id).filter(Boolean)).size;
+  const avgHours = timesheets.length
+    ? totalHours / Math.max(timesheetUsers || userStats.staff || 1, 1)
+    : number(overview?.teams?.productivity?.[0]?.avgHours);
 
   const contentMix = countBy(sermons, (x) => x.type || x.resourceType || "Sermon");
-  const usersByRole = reports?.users?.byRole?.length
-    ? reports.users.byRole.map((x) => ({ name: x.role || "Unassigned", value: number(x.count) }))
-    : [
-        { name: "Admins", value: userStats.admins },
-        { name: "Members", value: userStats.members },
-        { name: "Staff", value: userStats.staff },
-        { name: "Volunteers", value: userStats.volunteers },
-      ].filter((x) => x.value > 0);
+  const reportRoleRows = arrayFrom(reports?.users?.byRole).map((x) => ({ name: roleLabel(x.role ?? x.Role), value: number(x.count ?? x.Count) }));
+  const overviewRoleRows = [
+    { name: "Admin", value: userStats.admins },
+    { name: "Member", value: userStats.members },
+    { name: "Staff", value: userStats.staff },
+    { name: "Volunteer", value: userStats.volunteers },
+  ];
+  const usersByRole = positiveRows(reportRoleRows).length
+    ? positiveRows(reportRoleRows)
+    : positiveRows(userRoleRows).length
+      ? positiveRows(userRoleRows)
+      : positiveRows(overviewRoleRows);
 
   const failed = results.filter((x) => !x.ok);
   const available = results.length - failed.length;
@@ -285,16 +389,18 @@ function buildDashboard(results) {
     { label: "Open tasks", value: openTasks, tone: openTasks > 0 ? "amber" : "emerald", detail: `${Math.round(completionRate)}% completed` },
     { label: "Overdue tasks", value: overdueTasks, tone: overdueTasks > 0 ? "rose" : "emerald", detail: "Needs owner follow-up" },
     { label: "Prayer follow-ups", value: Math.max(0, prayer30 - prayerResponded30), tone: prayer30 - prayerResponded30 > 0 ? "blue" : "emerald", detail: `${Math.round(responseRate)}% responded` },
+    { label: "Prayer reminders", value: prayerReminderToday, tone: prayerReminderToday > 0 ? "amber" : "emerald", detail: `${prayerReminderTotal} total sent` },
+    { label: "Prayer RAG red", value: prayerRagRed, tone: prayerRagRed > 0 ? "rose" : "emerald", detail: `${prayerRagAmber} amber` },
     { label: "Module warnings", value: failed.length, tone: failed.length ? "rose" : "emerald", detail: "Unavailable data feeds" },
   ];
 
   const operations = [
     { name: "Users", value: userStats.total, detail: `${userStats.new30} new members in 30d`, icon: Users },
     { name: "Chats", value: chatStats.total, detail: `${chatStats.messages30} messages in 30d`, icon: MessageSquare },
-    { name: "Teams", value: teams.length || overview?.teams?.total || 0, detail: `${compactNumber(avgHours)} avg hrs/member`, icon: Layers },
+    { name: "Teams", value: totalFrom(r.teams?.data, teams) || overview?.teams?.total || 0, detail: `${compactNumber(avgHours)} avg hrs/member`, icon: Layers },
     { name: "Attendance", value: pct(attendanceRate), detail: `${attendance.length} records in 30d`, icon: CalendarCheck },
-    { name: "Sermons", value: sermons.length, detail: `${contentMix.length || 0} content categories`, icon: BarChart3 },
-    { name: "Payroll", value: payrollRuns.length, detail: "Recent salary runs", icon: IndianRupee },
+    { name: "Sermons", value: totalFrom(r.sermons?.data, sermons), detail: `${contentMix.length || 0} content categories`, icon: BarChart3 },
+    { name: "Payroll", value: totalFrom(r.payrollRuns?.data, payrollRuns), detail: "Recent salary runs", icon: IndianRupee },
   ];
 
   return {
@@ -313,6 +419,12 @@ function buildDashboard(results) {
     chatStats,
     prayer30,
     prayerResponded30,
+    prayerReminderTotal,
+    prayerReminderToday,
+    prayerRequestsWithReminders,
+    prayerRagRed,
+    prayerRagAmber,
+    prayerRagGreen,
     responseRate,
     ministryStatus,
     income,
@@ -331,10 +443,11 @@ function buildDashboard(results) {
       detail: x.ok ? "Live" : x.error,
     })),
     dailyRoutines,
+    dailyRoutinesFeed: r.dailyRoutines || { ok: false, error: "Daily routines feed not loaded" },
     pipelines: [
-      { name: "Baptism", total: baptisms.length, active: baptisms.filter((x) => !/complete/i.test(String(x.status))).length },
-      { name: "Marriage", total: marriage.length, active: marriage.filter((x) => !/complete/i.test(String(x.status))).length },
-      { name: "Counselling", total: counselling.length, active: counselling.filter((x) => !/complete|closed/i.test(String(x.status))).length },
+      { name: "Baptism", total: totalFrom(r.baptisms?.data, baptisms), active: baptisms.filter((x) => !/complete/i.test(String(x.status))).length },
+      { name: "Marriage", total: totalFrom(r.marriage?.data, marriage), active: marriage.filter((x) => !/complete/i.test(String(x.status))).length },
+      { name: "Counselling", total: totalFrom(r.counselling?.data, counselling), active: counselling.filter((x) => !/complete|closed/i.test(String(x.status))).length },
       { name: "Prayer", total: prayer30, active: Math.max(0, prayer30 - prayerResponded30) },
     ],
   };
@@ -368,6 +481,7 @@ export default function AdminDashboard() {
       safeGet("timesheets", "/timesheets", { params: { from: from30, to: today } }),
       safeGet("pnl", "/accounting/pnl", { params: { fromDate: from30, toDate: today } }),
       safeGet("balances", "/accounting/balances"),
+      safeGet("balanceSheet", "/accounting/balance-sheet", { params: { toDate: today } }),
       safeGet("sermons", "/sermons"),
       safeGet("baptisms", "/baptisms"),
       safeGet("marriage", "/marriage/admin/applications"),
@@ -395,12 +509,12 @@ export default function AdminDashboard() {
     const ok = window.confirm("Block this user's access to Mahima App?");
     if (!ok) return;
 
-    const res = await api.post(`/admin/daily-routines/users/${userId}/block`, { reason });
-    if (!res.ok) {
-      setError(res.error || "Unable to block user.");
-      return;
+    try {
+      await api.post(`/admin/daily-routines/users/${userId}/block`, { reason });
+      await loadDashboard();
+    } catch (e) {
+      setError(e?.message || "Unable to block user.");
     }
-    await loadDashboard();
   }
 
   if (!canAccess) {
@@ -456,23 +570,24 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_2fr]">
+        <div className="grid gap-4 2xl:grid-cols-[1.05fr_2fr]">
           <HeroScore dashboard={dashboard} loading={loading} />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3">
             <MetricCard title="Members" value={dashboard.userStats.members} detail={`${dashboard.userStats.total} total users`} icon={Users} tone="blue" />
             <MetricCard title="Task Completion" value={pct(dashboard.taskTotal ? (dashboard.completedTasks / dashboard.taskTotal) * 100 : 0)} detail={`${dashboard.openTasks} open tasks`} icon={Target} tone="emerald" />
             <MetricCard title="Prayer Response" value={pct(dashboard.responseRate)} detail={`${dashboard.prayer30} requests in 30d`} icon={HeartHandshake} tone="violet" />
+            <MetricCard title="Prayer Reminders" value={dashboard.prayerReminderToday} detail={`${dashboard.prayerReminderTotal} total sent`} icon={AlertTriangle} tone={dashboard.prayerReminderToday ? "amber" : "emerald"} />
             <MetricCard title="Net Position" value={currency(dashboard.net)} detail={`${currency(dashboard.cashBank)} cash/bank`} icon={IndianRupee} tone={dashboard.net >= 0 ? "emerald" : "rose"} />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3">
           {dashboard.attention.map((item) => (
             <AttentionCard key={item.label} item={item} />
           ))}
         </div>
 
-        <DailyRoutinesPanel data={dashboard.dailyRoutines} onBlockUser={blockRoutineUser} />
+        <DailyRoutinesPanel data={dashboard.dailyRoutines} feed={dashboard.dailyRoutinesFeed} onBlockUser={blockRoutineUser} />
 
         <div className="grid gap-5 xl:grid-cols-3">
           <Panel title="People & Roles" icon={Users} className="xl:col-span-1">
@@ -596,15 +711,16 @@ function MetricCard({ title, value, detail, icon: Icon, tone = "blue" }) {
     emerald: "bg-emerald-50 text-emerald-700 border-emerald-100",
     violet: "bg-violet-50 text-violet-700 border-violet-100",
     rose: "bg-rose-50 text-rose-700 border-rose-100",
+    amber: "bg-amber-50 text-amber-700 border-amber-100",
   };
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${toneMap[tone] || toneMap.blue}`}>
         <Icon className="w-4 h-4" />
       </div>
-      <div className="mt-3 text-2xl font-bold">{typeof value === "number" ? compactNumber(value) : value}</div>
-      <div className="text-sm font-semibold text-slate-700">{title}</div>
-      <div className="text-xs text-slate-500 mt-1">{detail}</div>
+      <div className="mt-3 truncate text-xl font-bold sm:text-2xl">{typeof value === "number" ? compactNumber(value) : value}</div>
+      <div className="text-sm font-semibold leading-snug text-slate-700">{title}</div>
+      <div className="mt-1 line-clamp-2 text-xs leading-snug text-slate-500">{detail}</div>
     </div>
   );
 }
@@ -617,10 +733,10 @@ function AttentionCard({ item }) {
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
   }[item.tone] || "border-slate-200 bg-white text-slate-800";
   return (
-    <div className={`rounded-lg border p-4 ${tone}`}>
-      <div className="text-2xl font-bold">{compactNumber(item.value)}</div>
-      <div className="text-sm font-semibold">{item.label}</div>
-      <div className="text-xs opacity-75 mt-1">{item.detail}</div>
+    <div className={`min-w-0 rounded-lg border p-4 ${tone}`}>
+      <div className="truncate text-xl font-bold sm:text-2xl">{compactNumber(item.value)}</div>
+      <div className="text-sm font-semibold leading-snug">{item.label}</div>
+      <div className="mt-1 line-clamp-2 text-xs leading-snug opacity-75">{item.detail}</div>
     </div>
   );
 }
@@ -639,7 +755,7 @@ function Panel({ title, icon: Icon, children, className = "" }) {
   );
 }
 
-function DailyRoutinesPanel({ data, onBlockUser }) {
+function DailyRoutinesPanel({ data, feed, onBlockUser }) {
   const attendance = data?.attendance || {};
   const siteUsage = data?.siteUsage || {};
   const security = data?.security || {};
@@ -650,9 +766,10 @@ function DailyRoutinesPanel({ data, onBlockUser }) {
   const flaggedUploads = arrayFrom(malpractice?.flaggedUploads);
   const manipulation = arrayFrom(malpractice?.dataManipulationFlags);
   const cyberEvents = arrayFrom(security?.events);
+  const feedError = feed && feed.ok === false ? feed.error || "Daily routines feed is unavailable." : "";
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
         <div className="flex items-center gap-2">
           <span className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
@@ -667,6 +784,12 @@ function DailyRoutinesPanel({ data, onBlockUser }) {
           Report date: {data?.date || "Today"}
         </div>
       </div>
+
+      {feedError && (
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          Daily routines feed error: {feedError}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
         <RoutineMetric title="Attendance logged" value={attendance.present} tone="emerald" />
@@ -818,7 +941,7 @@ function RoutineMetric({ title, value, tone = "slate" }) {
   };
   return (
     <div className={`rounded-lg border p-3 ${toneMap[tone] || toneMap.slate}`}>
-      <div className="text-2xl font-bold">{compactNumber(value || 0)}</div>
+      <div className="truncate text-xl font-bold sm:text-2xl">{compactNumber(value || 0)}</div>
       <div className="text-xs font-semibold">{title}</div>
     </div>
   );
@@ -866,7 +989,7 @@ function MiniStat({ label, value }) {
   return (
     <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
       <span className="text-sm text-slate-600">{label}</span>
-      <span className="font-bold">{compactNumber(value)}</span>
+      <span className="font-bold">{compactMetric(value)}</span>
     </div>
   );
 }
@@ -917,6 +1040,7 @@ function ComposedFinanceChart({ income, expense, net }) {
     { name: "Expense", amount: expense },
     { name: "Net", amount: net },
   ];
+  const hasAmounts = data.some((row) => Math.abs(number(row.amount)) > 0);
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-2">
@@ -924,7 +1048,7 @@ function ComposedFinanceChart({ income, expense, net }) {
         <MiniStat label="Expense" value={currency(expense)} />
         <MiniStat label="Net" value={currency(net)} />
       </div>
-      <BarChart data={data} barColor={net >= 0 ? colors.emerald : colors.rose} dataKey="amount" nameKey="name" height={210} />
+      {hasAmounts ? <BarChart data={data} barColor={net >= 0 ? colors.emerald : colors.rose} dataKey="amount" nameKey="name" height={210} /> : <EmptyState text="No income or expense movement in the selected 30-day window." />}
     </div>
   );
 }
@@ -947,3 +1071,14 @@ function PipelineChart({ data }) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

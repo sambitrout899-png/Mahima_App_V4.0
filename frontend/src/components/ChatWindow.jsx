@@ -7,7 +7,7 @@
 //   - Date separators (Today / Yesterday / DD MMM YYYY)
 //   - Read receipts (single tick / double tick / blue double tick)
 //   - Live "typing..." indicator
-//   - Auto-scroll to bottom on new messages
+//   - Keep newest messages at the top
 //   - Auto-grow textarea (Enter sends, Shift+Enter newlines)
 //   - Mark-as-read on focus
 //   - Mute toggle
@@ -35,6 +35,8 @@ import {
   Ban,
   Mic,
   MicOff,
+  Users,
+  ShieldCheck,
 } from "lucide-react";
 import { getToken } from "../utils/auth";
 import { optionalImportModule, speakText } from "../utils/speech";
@@ -337,10 +339,15 @@ const colorFromId = (id) => {
   return palette[h % palette.length];
 };
 
-function mergeMessages(existing, incoming) {
+function mergeMessages(existing, incoming, activeChatId = null) {
   const byId = new Map();
-  for (const msg of existing) byId.set(String(msg.id), msg);
+  const activeKey = activeChatId == null ? null : String(activeChatId);
+  for (const msg of existing) {
+    if (activeKey && msg.chatId != null && String(msg.chatId) !== activeKey) continue;
+    byId.set(String(msg.id), msg);
+  }
   for (const msg of incoming) {
+    if (activeKey && msg.chatId != null && String(msg.chatId) !== activeKey) continue;
     const key = String(msg.id);
     const current = byId.get(key);
     if (!current) {
@@ -357,7 +364,7 @@ function mergeMessages(existing, incoming) {
       status: current.status === "sending" ? current.status : msg.status,
     });
   }
-  return Array.from(byId.values()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 /* component */
 
@@ -401,6 +408,10 @@ export default function ChatWindow({
   const [voiceListening, setVoiceListening] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [groupInfo, setGroupInfo] = useState(null);
+  const [groupInfoLoading, setGroupInfoLoading] = useState(false);
+  const [groupInfoError, setGroupInfoError] = useState("");
 
   const scrollerRef = useRef(null);
   const taRef = useRef(null);
@@ -413,6 +424,15 @@ export default function ChatWindow({
   const recordingStreamRef = useRef(null);
   const recordingTimerRef = useRef(null);
 
+  useEffect(() => {
+    setMessages([]);
+    setLoading(Boolean(chat?.id));
+    setMessageMenu(null);
+    setGroupInfoOpen(false);
+    setGroupInfo(null);
+    setGroupInfoError("");
+  }, [chat?.id]);
+
   // Cleanup blob URL preview on change/unmount.
   useEffect(() => {
     return () => {
@@ -422,11 +442,11 @@ export default function ChatWindow({
     };
   }, [pendingAttachment]);
 
-  // Auto-scroll on new messages or when typing indicator pops.
+  // Keep the newest messages visible at the top of the thread.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight + 9999;
+    el.scrollTop = 0;
   }, [messages.length, typing]);
 
   // Auto-grow textarea height.
@@ -450,6 +470,30 @@ export default function ChatWindow({
     voiceRecognitionRef.current = null;
     setVoiceListening(false);
     setVoiceBusy(false);
+  }
+
+  async function openGroupInfo() {
+    if (!chat?.isGroup || !chat?.id) return;
+    setGroupInfoOpen(true);
+    setGroupInfoError("");
+    setGroupInfoLoading(true);
+    try {
+      const token = getToken()
+        || localStorage.getItem("mahima_token")
+        || localStorage.getItem("authToken")
+        || localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/chats/${chat.id}/members`, {
+        headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Could not load group members (${res.status})`);
+      const json = await res.json();
+      setGroupInfo(json);
+    } catch (err) {
+      setGroupInfoError(err?.message || "Could not load group members.");
+    } finally {
+      setGroupInfoLoading(false);
+    }
   }
 
   async function startVoiceInput() {
@@ -643,10 +687,11 @@ export default function ChatWindow({
     let intervalId = null;
 
     async function load(showSpinner = false) {
-      if (!chat?.id) { setMessages([]); return; }
+      const activeChatId = chat?.id;
+      if (!activeChatId) { setMessages([]); return; }
       if (showSpinner) setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/chats/${chat.id}/messages?page=1&size=100`, {
+        const res = await fetch(`${API_BASE}/chats/${activeChatId}/messages?page=1&size=100`, {
           headers: {
             Accept: "application/json",
             Authorization: `Bearer ${getToken() || ""}`,
@@ -661,10 +706,9 @@ export default function ChatWindow({
           : Array.isArray(data?.data) ? data.data
           : Array.isArray(data) ? data
           : [];
-        const normalized = list.map(normalizeMessage)
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        if (!cancelled) {
-          setMessages((prev) => mergeMessages(prev, normalized));
+        const normalized = list.map(normalizeMessage);
+        if (!cancelled && String(activeChatId) === String(chat?.id)) {
+          setMessages(mergeMessages([], normalized, activeChatId));
         }
       } catch (e) {
         if (!cancelled && showSpinner) setMessages([]);
@@ -720,7 +764,7 @@ export default function ChatWindow({
             return next;
           }
         }
-        return [...prev, n];
+        return mergeMessages(prev, [n], chat?.id);
       });
 
       // Play notification only for messages from other users, and at most
@@ -910,7 +954,7 @@ export default function ChatWindow({
           }]
         : [],
     };
-    setMessages((prev) => [...prev, draft]);
+    setMessages((prev) => mergeMessages(prev, [draft], chat.id));
     setText("");
     setPendingAttachment(null);
 
@@ -932,7 +976,7 @@ export default function ChatWindow({
             ? { ...resolvedServerMessage, status }
             : { ...m, status, attachments: attachments.length ? attachments : m.attachments, _server: serverResponse };
         });
-        return mergeMessages([], next);
+        return mergeMessages([], next, chat.id);
       });
       if (status === "sent") playSendSound();
       if (status === "sent") onMessageCreated(resolvedServerMessage || { ...draft, attachments, status: "sent" });
@@ -1089,7 +1133,7 @@ export default function ChatWindow({
       if (!(myName && c === myName)) return c;
     }
 
-    const lm = chat.lastMessage ?? (messages.length ? messages[messages.length - 1] : null);
+    const lm = chat.lastMessage ?? (messages.length ? messages[0] : null);
     if (lm) {
       const lmId = lm.senderId ?? lm.fromUserId ?? lm.userId
         ?? (lm.sender && (lm.sender.id ?? lm.sender.userId)) ?? null;
@@ -1205,7 +1249,7 @@ export default function ChatWindow({
 
   if (!chat) {
     return (
-      <div className="h-full flex flex-col items-center justify-center bg-[#f0f2f5] text-center px-6">
+      <div className="flex h-full flex-col items-center justify-center bg-slate-50 px-6 text-center">
         <div className="w-20 h-20 rounded-full bg-emerald-600/10 flex items-center justify-center mb-4">
           <Send className="w-9 h-9 text-emerald-600" />
         </div>
@@ -1220,14 +1264,14 @@ export default function ChatWindow({
   /* render */
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[#efeae2]"
+    <div className="flex h-full min-h-0 flex-col bg-[#f6f1e8]"
          style={{
            // WhatsApp-style faint pattern background
-           backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M30 5l5 10-5 10-5-10z'/%3E%3C/g%3E%3C/svg%3E\")",
+           backgroundImage: "linear-gradient(rgba(255,255,255,0.28), rgba(255,255,255,0.28)), url(\"data:image/svg+xml,%3Csvg width='72' height='72' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23065f46' fill-opacity='0.035'%3E%3Cpath d='M36 10l4 8-4 8-4-8zM12 44l3 6-3 6-3-6zM60 44l3 6-3 6-3-6z'/%3E%3C/g%3E%3C/svg%3E\")",
          }}
     >
       {/* HEADER */}
-      <header className="bg-emerald-700 text-white px-2 sm:px-3 py-2 flex items-center gap-1.5 sm:gap-2 shadow-sm shrink-0">
+      <header className="flex shrink-0 items-center gap-2 border-b border-emerald-900/10 bg-emerald-700 px-3 py-3 text-white shadow-sm sm:px-4">
         <button
           onClick={onBack}
           className="md:hidden w-11 h-11 rounded-full hover:bg-white/10 active:bg-white/20 flex items-center justify-center"
@@ -1236,15 +1280,26 @@ export default function ChatWindow({
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white shadow shrink-0"
+        <button
+          type="button"
+          onClick={openGroupInfo}
+          disabled={!chat?.isGroup}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-black text-white shadow ring-2 ring-white/20 disabled:cursor-default"
           style={{ background: colorFromId(chat.id) }}
+          title={chat?.isGroup ? "View group info" : undefined}
+          aria-label={chat?.isGroup ? "View group info" : "Chat avatar"}
         >
           {initialsFrom(derivedTitle)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold truncate">{derivedTitle}</div>
-          <div className="text-[11px] text-emerald-100/90 flex items-center gap-1.5 truncate">
+        </button>
+        <button
+          type="button"
+          onClick={openGroupInfo}
+          disabled={!chat?.isGroup}
+          className="flex-1 min-w-0 text-left disabled:cursor-default"
+          title={chat?.isGroup ? "View group info" : undefined}
+        >
+          <div className="truncate text-base font-black">{derivedTitle}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-emerald-100/90">
             {iBlockedThem ? (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-red-200 inline-block" />
@@ -1281,7 +1336,7 @@ export default function ChatWindow({
             )}
             {loading && <span className="hidden sm:inline opacity-75">- loading</span>}
           </div>
-        </div>
+        </button>
 
         <button
           onClick={onStartAudioCall}
@@ -1326,18 +1381,100 @@ export default function ChatWindow({
         )}
       </header>
 
+      {groupInfoOpen && chat?.isGroup && (
+        <div className="fixed inset-0 z-[160] bg-slate-900/40 flex items-end sm:items-center justify-center p-3"
+             onClick={() => setGroupInfoOpen(false)}>
+          <div className="w-full max-w-md max-h-[84vh] overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col"
+               onClick={(e) => e.stopPropagation()}
+               role="dialog"
+               aria-modal="true"
+               aria-label="Group information">
+            <div className="bg-emerald-700 text-white px-4 py-4 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold shadow"
+                   style={{ background: colorFromId(chat.id) }}>
+                {initialsFrom(derivedTitle)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-semibold truncate">{derivedTitle}</div>
+                <div className="text-xs text-emerald-100">
+                  {groupInfo?.memberCount ?? groupInfo?.members?.length ?? 0} members
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGroupInfoOpen(false)}
+                className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center"
+                aria-label="Close group info"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-slate-100">
+              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-800 px-3 py-1 text-xs font-semibold">
+                <Users className="w-3.5 h-3.5" />
+                Group members
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {groupInfoLoading && (
+                <div className="py-8 flex items-center justify-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading members...
+                </div>
+              )}
+              {groupInfoError && !groupInfoLoading && (
+                <div className="m-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>{groupInfoError}</span>
+                </div>
+              )}
+              {!groupInfoLoading && !groupInfoError && (groupInfo?.members || []).map((member) => {
+                const display = member.displayName || member.username || member.email || member.userId;
+                return (
+                  <div key={member.userId} className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0">
+                    <div className="w-10 h-10 rounded-full text-white flex items-center justify-center font-semibold shrink-0"
+                         style={{ background: colorFromId(member.userId) }}>
+                      {initialsFrom(display)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-900 truncate">{display}</div>
+                      {(member.email || member.username) && (
+                        <div className="text-xs text-slate-500 truncate">{member.email || member.username}</div>
+                      )}
+                    </div>
+                    {member.isAdmin ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 px-2 py-1 text-[11px] font-semibold">
+                        <ShieldCheck className="w-3.5 h-3.5" /> Admin
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-1 text-[11px] font-semibold">
+                        Member
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              {!groupInfoLoading && !groupInfoError && (!groupInfo?.members || groupInfo.members.length === 0) && (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">No members found.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MESSAGES */}
-      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-6 py-3">
+      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 sm:px-8">
         {messages.length === 0 && !loading && (
-          <div className="text-center py-10 text-slate-500 text-sm">
+          <div className="mx-auto mt-10 max-w-sm rounded-2xl border border-white/70 bg-white/75 px-5 py-4 text-center text-sm font-semibold text-slate-500 shadow-sm backdrop-blur">
             No messages yet. Say hello!
           </div>
         )}
         {renderedItems.map((it) => {
           if (it.kind === "date") {
             return (
-              <div key={it.id} className="flex justify-center my-3">
-                <span className="bg-white/80 backdrop-blur text-[11px] font-semibold text-slate-600 rounded-full px-3 py-1 shadow-sm">
+              <div key={it.id} className="my-4 flex justify-center">
+                <span className="rounded-full border border-white/70 bg-white/85 px-3 py-1 text-[11px] font-bold text-slate-600 shadow-sm backdrop-blur">
                   {it.label}
                 </span>
               </div>
@@ -1363,7 +1500,7 @@ export default function ChatWindow({
       </div>
 
       {/* INPUT */}
-      <div className="bg-[#f0f2f5] px-2 py-2 flex flex-col gap-2 border-t border-slate-200 shrink-0"
+      <div className="flex shrink-0 flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-3"
            style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
 
         {isDirectBlocked && (
@@ -1385,7 +1522,7 @@ export default function ChatWindow({
 
         {/* Pending attachment preview */}
         {pendingAttachment && (
-          <div className="bg-white rounded-xl p-2 flex items-center gap-2 border border-slate-200">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
             {pendingAttachment.kind === "image" ? (
               <img
                 src={pendingAttachment.previewUrl}
@@ -1431,14 +1568,14 @@ export default function ChatWindow({
           </div>
         )}
 
-        <div className="flex items-end gap-1.5 sm:gap-2">
+        <div className="flex items-end gap-2">
           <button
             type="button"
             onClick={pickFile}
             disabled={uploading || isDirectBlocked}
             title="Attach photo or video"
             aria-label="Attach photo or video"
-            className="w-11 h-11 rounded-full hover:bg-slate-200/70 active:bg-slate-300/70 flex items-center justify-center text-slate-600 shrink-0 disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-200/80 active:bg-slate-300/80 disabled:opacity-50"
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -1473,7 +1610,7 @@ export default function ChatWindow({
             {recording ? <MicOff className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
           </button>
 
-          <div className="flex-1 bg-white rounded-2xl shadow-sm flex items-end min-w-0">
+          <div className="flex min-w-0 flex-1 items-end rounded-[1.4rem] border border-slate-200 bg-white shadow-sm focus-within:border-emerald-200 focus-within:ring-4 focus-within:ring-emerald-100">
             <textarea
               ref={taRef}
               value={text}
@@ -1488,7 +1625,7 @@ export default function ChatWindow({
               placeholder={isDirectBlocked ? (iBlockedThem ? "Unblock to send a message" : "Messages unavailable") : "Type a message"}
               rows={1}
               disabled={isDirectBlocked}
-              className="flex-1 bg-transparent border-0 outline-none px-3 py-2.5 text-sm resize-none max-h-[140px] min-w-0"
+              className="min-w-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 outline-none"
             />
             {recording && (
               <div className="pr-3 pb-2 text-xs font-bold text-red-600">
@@ -1502,7 +1639,7 @@ export default function ChatWindow({
             disabled={isDirectBlocked || (!text.trim() && !pendingAttachment) || uploading}
             aria-label="Send message"
             type="button"
-            className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white flex items-center justify-center shrink-0 transition shadow-sm"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm transition hover:bg-emerald-700 active:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>
@@ -1529,60 +1666,60 @@ function MessageBubble({
   const hasAttachments = Array.isArray(msg.attachments) && msg.attachments.length > 0;
 
   return (
-    <div className={`flex ${mine ? "justify-end" : "justify-start"} my-1`}>
-      <div className={`relative max-w-[80%] sm:max-w-[60%] rounded-lg overflow-hidden shadow-sm ${
-        mine ? "bg-[#dcf8c6] text-slate-900" : "bg-white text-slate-900"
+    <div className={`flex overflow-visible ${mine ? "justify-end" : "justify-start"} my-2`}>
+      <div className={`group/message relative min-w-[120px] max-w-[84%] overflow-visible rounded-2xl shadow-sm ring-1 ring-black/5 sm:max-w-[58%] ${
+        mine ? "bg-[#d9fdd3] text-slate-900" : "bg-white text-slate-900"
       }`}>
         <button
           type="button"
           onClick={onOpenMenu}
-          className="absolute top-1 right-1 z-10 w-7 h-7 rounded-full bg-white/70 hover:bg-white text-slate-500 flex items-center justify-center opacity-80"
+          className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-slate-500 opacity-0 shadow-sm ring-1 ring-black/5 transition hover:bg-white focus:opacity-100 group-hover/message:opacity-100 active:scale-95"
           aria-label="Message options"
           title="Message options"
         >
           <MoreVertical className="w-4 h-4" />
         </button>
         {menuOpen && (
-          <div className={`absolute top-8 ${mine ? "right-1" : "left-1"} z-20 w-44 rounded-lg bg-white shadow-xl border border-slate-100 py-1 text-xs`}>
+          <div className={`absolute top-9 ${mine ? "right-0" : "left-0"} z-30 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 text-sm shadow-2xl`}>
             <button
               type="button"
               onClick={onSpeak}
-              className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"
+              className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50"
             >
-              <Volume2 className="w-3.5 h-3.5" /> Read aloud
+              <Volume2 className="h-4 w-4" /> Read aloud
             </button>
             <button
               type="button"
               onClick={onDeleteForMe}
-              className="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"
+              className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Delete for me
+              <Trash2 className="h-4 w-4" /> Delete for me
             </button>
             {canDeleteForEveryone && (
               <button
                 type="button"
                 onClick={onDeleteForEveryone}
-                className="w-full px-3 py-2 text-left hover:bg-red-50 text-red-600 flex items-center gap-2"
+                className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left text-red-600 hover:bg-red-50"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Delete for everyone
+                <Trash2 className="h-4 w-4" /> Delete for everyone
               </button>
             )}
           </div>
         )}
         {hasAttachments && (
-          <div className="flex flex-col">
+          <div className="flex flex-col overflow-hidden rounded-t-2xl">
             {msg.attachments.map((a, i) => <Attachment key={i} att={a} />)}
           </div>
         )}
 
-        <div className={hasAttachments ? "px-3 pt-1.5 pb-1.5" : "px-3 py-1.5"}>
+        <div className={hasAttachments ? "px-3.5 pb-2 pt-2.5" : "px-3.5 py-2.5"}>
           {msg.text && (
-            <div className="text-sm whitespace-pre-wrap break-words pr-12">
+            <div className="whitespace-pre-wrap break-words pr-8 text-[15px] leading-6">
               {msg.text}
             </div>
           )}
 
-          <div className={`flex items-center gap-1 text-[10px] mt-1 justify-end ${
+          <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${
             mine ? "text-slate-500" : "text-slate-400"
           }`}>
             <span>{time}</span>
@@ -1709,8 +1846,4 @@ function TypingDots() {
     </span>
   );
 }
-
-
-
-
 

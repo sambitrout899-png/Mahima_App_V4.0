@@ -14,6 +14,7 @@ using Mahima.Api.v3.clean;
 using Mahima.Api.v3.clean.Hubs;
 using Mahima.Api.v3.clean.Models;
 using Mahima.Api.v3.clean.Models.Dtos;
+using Mahima.Api.v3.clean.Services;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -26,17 +27,20 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly MahimaDbContext _db;
         private readonly IHubContext<ChatHub> _hub;
         private readonly ILogger<PrayerRequestsController> _logger;
+        private readonly IPastorBotService _pastorBot;
 
         private static readonly Guid SuperUserGuid = Guid.Parse("ae9dfc94-07d8-469a-a8f6-a4c5aedcf3a9");
 
         public PrayerRequestsController(
             MahimaDbContext db,
             IHubContext<ChatHub> hub,
-            ILogger<PrayerRequestsController> logger)
+            ILogger<PrayerRequestsController> logger,
+            IPastorBotService pastorBot)
         {
             _db = db;
             _hub = hub;
             _logger = logger;
+            _pastorBot = pastorBot;
         }
 
         // ---------- CREATE NEW PRAYER REQUEST ----------
@@ -169,6 +173,11 @@ namespace Mahima.Api.v3.clean.Controllers
 
             await _db.SaveChangesAsync();
 
+            if (hasStatus && string.Equals(req.Status, "closed", StringComparison.OrdinalIgnoreCase))
+            {
+                await EnsureTestimonyForAnsweredPrayerAsync(req);
+            }
+
             return Ok(new
             {
                 id = req.Id,
@@ -186,9 +195,11 @@ namespace Mahima.Api.v3.clean.Controllers
             var roles = GetCurrentUserRoles().ToList();
             bool isPrivileged = IsPrivilegedUser(roles);
             if (currentUserId != null && currentUserId == SuperUserGuid) isPrivileged = true;
+            var isCallCenterManager = currentUserId.HasValue && await IsCallCenterManagerAsync(currentUserId.Value);
+            var canManagePrayerDesk = isPrivileged || isCallCenterManager;
 
             IQueryable<PrayerRequest> query = _db.PrayerRequests.AsNoTracking();
-            if (!isPrivileged)
+            if (!canManagePrayerDesk)
             {
                 if (currentUserId == null)
                     return Forbid();
@@ -197,16 +208,31 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var list = await query.OrderByDescending(p => p.CreatedAt).ToListAsync();
             var responsesMap = new Dictionary<long, List<object>>();
+            var responseCounts = new Dictionary<long, int>();
+            var reminderCounts = canManagePrayerDesk && list.Any()
+                ? await LoadReminderCountsByPrayerAsync(list.Select(p => p.Id).ToList())
+                : new Dictionary<long, PrayerReminderCount>();
 
             if (includeResponses && list.Any())
             {
                 var reqIds = list.Select(p => p.Id).ToList();
                 responsesMap = await LoadResponsesByRawSqlAsync(reqIds);
+                responseCounts = responsesMap.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Count);
+            }
+            else if (canManagePrayerDesk && list.Any())
+            {
+                responseCounts = await LoadResponseCountsByPrayerAsync(list.Select(p => p.Id).ToList());
             }
 
             var dto = list.Select(p =>
             {
                 var closeComment = GetCloseCommentValue(p);
+                reminderCounts.TryGetValue(p.Id, out var reminders);
+                responsesMap.TryGetValue(p.Id, out var found);
+                var responseCount = responseCounts.TryGetValue(p.Id, out var countedResponses) ? countedResponses : 0;
+                var rag = canManagePrayerDesk
+                    ? BuildPrayerRagStatus(p, reminders, responseCount)
+                    : PrayerRagStatus.Empty;
 
                 return new
                 {
@@ -220,13 +246,89 @@ namespace Mahima.Api.v3.clean.Controllers
                     assignedTo = p.AssignedTo,
                     createdAt = p.CreatedAt,
                     closeComment = closeComment,
-                    responses = responsesMap.TryGetValue(p.Id, out var found)
+                    reminderCount = reminders?.Total ?? 0,
+                    reminderTodayCount = reminders?.Today ?? 0,
+                    lastReminderAtUtc = reminders?.LastSentAtUtc,
+                    ragStatus = rag.Status,
+                    ragLabel = rag.Label,
+                    ragReason = rag.Reason,
+                    ragAgeHours = rag.AgeHours,
+                    responses = found != null
                         ? found.ToArray()
                         : Array.Empty<object>()
                 };
             });
 
             return Ok(dto);
+        }
+
+        [HttpGet("testimonies")]
+        [Authorize]
+        public async Task<IActionResult> GetTestimonies()
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            var roles = GetCurrentUserRoles().ToList();
+            var isPrivileged = IsPrivilegedUser(roles) || currentUserId == SuperUserGuid;
+
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT t.id, t.prayerrequestid, t.userid, t.title, t.testimonytext, t.imageurl, t.voiceurl,
+                       t.createdat, t.updatedat, p.createdby, p.message AS prayermessage, p.closecomment
+                FROM prayertestimonies t
+                JOIN prayerrequests p ON p.id = t.prayerrequestid
+                WHERE (@isAdmin = true OR t.userid = @userId)
+                ORDER BY COALESCE(t.updatedat, t.createdat) DESC;";
+            AddParam(cmd, "isAdmin", isPrivileged);
+            AddParam(cmd, "userId", currentUserId ?? Guid.Empty);
+
+            var rows = new List<object>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                rows.Add(MapTestimony(reader));
+            }
+            return Ok(rows);
+        }
+
+        [HttpPut("testimonies/{id:long}")]
+        [Authorize]
+        public async Task<IActionResult> UpdateTestimony(long id, [FromBody] PrayerTestimonyDto dto)
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            var roles = GetCurrentUserRoles().ToList();
+            var isPrivileged = IsPrivilegedUser(roles) || currentUserId == SuperUserGuid;
+            if (currentUserId == null) return Unauthorized();
+
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE prayertestimonies
+                SET title = @title,
+                    testimonytext = @text,
+                    imageurl = @image,
+                    voiceurl = @voice,
+                    updatedat = now()
+                WHERE id = @id AND (@isAdmin = true OR userid = @userId)
+                RETURNING id, prayerrequestid, userid, title, testimonytext, imageurl, voiceurl, createdat, updatedat,
+                          '' AS createdby, '' AS prayermessage, '' AS closecomment;";
+            AddParam(cmd, "id", id);
+            AddParam(cmd, "isAdmin", isPrivileged);
+            AddParam(cmd, "userId", currentUserId.Value);
+            AddParam(cmd, "title", (object?)dto?.Title?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "text", (object?)dto?.TestimonyText?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "image", (object?)dto?.ImageUrl?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "voice", (object?)dto?.VoiceUrl?.Trim() ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return NotFound();
+            return Ok(MapTestimony(reader));
         }
 
         // helper to safely read CloseComment via reflection (or null)
@@ -237,6 +339,211 @@ namespace Mahima.Api.v3.clean.Controllers
             if (prop == null) return null;
             var val = prop.GetValue(obj);
             return val?.ToString();
+        }
+
+        private sealed class PrayerReminderCount
+        {
+            public int Total { get; set; }
+            public int Today { get; set; }
+            public DateTime? LastSentAtUtc { get; set; }
+        }
+
+        private sealed class PrayerRagStatus
+        {
+            public static readonly PrayerRagStatus Empty = new() { Status = null, Label = null, Reason = null, AgeHours = null };
+            public string? Status { get; set; }
+            public string? Label { get; set; }
+            public string? Reason { get; set; }
+            public int? AgeHours { get; set; }
+        }
+
+        private static PrayerRagStatus BuildPrayerRagStatus(PrayerRequest prayer, PrayerReminderCount? reminders, int responseCount)
+        {
+            var status = (prayer.Status ?? "new").Trim().ToLowerInvariant();
+            var isAnswered = status is "closed" or "answered" or "completed" or "done" or "resolved";
+            var ageHours = Math.Max(0, (int)Math.Floor((DateTime.UtcNow - prayer.CreatedAt).TotalHours));
+            var reminderCount = reminders?.Total ?? 0;
+
+            if (isAnswered)
+            {
+                return new PrayerRagStatus
+                {
+                    Status = "green",
+                    Label = "Green",
+                    Reason = "Prayer request has been answered or closed.",
+                    AgeHours = ageHours
+                };
+            }
+
+            if (responseCount > 0 || status is "prayed" or "open")
+            {
+                return new PrayerRagStatus
+                {
+                    Status = "green",
+                    Label = "Green",
+                    Reason = responseCount > 0 ? "A prayer response has been logged." : "Prayer is being actively followed.",
+                    AgeHours = ageHours
+                };
+            }
+
+            if (ageHours >= 48 || reminderCount >= 2)
+            {
+                return new PrayerRagStatus
+                {
+                    Status = "red",
+                    Label = "Red",
+                    Reason = reminderCount >= 2
+                        ? "Multiple reminders have been sent and no response is logged."
+                        : "No response has been logged for more than 48 hours.",
+                    AgeHours = ageHours
+                };
+            }
+
+            if (ageHours >= 24 || reminderCount >= 1)
+            {
+                return new PrayerRagStatus
+                {
+                    Status = "amber",
+                    Label = "Amber",
+                    Reason = reminderCount >= 1
+                        ? "A reminder has been sent and response is still pending."
+                        : "No response has been logged for more than 24 hours.",
+                    AgeHours = ageHours
+                };
+            }
+
+            return new PrayerRagStatus
+            {
+                Status = "green",
+                Label = "Green",
+                Reason = "New request is still within the normal response window.",
+                AgeHours = ageHours
+            };
+        }
+
+        private async Task<bool> IsCallCenterManagerAsync(Guid userId)
+        {
+            try
+            {
+                var conn = _db.Database.GetDbConnection();
+                if (conn.State != ConnectionState.Open)
+                    await conn.OpenAsync();
+
+                await Mahima.Api.v3.clean.Controllers.PositionsController.EnsurePositionTablesAsync((Npgsql.NpgsqlConnection)conn);
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT EXISTS (
+    SELECT 1
+    FROM public.user_positions up
+    JOIN public.positions p ON p.id = up.position_id AND p.is_active = true
+    WHERE up.user_id = @user_id
+      AND lower(regexp_replace(p.name, '[^a-z0-9]+', '', 'g')) IN ('callcentermanager', 'callcentremanager')
+);";
+                AddParam(cmd, "user_id", userId);
+                return Convert.ToBoolean(await cmd.ExecuteScalarAsync());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not determine Call Center Manager position for user {UserId}.", userId);
+                return false;
+            }
+        }
+
+        private async Task EnsurePrayerReminderSchemaAsync()
+        {
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS public.prayer_monitor_reminders (
+    id bigserial PRIMARY KEY,
+    prayerrequestid bigint NOT NULL REFERENCES public.prayerrequests(id) ON DELETE CASCADE,
+    recipientuserid uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    chatmessageid uuid NULL,
+    sentatutc timestamp without time zone NOT NULL DEFAULT now(),
+    reminderlocaldate date NOT NULL DEFAULT CURRENT_DATE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prayer_monitor_daily
+ON public.prayer_monitor_reminders (prayerrequestid, recipientuserid, reminderlocaldate);
+
+CREATE INDEX IF NOT EXISTS ix_prayer_monitor_prayer_sent
+ON public.prayer_monitor_reminders (prayerrequestid, sentatutc DESC);";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task<Dictionary<long, PrayerReminderCount>> LoadReminderCountsByPrayerAsync(List<long> requestIds)
+        {
+            var map = new Dictionary<long, PrayerReminderCount>();
+            if (requestIds == null || requestIds.Count == 0) return map;
+
+            try
+            {
+                await EnsurePrayerReminderSchemaAsync();
+                var conn = _db.Database.GetDbConnection();
+                if (conn.State != ConnectionState.Open)
+                    await conn.OpenAsync();
+
+                using var cmd = conn.CreateCommand();
+                var paramNames = new List<string>();
+                for (int i = 0; i < requestIds.Count; i++)
+                {
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = $"@rid{i}";
+                    p.Value = requestIds[i];
+                    cmd.Parameters.Add(p);
+                    paramNames.Add(p.ParameterName);
+                }
+
+                cmd.CommandText = $@"
+SELECT prayerrequestid,
+       COUNT(*)::int AS total_count,
+       COUNT(*) FILTER (WHERE reminderlocaldate = CURRENT_DATE)::int AS today_count,
+       MAX(sentatutc) AS last_sent_at_utc
+FROM public.prayer_monitor_reminders
+WHERE prayerrequestid IN ({string.Join(",", paramNames)})
+GROUP BY prayerrequestid;";
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var prayerId = reader.GetInt64(0);
+                    map[prayerId] = new PrayerReminderCount
+                    {
+                        Total = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                        Today = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                        LastSentAtUtc = reader.IsDBNull(3) ? null : reader.GetDateTime(3)
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load prayer reminder counters.");
+            }
+
+            return map;
+        }
+
+        private async Task<Dictionary<long, int>> LoadResponseCountsByPrayerAsync(List<long> requestIds)
+        {
+            if (requestIds == null || requestIds.Count == 0) return new Dictionary<long, int>();
+
+            try
+            {
+                return await _db.PrayerResponses
+                    .AsNoTracking()
+                    .Where(r => requestIds.Contains(r.PrayerRequestId))
+                    .GroupBy(r => r.PrayerRequestId)
+                    .Select(g => new { PrayerRequestId = g.Key, Count = g.Count() })
+                    .ToDictionaryAsync(x => x.PrayerRequestId, x => x.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load prayer response counters for RAG status.");
+                return new Dictionary<long, int>();
+            }
         }
 
         // ---------- RAW SQL FALLBACK WITH AUTO COLUMN DETECTION ----------
@@ -535,6 +842,103 @@ namespace Mahima.Api.v3.clean.Controllers
                 ?? User?.FindFirst("username")?.Value;
         }
 
+        private async Task EnsureTestimonySchemaAsync()
+        {
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS prayertestimonies (
+                    id bigserial PRIMARY KEY,
+                    prayerrequestid bigint NOT NULL UNIQUE,
+                    userid uuid NULL,
+                    title text NULL,
+                    testimonytext text NULL,
+                    imageurl text NULL,
+                    voiceurl text NULL,
+                    createdat timestamp without time zone NOT NULL DEFAULT now(),
+                    updatedat timestamp without time zone NULL
+                );";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task EnsureTestimonyForAnsweredPrayerAsync(PrayerRequest request)
+        {
+            try
+            {
+                await EnsureTestimonySchemaAsync();
+                var conn = _db.Database.GetDbConnection();
+                if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+                using (var existsCmd = conn.CreateCommand())
+                {
+                    existsCmd.CommandText = "SELECT EXISTS (SELECT 1 FROM prayertestimonies WHERE prayerrequestid = @id);";
+                    AddParam(existsCmd, "id", request.Id);
+                    if ((bool)(await existsCmd.ExecuteScalarAsync() ?? false)) return;
+                }
+
+                var prompt =
+                    "Create a short, warm Christian testimony draft from this answered prayer. " +
+                    "Use first-person language if appropriate, keep it humble, thankful, and suitable for church members. " +
+                    "Do not invent details beyond the prayer and answer. " +
+                    $"Prayer title: {request.Title ?? "Prayer request"}\n" +
+                    $"Prayer request: {request.Message}\n" +
+                    $"How it was answered: {request.CloseComment ?? "God answered this prayer."}";
+
+                var botUserId = await _pastorBot.EnsurePastorBotUserAsync();
+                var ai = await _pastorBot.AskAsync(botUserId, prompt, sendToJaiMasih: false, persona: "pastor");
+                var draft = string.IsNullOrWhiteSpace(ai.Answer)
+                    ? $"Praise God. This prayer has been answered.\n\n{request.CloseComment}".Trim()
+                    : ai.Answer.Trim();
+
+                using var insertCmd = conn.CreateCommand();
+                insertCmd.CommandText = @"
+                    INSERT INTO prayertestimonies (prayerrequestid, userid, title, testimonytext, createdat)
+                    VALUES (@prayerId, @userId, @title, @text, now())
+                    ON CONFLICT (prayerrequestid) DO NOTHING;";
+                AddParam(insertCmd, "prayerId", request.Id);
+                AddParam(insertCmd, "userId", (object?)request.UserId ?? DBNull.Value);
+                AddParam(insertCmd, "title", string.IsNullOrWhiteSpace(request.Title) ? "Answered Prayer Testimony" : request.Title);
+                AddParam(insertCmd, "text", draft);
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not create AI testimony for prayer request {PrayerRequestId}", request.Id);
+            }
+        }
+
+        private static void AddParam(System.Data.Common.DbCommand cmd, string name, object? value)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = name.StartsWith("@") ? name : "@" + name;
+            p.Value = value ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
+        private static object MapTestimony(System.Data.Common.DbDataReader reader)
+        {
+            string? S(string name) => reader[name] == DBNull.Value ? null : reader[name]?.ToString();
+            DateTime? D(string name) => reader[name] == DBNull.Value ? null : Convert.ToDateTime(reader[name]);
+            Guid? G(string name) => reader[name] == DBNull.Value ? null : Guid.TryParse(reader[name]?.ToString(), out var g) ? g : null;
+            return new
+            {
+                id = Convert.ToInt64(reader["id"]),
+                prayerRequestId = Convert.ToInt64(reader["prayerrequestid"]),
+                userId = G("userid"),
+                title = S("title"),
+                testimonyText = S("testimonytext"),
+                imageUrl = S("imageurl"),
+                voiceUrl = S("voiceurl"),
+                createdAt = D("createdat"),
+                updatedAt = D("updatedat"),
+                createdBy = S("createdby"),
+                prayerMessage = S("prayermessage"),
+                closeComment = S("closecomment")
+            };
+        }
+
         private IEnumerable<string> GetCurrentUserRoles()
         {
             var roles = new List<string>();
@@ -586,6 +990,14 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         public string? ResponseText { get; set; }
         public string? RespondedBy { get; set; }
+    }
+
+    public class PrayerTestimonyDto
+    {
+        public string? Title { get; set; }
+        public string? TestimonyText { get; set; }
+        public string? ImageUrl { get; set; }
+        public string? VoiceUrl { get; set; }
     }
 
     public class UpdatePrayerRequestStatusDto

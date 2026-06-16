@@ -1,4 +1,4 @@
-using Mahima.Api.v3.clean.Data;
+﻿using Mahima.Api.v3.clean.Data;
 using Mahima.Api.v3.clean.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -42,9 +42,13 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("latest")]
         public IActionResult Latest()
         {
-            var manifestPath = GetVersionManifestPath();
-            if (System.IO.File.Exists(manifestPath))
-                return PhysicalFile(manifestPath, "application/json");
+            var writableManifestPath = GetWritableVersionManifestPath();
+            if (System.IO.File.Exists(writableManifestPath))
+                return PhysicalFile(writableManifestPath, "application/json");
+
+            var publicManifestPath = GetPublicVersionManifestPath();
+            if (System.IO.File.Exists(publicManifestPath))
+                return PhysicalFile(publicManifestPath, "application/json");
 
             var baseUrl = PublicBaseUrl();
             return Ok(new
@@ -59,11 +63,31 @@ namespace Mahima.Api.v3.clean.Controllers
                     minSupportedVersion = _config["AppReleases:MinSupportedVersion"] ?? "0.1.0",
                     build = "Latest APK",
                     apkUrl = $"{baseUrl}/downloads/mahima-app.apk",
+                    downloadUrl = $"{baseUrl}/api/app-releases/android/download",
                     releaseDate = "Current"
                 }
             });
         }
 
+
+        [AllowAnonymous]
+        [HttpGet("android/download")]
+        public IActionResult DownloadAndroid()
+        {
+            var publicRoot = GetPublicRoot();
+            var latestPath = Path.Combine(publicRoot, "downloads", "mahima-app.apk");
+            if (!System.IO.File.Exists(latestPath))
+                return NotFound("The Mahima Android APK has not been published yet.");
+
+            Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return PhysicalFile(
+                latestPath,
+                "application/vnd.android.package-archive",
+                "mahima-app.apk",
+                enableRangeProcessing: true);
+        }
         [Authorize(Roles = "admin,ADMIN")]
         [HttpPost("android")]
         [RequestSizeLimit(MaxApkBytes)]
@@ -113,6 +137,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 var now = DateTime.UtcNow;
                 var baseUrl = PublicBaseUrl();
                 var apkUrl = $"{baseUrl}/downloads/mahima-app.apk";
+                var downloadUrl = $"{baseUrl}/api/app-releases/android/download";
                 var versionedApkUrl = $"{baseUrl}/downloads/{Uri.EscapeDataString(versionedFileName)}";
                 var normalizedMinVersion = string.IsNullOrWhiteSpace(minSupportedVersion) ? version : minSupportedVersion.Trim();
                 var message = forceUpgrade
@@ -133,6 +158,7 @@ namespace Mahima.Api.v3.clean.Controllers
                         build = string.IsNullOrWhiteSpace(build) ? cleanBuild : build.Trim(),
                         releaseDate = now.ToString("yyyy-MM-dd"),
                         apkUrl,
+                        downloadUrl,
                         versionedApkUrl,
                         fileName = "mahima-app.apk",
                         versionedFileName,
@@ -150,8 +176,17 @@ namespace Mahima.Api.v3.clean.Controllers
 
                 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
                 var json = JsonSerializer.Serialize(manifest, jsonOptions);
-                await System.IO.File.WriteAllTextAsync(GetVersionManifestPath(), json, HttpContext.RequestAborted);
-                await System.IO.File.WriteAllTextAsync(Path.Combine(downloadsRoot, "app-release-manifest.json"), json, HttpContext.RequestAborted);
+                await System.IO.File.WriteAllTextAsync(GetWritableVersionManifestPath(), json, HttpContext.RequestAborted);
+
+                try
+                {
+                    await System.IO.File.WriteAllTextAsync(GetPublicVersionManifestPath(), json, HttpContext.RequestAborted);
+                    await System.IO.File.WriteAllTextAsync(Path.Combine(downloadsRoot, "app-release-manifest.json"), json, HttpContext.RequestAborted);
+                }
+                catch (Exception manifestEx)
+                {
+                    _logger.LogWarning(manifestEx, "Could not mirror app release manifest to public web root. API manifest was saved.");
+                }
 
                 _db.AuditLogs.Add(new AuditLog
                 {
@@ -205,8 +240,24 @@ namespace Mahima.Api.v3.clean.Controllers
             return Path.GetFullPath(configured);
         }
 
-        private string GetVersionManifestPath() =>
+        private string GetPublicVersionManifestPath() =>
             Path.Combine(GetPublicRoot(), "app-version.json");
+
+        private string GetWritableReleaseRoot()
+        {
+            var configured =
+                _config["AppReleases:WritableRoot"] ??
+                Environment.GetEnvironmentVariable("MAHIMA_RELEASE_ROOT");
+
+            if (string.IsNullOrWhiteSpace(configured))
+                configured = Path.Combine(_env.ContentRootPath, "App_Data", "app-releases");
+
+            Directory.CreateDirectory(configured);
+            return Path.GetFullPath(configured);
+        }
+
+        private string GetWritableVersionManifestPath() =>
+            Path.Combine(GetWritableReleaseRoot(), "app-version.json");
 
         private string PublicBaseUrl()
         {
@@ -229,3 +280,4 @@ namespace Mahima.Api.v3.clean.Controllers
         }
     }
 }
+

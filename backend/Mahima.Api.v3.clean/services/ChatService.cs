@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging;
 using Mahima.Api.v3.clean.Dtos;
 using Mahima.Api.v3.clean.Models;
@@ -15,11 +16,15 @@ namespace Mahima.Api.v3.clean.Services
     {
         private readonly MahimaDbContext _db;
         private readonly ILogger<ChatService> _logger;
+        private readonly IDataProtector _messageProtector;
+        private const string ProtectedContentPrefix = "dp:v1:";
 
-        public ChatService(MahimaDbContext db, ILogger<ChatService> logger)
+        public ChatService(MahimaDbContext db, ILogger<ChatService> logger, IDataProtectionProvider dataProtectionProvider)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _messageProtector = (dataProtectionProvider ?? throw new ArgumentNullException(nameof(dataProtectionProvider)))
+                .CreateProtector("Mahima.Api.Chat.MessageContent.v1");
         }
 
         // ---------- helpers ----------
@@ -36,7 +41,35 @@ namespace Mahima.Api.v3.clean.Services
             return Task.FromResult(false);
         }
 
-        private static MessageDto ToMessageDto(Message m)
+        private string ProtectMessageContent(string? content)
+        {
+            var plain = content ?? string.Empty;
+            if (plain.StartsWith(ProtectedContentPrefix, StringComparison.Ordinal))
+                return plain;
+
+            return ProtectedContentPrefix + _messageProtector.Protect(plain);
+        }
+
+        private string? UnprotectMessageContent(string? content)
+        {
+            if (string.IsNullOrEmpty(content))
+                return content;
+
+            if (!content.StartsWith(ProtectedContentPrefix, StringComparison.Ordinal))
+                return content;
+
+            try
+            {
+                return _messageProtector.Unprotect(content.Substring(ProtectedContentPrefix.Length));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt chat message content.");
+                return "[Encrypted message could not be opened]";
+            }
+        }
+
+        private MessageDto ToMessageDto(Message m)
         {
             var contentType = string.IsNullOrWhiteSpace(m.ContentType)
                 ? "text"
@@ -53,7 +86,7 @@ namespace Mahima.Api.v3.clean.Services
                 m.Id,
                 m.ChatId,
                 m.SenderId,
-                m.Content,
+                UnprotectMessageContent(m.Content),
                 m.CreatedAt,
                 contentType,
                 m.AttachmentUrl,
@@ -77,6 +110,7 @@ namespace Mahima.Api.v3.clean.Services
             var chats = await _db.Chats
                 .AsNoTracking()
                 .Where(c => chatIds.Contains(c.Id))
+                .Where(c => c.IsGroup || c.Members.Count == 2)
                 .OrderByDescending(c => c.CreatedAt)
                 .ToListAsync();
 
@@ -190,7 +224,7 @@ namespace Mahima.Api.v3.clean.Services
             {
                 ChatId = chatId,        // Guid
                 SenderId = senderId,    // Guid
-                Content = content ?? string.Empty,
+                Content = ProtectMessageContent(content),
                 ContentType = resolvedContentType,
                 AttachmentUrl = resolvedAttachmentUrl,
                 CreatedAt = DateTime.UtcNow
@@ -204,7 +238,7 @@ namespace Mahima.Api.v3.clean.Services
                 msg.Id,
                 msg.ChatId,
                 msg.SenderId,
-                msg.Content,
+                UnprotectMessageContent(msg.Content),
                 msg.CreatedAt)
             {
                 ContentType = msg.ContentType ?? "text",
@@ -309,6 +343,7 @@ namespace Mahima.Api.v3.clean.Services
             var existingChat = await _db.Chats
                 .Include(c => c.Members)
                 .Where(c => !c.IsGroup)
+                .Where(c => c.Members.Count == 2)
                 .Where(c => c.Members.Any(cm => cm.UserId == userId))
                 .Where(c => c.Members.Any(cm => cm.UserId == other.Id))
                 .FirstOrDefaultAsync();
@@ -373,6 +408,7 @@ namespace Mahima.Api.v3.clean.Services
             var existing = await _db.Chats
                 .Include(c => c.Members)
                 .Where(c => !c.IsGroup)
+                .Where(c => c.Members.Count == 2)
                 .Where(c => c.Members.Any(m => m.UserId == smaller))
                 .Where(c => c.Members.Any(m => m.UserId == larger))
                 .FirstOrDefaultAsync();
@@ -443,6 +479,21 @@ namespace Mahima.Api.v3.clean.Services
 
         public async Task<IEnumerable<Guid>> GetChatMemberIdsAsync(Guid chatId)
         {
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new { c.IsGroup, MemberCount = c.Members.Count })
+                .FirstOrDefaultAsync();
+
+            if (chat == null)
+                return Array.Empty<Guid>();
+
+            if (!chat.IsGroup && chat.MemberCount != 2)
+            {
+                _logger.LogWarning("Blocked access to malformed direct chat {ChatId} with {MemberCount} members.", chatId, chat.MemberCount);
+                return Array.Empty<Guid>();
+            }
+
             var list = await _db.ChatMembers
                 .AsNoTracking()
                 .Where(cm => cm.ChatId == chatId)

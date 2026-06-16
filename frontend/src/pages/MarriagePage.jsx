@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "../api";
 import { getToken } from "../features/auth/authService";
+import { createWorkflowStyles } from "./ministryWorkflowStyles";
 
 const TABS = [
   { key: "", label: "All", tone: "#0f172a" },
@@ -8,6 +9,14 @@ const TABS = [
   { key: "Approved", label: "Approved", tone: "#0f766e" },
   { key: "Scheduled", label: "Scheduled", tone: "#c2410c" },
   { key: "Completed", label: "Completed", tone: "#4f46e5" },
+];
+
+const WORKFLOW_STEPS = [
+  { label: "Apply", hint: "Couple details received", tone: "#2563eb" },
+  { label: "Review", hint: "Pastoral approval", tone: "#0f766e" },
+  { label: "Schedule", hint: "Ceremony date fixed", tone: "#c2410c" },
+  { label: "Complete", hint: "Record closed", tone: "#4f46e5" },
+  { label: "Certificate", hint: "Printable church copy", tone: "#be123c" },
 ];
 
 const EMPTY_FORM = {
@@ -258,6 +267,28 @@ export default function MarriagePage() {
     }
   }
 
+  async function handleDelete(id) {
+    if (!window.confirm("Delete this marriage application permanently?")) return;
+
+    try {
+      const resp = await fetch(`${apiBase}/admin/applications/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+
+      if (!resp.ok) {
+        console.error(await resp.text());
+        alert("Unable to delete application.");
+        return;
+      }
+
+      await loadItems(activeTab);
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting application.");
+    }
+  }
+
   function handlePrintCertificate() {
     if (!certificateItem) return;
 
@@ -421,6 +452,8 @@ export default function MarriagePage() {
         <StatCard label="Completed" value={counts.completed} hint="Certificate ready" />
       </div>
 
+      <WorkflowSteps steps={WORKFLOW_STEPS} />
+
       <div style={styles.panel}>
         <div style={styles.tabs}>
           {TABS.map((tab) => {
@@ -493,7 +526,18 @@ export default function MarriagePage() {
                       <td style={styles.td}>
                         <span style={styles.token}>{m.token || "-"}</span>
                       </td>
-                      <td style={{ ...styles.td, textAlign: "right" }}>{renderActions(m)}</td>
+                      <td style={{ ...styles.td, textAlign: "right" }}>
+                        <div style={styles.actionGroup}>
+                          {renderActions(m)}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(m.id)}
+                            style={styles.actionButton("#dc2626")}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -541,6 +585,22 @@ function StatCard({ label, value, hint }) {
       <div style={styles.statLabel}>{label}</div>
       <div style={styles.statValue}>{value}</div>
       <div style={styles.statHint}>{hint}</div>
+    </div>
+  );
+}
+
+function WorkflowSteps({ steps }) {
+  return (
+    <div style={styles.progressRail}>
+      {steps.map((step) => (
+        <div key={step.label} style={styles.progressStep}>
+          <span style={styles.progressDot(step.tone)} />
+          <span>
+            <span style={styles.progressLabel}>{step.label}</span>
+            <span style={styles.progressHint}>{step.hint}</span>
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -699,340 +759,61 @@ function ModalHeader({ title, onClose }) {
   );
 }
 
-const styles = {
-  page: {
-    padding: 24,
-    borderRadius: 28,
-    background:
-      "radial-gradient(circle at top left, #fff7ed 0, #fff1f2 36%, #f8fafc 100%)",
-    minHeight: "100%",
+const styles = createWorkflowStyles({
+  accent: "#be123c",
+  accent2: "#f59e0b",
+  heroFrom: "#123a63",
+  heroTo: "#7f1d1d",
+  kicker: "#fed7aa",
+  title: "#123a63",
+  extra: {
+    certificatePreview: {
+      padding: 24,
+      borderRadius: 16,
+      border: "1px solid #e2e8f0",
+      background: "linear-gradient(180deg, #fff7ed, #ffffff)",
+    },
+    certHeader: {
+      textAlign: "center",
+      fontWeight: 950,
+      color: "#123a63",
+      fontSize: 20,
+      textTransform: "uppercase",
+    },
+    certSub: {
+      textAlign: "center",
+      marginTop: 4,
+      color: "#64748b",
+      fontSize: 12,
+    },
+    certTitle: {
+      textAlign: "center",
+      margin: "20px 0",
+      fontSize: 18,
+      fontWeight: 900,
+      textTransform: "uppercase",
+      textDecoration: "underline",
+      color: "#7c2d12",
+    },
+    certBody: {
+      fontSize: 15,
+      lineHeight: 1.8,
+      color: "#1f2937",
+    },
+    certGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12,
+      marginTop: 18,
+      fontSize: 13,
+    },
+    certNote: {
+      marginTop: 20,
+      paddingTop: 12,
+      borderTop: "1px dashed #cbd5e1",
+      color: "#64748b",
+      fontSize: 12,
+      lineHeight: 1.6,
+    },
   },
-  hero: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 20,
-    padding: 28,
-    borderRadius: 28,
-    background: "linear-gradient(135deg, #123a63, #7f1d1d)",
-    color: "#fff",
-    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
-    marginBottom: 18,
-  },
-  kicker: {
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.22em",
-    textTransform: "uppercase",
-    color: "#fed7aa",
-  },
-  title: {
-    margin: "8px 0 0",
-    fontSize: 36,
-    lineHeight: 1,
-    fontWeight: 950,
-  },
-  subtitle: {
-    margin: "12px 0 0",
-    maxWidth: 720,
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 15,
-    lineHeight: 1.7,
-  },
-  primaryButton: {
-    padding: "12px 20px",
-    borderRadius: 999,
-    border: "none",
-    background: "linear-gradient(135deg, #fb7185, #f59e0b)",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 16px 34px rgba(251, 113, 133, 0.32)",
-    whiteSpace: "nowrap",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 14,
-    marginBottom: 18,
-  },
-  statCard: {
-    padding: 18,
-    borderRadius: 22,
-    background: "#fff",
-    boxShadow: "0 16px 34px rgba(15, 23, 42, 0.08)",
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#64748b",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  },
-  statValue: {
-    marginTop: 8,
-    fontSize: 32,
-    fontWeight: 950,
-    color: "#0f172a",
-  },
-  statHint: {
-    marginTop: 3,
-    fontSize: 13,
-    color: "#94a3b8",
-  },
-  panel: {
-    background: "#fff",
-    borderRadius: 28,
-    padding: 18,
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
-  },
-  tabs: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16,
-  },
-  tab: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #e2e8f0",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-  },
-  tableWrap: {
-    overflowX: "auto",
-    borderRadius: 20,
-    border: "1px solid #e2e8f0",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: 1100,
-    fontSize: 13,
-  },
-  th: {
-    padding: 14,
-    background: "#f8fafc",
-    color: "#475569",
-    textAlign: "left",
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    borderBottom: "1px solid #e2e8f0",
-  },
-  tr: {
-    borderBottom: "1px solid #f1f5f9",
-  },
-  td: {
-    padding: 14,
-    verticalAlign: "top",
-    color: "#1e293b",
-  },
-  name: {
-    fontWeight: 900,
-    color: "#0f172a",
-  },
-  muted: {
-    marginTop: 3,
-    color: "#64748b",
-    fontSize: 12,
-  },
-  badge: {
-    display: "inline-flex",
-    padding: "5px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-  },
-  token: {
-    fontFamily: "monospace",
-    fontWeight: 800,
-    color: "#123a63",
-  },
-  empty: {
-    padding: 30,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  emptyCell: {
-    padding: 26,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  error: {
-    padding: 16,
-    borderRadius: 16,
-    background: "#fee2e2",
-    color: "#991b1b",
-    fontWeight: 800,
-  },
-  actionButton: (tone) => ({
-    padding: "7px 12px",
-    borderRadius: 999,
-    background: tone,
-    color: "#fff",
-    border: "none",
-    fontSize: 12,
-    fontWeight: 900,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  }),
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 100,
-    background: "rgba(15, 23, 42, 0.62)",
-    display: "grid",
-    placeItems: "center",
-    padding: 16,
-    backdropFilter: "blur(6px)",
-  },
-  modalLarge: {
-    width: "min(920px, 96vw)",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    background: "#fff",
-    borderRadius: 28,
-    padding: 24,
-    boxShadow: "0 30px 80px rgba(0,0,0,0.35)",
-  },
-  modalSmall: {
-    width: "min(520px, 94vw)",
-    background: "#fff",
-    borderRadius: 28,
-    padding: 24,
-    boxShadow: "0 30px 80px rgba(0,0,0,0.35)",
-  },
-  modalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  modalTitle: {
-    margin: 0,
-    fontSize: 22,
-    color: "#123a63",
-    fontWeight: 950,
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    border: "none",
-    background: "#f1f5f9",
-    cursor: "pointer",
-    fontWeight: 900,
-    color: "#475569",
-  },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 14,
-  },
-  field: {
-    display: "block",
-  },
-  label: {
-    display: "block",
-    marginBottom: 6,
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-  },
-  textarea: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-    resize: "vertical",
-  },
-  modalActions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 22,
-  },
-  secondaryButton: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#334155",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  darkButton: {
-    padding: "10px 18px",
-    borderRadius: 999,
-    border: "none",
-    background: "#123a63",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  certificatePreview: {
-    padding: 24,
-    borderRadius: 20,
-    border: "1px solid #e2e8f0",
-    background: "linear-gradient(180deg, #fff7ed, #ffffff)",
-  },
-  certHeader: {
-    textAlign: "center",
-    fontWeight: 950,
-    color: "#123a63",
-    fontSize: 20,
-    letterSpacing: "0.08em",
-  },
-  certSub: {
-    textAlign: "center",
-    marginTop: 4,
-    color: "#64748b",
-    fontSize: 12,
-  },
-  certTitle: {
-    textAlign: "center",
-    margin: "20px 0",
-    fontSize: 18,
-    fontWeight: 900,
-    textTransform: "uppercase",
-    textDecoration: "underline",
-    color: "#7c2d12",
-  },
-  certBody: {
-    fontSize: 15,
-    lineHeight: 1.8,
-    color: "#1f2937",
-  },
-  certGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-    marginTop: 18,
-    fontSize: 13,
-  },
-  certNote: {
-    marginTop: 20,
-    paddingTop: 12,
-    borderTop: "1px dashed #cbd5e1",
-    color: "#64748b",
-    fontSize: 12,
-    lineHeight: 1.6,
-  },
-};
+});

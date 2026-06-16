@@ -36,6 +36,10 @@ namespace Mahima.Api.v3.clean.services.Marriage
             Guid id,
             CompleteMarriageDto dto,
             CancellationToken ct = default);
+
+        Task DeleteAsync(
+            Guid id,
+            CancellationToken ct = default);
     }
 
     public class MarriageService : IMarriageService
@@ -191,6 +195,20 @@ namespace Mahima.Api.v3.clean.services.Marriage
                 : dto.Notes;
             entity.UpdatedAt = DateTime.UtcNow;
 
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task DeleteAsync(
+            Guid id,
+            CancellationToken ct = default)
+        {
+            var entity = await _db.MarriageApplications
+                .FirstOrDefaultAsync(m => m.Id == id, ct);
+
+            if (entity == null)
+                throw new InvalidOperationException($"Application {id} not found.");
+
+            _db.MarriageApplications.Remove(entity);
             await _db.SaveChangesAsync(ct);
         }
 

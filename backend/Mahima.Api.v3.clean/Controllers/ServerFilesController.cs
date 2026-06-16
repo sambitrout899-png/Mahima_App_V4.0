@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Compression;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -33,7 +34,7 @@ namespace Mahima.Api.v3.clean.Controllers
         }
 
         [HttpGet]
-        public IActionResult List([FromQuery] string? path)
+        public IActionResult List([FromQuery] string? path, [FromQuery] string? sortBy = "name", [FromQuery] string? direction = "asc")
         {
             try
             {
@@ -58,9 +59,9 @@ namespace Mahima.Api.v3.clean.Controllers
                             ModifiedAtUtc = info.LastWriteTimeUtc
                         };
                     })
-                    .OrderByDescending(item => item.IsDirectory)
-                    .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList();
+
+                entries = SortEntries(entries, sortBy, direction).ToList();
 
                 return Ok(new
                 {
@@ -80,6 +81,28 @@ namespace Mahima.Api.v3.clean.Controllers
                 _logger.LogError(ex, "Could not list server files for {Path}", path);
                 return StatusCode(500, "Could not list server files.");
             }
+        }
+
+        private static IEnumerable<ServerFileEntry> SortEntries(IEnumerable<ServerFileEntry> entries, string? sortBy, string? direction)
+        {
+            var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+            var key = (sortBy ?? "name").Trim().ToLowerInvariant();
+
+            IOrderedEnumerable<ServerFileEntry> ordered = entries
+                .OrderByDescending(item => item.IsDirectory);
+
+            return key switch
+            {
+                "date" or "modified" => descending
+                    ? ordered.ThenByDescending(item => item.ModifiedAtUtc).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                    : ordered.ThenBy(item => item.ModifiedAtUtc).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase),
+                "size" => descending
+                    ? ordered.ThenByDescending(item => item.Size ?? -1).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                    : ordered.ThenBy(item => item.Size ?? -1).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase),
+                _ => descending
+                    ? ordered.ThenByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                    : ordered.ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            };
         }
 
         [HttpPost("upload")]
@@ -204,6 +227,84 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
+        [HttpPost("copy")]
+        public IActionResult Copy([FromBody] ServerTransferRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.SourcePath))
+                return BadRequest("sourcePath is required.");
+
+            try
+            {
+                var root = GetRootPath();
+                var source = ResolveSafePath(root, request.SourcePath);
+                var destinationFolder = ResolveSafePath(root, request.DestinationPath);
+                Directory.CreateDirectory(destinationFolder);
+
+                var target = UniqueTargetPath(destinationFolder, Path.GetFileName(source));
+                if (Directory.Exists(source))
+                {
+                    if (IsInsidePath(source, target))
+                        return BadRequest("Cannot copy a folder into itself.");
+                    CopyDirectory(source, target);
+                }
+                else if (System.IO.File.Exists(source))
+                    System.IO.File.Copy(source, target);
+                else
+                    return NotFound("File or folder not found.");
+
+                return Ok(new { message = "Copied.", path = ToRelativePath(root, target) });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Server file copy access denied for {Path}", request?.SourcePath);
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not copy server file {Path}", request?.SourcePath);
+                return StatusCode(500, "Could not copy item.");
+            }
+        }
+
+        [HttpPost("move")]
+        public IActionResult Move([FromBody] ServerTransferRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.SourcePath))
+                return BadRequest("sourcePath is required.");
+
+            try
+            {
+                var root = GetRootPath();
+                var source = ResolveSafePath(root, request.SourcePath);
+                var destinationFolder = ResolveSafePath(root, request.DestinationPath);
+                Directory.CreateDirectory(destinationFolder);
+
+                var target = UniqueTargetPath(destinationFolder, Path.GetFileName(source));
+                if (Directory.Exists(source))
+                {
+                    if (IsInsidePath(source, target))
+                        return BadRequest("Cannot move a folder into itself.");
+                    Directory.Move(source, target);
+                }
+                else if (System.IO.File.Exists(source))
+                    System.IO.File.Move(source, target);
+                else
+                    return NotFound("File or folder not found.");
+
+                return Ok(new { message = "Moved.", path = ToRelativePath(root, target) });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Server file move access denied for {Path}", request?.SourcePath);
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not move server file {Path}", request?.SourcePath);
+                return StatusCode(500, "Could not move item.");
+            }
+        }
+
         [HttpDelete]
         public IActionResult Delete([FromQuery] string path)
         {
@@ -248,6 +349,22 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 var root = GetRootPath();
                 var fullPath = ResolveSafePath(root, path);
+                if (Directory.Exists(fullPath))
+                {
+                    var archiveName = $"{Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}.zip";
+                    var memory = new MemoryStream();
+                    using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
+                    {
+                        foreach (var file in Directory.EnumerateFiles(fullPath, "*", SearchOption.AllDirectories))
+                        {
+                            var entryName = Path.GetRelativePath(fullPath, file).Replace('\\', '/');
+                            archive.CreateEntryFromFile(file, entryName, CompressionLevel.Fastest);
+                        }
+                    }
+                    memory.Position = 0;
+                    return File(memory, "application/zip", string.IsNullOrWhiteSpace(archiveName) ? "folder.zip" : archiveName);
+                }
+
                 if (!System.IO.File.Exists(fullPath)) return NotFound("File not found.");
 
                 if (!_contentTypeProvider.TryGetContentType(fullPath, out var contentType))
@@ -325,17 +442,33 @@ namespace Mahima.Api.v3.clean.Controllers
         private static string UniqueTargetPath(string folder, string fileName)
         {
             var target = Path.Combine(folder, fileName);
-            if (!System.IO.File.Exists(target)) return target;
+            if (!System.IO.File.Exists(target) && !Directory.Exists(target)) return target;
 
             var name = Path.GetFileNameWithoutExtension(fileName);
             var ext = Path.GetExtension(fileName);
             for (var i = 1; i <= 999; i++)
             {
                 target = Path.Combine(folder, $"{name}-{i}{ext}");
-                if (!System.IO.File.Exists(target)) return target;
+                if (!System.IO.File.Exists(target) && !Directory.Exists(target)) return target;
             }
 
             return Path.Combine(folder, $"{name}-{Guid.NewGuid():N}{ext}");
+        }
+
+        private static void CopyDirectory(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (var file in Directory.EnumerateFiles(source))
+                System.IO.File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
+            foreach (var directory in Directory.EnumerateDirectories(source))
+                CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
+        }
+
+        private static bool IsInsidePath(string parent, string child)
+        {
+            var parentFull = Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var childFull = Path.GetFullPath(child).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return childFull.StartsWith(parentFull, StringComparison.OrdinalIgnoreCase);
         }
 
         public class ServerFileEntry
@@ -357,6 +490,12 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             public string Path { get; set; } = "";
             public string NewName { get; set; } = "";
+        }
+
+        public class ServerTransferRequest
+        {
+            public string SourcePath { get; set; } = "";
+            public string? DestinationPath { get; set; }
         }
     }
 }

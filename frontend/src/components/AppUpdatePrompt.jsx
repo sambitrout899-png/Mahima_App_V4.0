@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw, X } from "lucide-react";
 import mahimaLogo from "../assets/mahima-logo.png";
+import { API_BASE } from "../api";
 
 function isNativeAppMode() {
   try {
@@ -41,11 +42,18 @@ function compareVersions(a, b) {
   return 0;
 }
 
-function configuredCurrentVersion() {
+function configuredCurrentVersion(platform = "android") {
+  if (platform === "ios") {
+    return (
+      import.meta.env.VITE_IOS_VERSION ||
+      import.meta.env.VITE_APP_VERSION ||
+      "0.1.0"
+    );
+  }
+
   return (
-    import.meta.env.VITE_APP_VERSION ||
     import.meta.env.VITE_ANDROID_VERSION ||
-    import.meta.env.VITE_IOS_VERSION ||
+    import.meta.env.VITE_APP_VERSION ||
     "0.1.0"
   );
 }
@@ -70,21 +78,33 @@ async function openUpgradeLink(url) {
 
 export default function AppUpdatePrompt() {
   const [versionInfo, setVersionInfo] = useState(null);
-  const [dismissed, setDismissed] = useState(false);
-  const currentVersion = useMemo(() => configuredCurrentVersion(), []);
   const platform = useMemo(() => detectPlatform(), []);
+  const currentVersion = useMemo(() => configuredCurrentVersion(platform), [platform]);
 
   useEffect(() => {
     if (!isNativeAppMode()) return;
 
     let cancelled = false;
-    const base = "https://mahimaministries.in/app-version.json";
 
-    fetch(`${base}?t=${Date.now()}`, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    })
-      .then((res) => (res.ok ? res.json() : null))
+    const urls = [
+      `${String(API_BASE || "https://mahimaministries.in/api").replace(/\/+$/, "")}/app-releases/latest?t=${Date.now()}`,
+      `https://mahimaministries.in/app-version.json?t=${Date.now()}`,
+    ];
+
+    async function fetchLatestVersion() {
+      for (const url of urls) {
+        try {
+          const res = await fetch(url, {
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+          });
+          if (res.ok) return await res.json();
+        } catch {}
+      }
+      return null;
+    }
+
+    fetchLatestVersion()
       .then((json) => {
         if (!cancelled && json) setVersionInfo(json);
       })
@@ -95,7 +115,7 @@ export default function AppUpdatePrompt() {
     };
   }, []);
 
-  if (!versionInfo || dismissed) return null;
+  if (!versionInfo) return null;
 
   const latestVersion =
     platform === "ios"
@@ -112,6 +132,24 @@ export default function AppUpdatePrompt() {
     minSupportedVersion && compareVersions(minSupportedVersion, currentVersion) > 0;
 
   if (!upgradeRequired && !forceUpgrade) return null;
+
+  const dismissKey = `mahima_update_dismissed_${platform}_${latestVersion || "unknown"}`;
+  const dismissed = (() => {
+    try {
+      return !forceUpgrade && localStorage.getItem(dismissKey) === "1";
+    } catch {
+      return false;
+    }
+  })();
+
+  if (dismissed) return null;
+
+  function dismissUpdate() {
+    try {
+      localStorage.setItem(dismissKey, "1");
+    } catch {}
+    setVersionInfo(null);
+  }
 
   const upgradeUrl =
     platform === "ios"
@@ -138,7 +176,7 @@ export default function AppUpdatePrompt() {
           {!forceUpgrade ? (
             <button
               type="button"
-              onClick={() => setDismissed(true)}
+              onClick={dismissUpdate}
               className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"
               aria-label="Close update reminder"
             >
@@ -160,7 +198,7 @@ export default function AppUpdatePrompt() {
           {!forceUpgrade ? (
             <button
               type="button"
-              onClick={() => setDismissed(true)}
+              onClick={dismissUpdate}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
             >
               Later

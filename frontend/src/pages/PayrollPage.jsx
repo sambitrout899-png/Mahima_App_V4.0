@@ -42,6 +42,8 @@ const INITIAL_SUMMARY = {
   totalHours: 0, hourlyRate: 0, fixedAmount: 0, hourlyAmount: 0,
   allowances: 0, deductions: 0, grossAmount: 0, netAmount: 0,
   payrollAdvance: 0, fines: 0,
+  previousArrears: 0, payableAmount: 0, paidAmount: 0, balanceAmount: 0,
+  paymentStatus: "UNPAID", paymentNotes: "",
 };
 const INITIAL_SETTINGS = {
   userId: "", hourlyRate: 0, monthlyFixedAmount: 0,
@@ -80,6 +82,34 @@ const errMsg = (err, fallback = "Something went wrong.") =>
   err?.response?.data?.message ||
   (typeof err?.response?.data === "string" ? err.response.data : null) ||
   err?.message || fallback;
+
+const readField = (obj, name, fallback = undefined) =>
+  obj?.[name] ?? obj?.[name[0].toUpperCase() + name.slice(1)] ?? fallback;
+
+const paymentStatus = (paid, balance, payable) => {
+  if (payable <= 0 || balance <= 0) return "PAID";
+  if (paid <= 0) return "UNPAID";
+  return "PARTIAL";
+};
+
+const normalizePayrollRun = (run) => {
+  if (!run) return null;
+  const net = safeNum(readField(run, "netAmount"));
+  const arrears = safeNum(readField(run, "previousArrears"));
+  const payable = safeNum(readField(run, "payableAmount"), net + arrears) || net + arrears;
+  const paid = safeNum(readField(run, "paidAmount"));
+  const balance = safeNum(readField(run, "balanceAmount"), Math.max(0, payable - paid));
+  return {
+    ...run,
+    previousArrears: arrears,
+    payableAmount: payable,
+    paidAmount: paid,
+    balanceAmount: balance,
+    paymentStatus: readField(run, "paymentStatus", paymentStatus(paid, balance, payable)),
+    paymentNotes: readField(run, "paymentNotes", ""),
+    paidAtUtc: readField(run, "paidAtUtc", null),
+  };
+};
 
 /* role detection */
 const STAFF_ROLE_FIELDS = ["role","Role","userRole","UserRole","userType","UserType","accountType","AccountType","type","Type"];
@@ -133,6 +163,15 @@ const downloadBlob = (blob, filename) => {
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+};
+
+const ensurePdfBlob = async (data) => {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: "application/pdf" });
+  const header = await blob.slice(0, 5).text();
+  if (header === "%PDF-") return blob;
+
+  const text = await blob.text().catch(() => "");
+  throw new Error(text?.trim() || "Server did not return a valid PDF.");
 };
 
 const downloadCsv = (filename, rows) => {
@@ -228,6 +267,8 @@ export default function PayrollPage() {
   const [summary, setSummary]   = useState(INITIAL_SUMMARY);
   const [settings, setSettings] = useState(INITIAL_SETTINGS);
   const [allSettings, setAllSettings] = useState([]);   // for bulk run
+  const [paidAmount, setPaidAmount] = useState(0);
+  const [paymentNotes, setPaymentNotes] = useState("");
 
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingSlip, setLoadingSlip]       = useState(false);
@@ -283,7 +324,7 @@ export default function PayrollPage() {
   const reloadGlobalRuns = useCallback(async () => {
     try {
       const res = await api.get("/payroll/runs");
-      setAllRuns(arrayFrom(res?.data));
+      setAllRuns(arrayFrom(res?.data).map(normalizePayrollRun));
     } catch {
       setAllRuns([]);
     }
@@ -305,6 +346,8 @@ export default function PayrollPage() {
       setHistory([]);
       setSummary(INITIAL_SUMMARY);
       setCurrentRunId(null);
+      setPaidAmount(0);
+      setPaymentNotes("");
       return;
     }
     let cancelled = false;
@@ -327,7 +370,7 @@ export default function PayrollPage() {
       setLoadingHistory(true);
       try {
         const res = await api.get("/payroll/runs", { params: { userId: selectedUserId } });
-        if (!cancelled) setHistory(arrayFrom(res?.data));
+        if (!cancelled) setHistory(arrayFrom(res?.data).map(normalizePayrollRun));
       } catch { if (!cancelled) setHistory([]); }
       finally  { if (!cancelled) setLoadingHistory(false); }
     })();
@@ -339,7 +382,7 @@ export default function PayrollPage() {
     setLoadingHistory(true);
     try {
       const res = await api.get("/payroll/runs", { params: { userId: selectedUserId } });
-      setHistory(arrayFrom(res?.data));
+      setHistory(arrayFrom(res?.data).map(normalizePayrollRun));
     } catch { /* ignore */ }
     finally  { setLoadingHistory(false); }
   };
@@ -399,12 +442,16 @@ export default function PayrollPage() {
     const grossAmount    = fixedAmount + hourlyAmount + allowances;
     const totalDeductions = Math.max(0, fines + payrollAdvance);
     const netAmount      = Math.max(0, grossAmount - totalDeductions);
+    const previousArrears = safeNum(data.previousArrears ?? data.PreviousArrears);
+    const payableAmount = Math.max(0, netAmount + previousArrears);
     const displayName    = data.displayName || staff?.displayName || staff?.fullName ||
                            staff?.username  || staff?.email || userId;
     return {
       userId, displayName, from: data.from || fromDate, to: data.to || toDate,
       totalHours, hourlyRate, fixedAmount, hourlyAmount, allowances,
       deductions: totalDeductions, grossAmount, netAmount, payrollAdvance, fines,
+      previousArrears, payableAmount, paidAmount: 0,
+      balanceAmount: payableAmount, paymentStatus: paymentStatus(0, payableAmount, payableAmount),
     };
   }, [fromDate, toDate, allSettings, staffList]);
 
@@ -417,9 +464,10 @@ export default function PayrollPage() {
         fixedAmount: s.fixedAmount, hourlyAmount: s.hourlyAmount,
         allowances: s.allowances, deductions: s.deductions,
         grossAmount: s.grossAmount, netAmount: s.netAmount,
+        paidAmount: s.paidAmount || 0,
+        paymentNotes: s.paymentNotes || "",
       });
-      const created = res?.data || {};
-      return created.id ?? created.Id ?? null;
+      return normalizePayrollRun(res?.data || {});
     } catch (err) {
       console.error("Persist run failed", err);
       return null;
@@ -431,11 +479,22 @@ export default function PayrollPage() {
     if (!validatePeriod()) return;
     setLoadingSummary(true);
     try {
-      const result = await calculateFor(selectedUserId, settings);
+      const calculated = await calculateFor(selectedUserId, settings);
+      const payable = safeNum(calculated.payableAmount, calculated.netAmount + calculated.previousArrears);
+      const paid = Math.min(Math.max(0, safeNum(paidAmount)), payable);
+      const balance = Math.max(0, payable - paid);
+      const result = {
+        ...calculated,
+        paidAmount: paid,
+        balanceAmount: balance,
+        paymentStatus: paymentStatus(paid, balance, payable),
+        paymentNotes,
+      };
       setSummary(result);
-      const id = await persistRun(result);
-      if (id != null) {
-        setCurrentRunId(id);
+      const created = await persistRun(result);
+      if (created?.id != null || created?.Id != null) {
+        setSummary({ ...result, ...created });
+        setCurrentRunId(created.id ?? created.Id);
         await reloadHistory();
         await reloadGlobalRuns();
       } else {
@@ -460,7 +519,7 @@ export default function PayrollPage() {
         params: { userId: selectedUserId, from: fromDate, to: toDate },
         responseType: "blob",
       });
-      const blob = new Blob([res.data], { type: "application/pdf" });
+      const blob = await ensurePdfBlob(res.data);
       const name = summary.displayName || selectedStaff?.displayName || selectedStaff?.username || "salary";
       downloadBlob(blob, `SalarySlip_${name}_${dayjs(fromDate).format("YYYYMM")}.pdf`);
       toast.success("Salary slip downloaded.");
@@ -476,7 +535,7 @@ export default function PayrollPage() {
     setDownloadingHistoryId(runId);
     try {
       const res = await api.get(`/payroll/runs/${runId}/slip`, { responseType: "blob" });
-      const blob = new Blob([res.data], { type: "application/pdf" });
+      const blob = await ensurePdfBlob(res.data);
       const name = record.displayName || record.DisplayName || selectedStaff?.displayName || "salary";
       const fromVal = record.from || record.From;
       downloadBlob(blob, `SalarySlip_${name}_${dayjs(fromVal).format("YYYYMM")}.pdf`);
@@ -587,11 +646,14 @@ export default function PayrollPage() {
     const sum = (arr, k) => arr.reduce((s, r) => s + safeNum(r[k] ?? r[k[0].toUpperCase()+k.slice(1)]), 0);
     const grossTotal = sum(monthRuns, "grossAmount");
     const netTotal   = sum(monthRuns, "netAmount");
+    const payableTotal = sum(monthRuns, "payableAmount");
+    const paidTotal = sum(monthRuns, "paidAmount");
+    const balanceTotal = sum(monthRuns, "balanceAmount");
     const prevNet    = sum(prevMonthRuns, "netAmount");
     const delta      = prevNet > 0 ? Math.round(((netTotal - prevNet) / prevNet) * 100) : null;
     const peopleSet  = new Set(monthRuns.map(r => r.userId || r.UserId));
     return {
-      grossTotal, netTotal, runs: monthRuns.length,
+      grossTotal, netTotal, payableTotal, paidTotal, balanceTotal, runs: monthRuns.length,
       people: peopleSet.size, prevNet, delta,
       avgNet: monthRuns.length ? netTotal / monthRuns.length : 0,
     };
@@ -610,6 +672,11 @@ export default function PayrollPage() {
       Deductions: r.deductions ?? r.Deductions,
       Gross: r.grossAmount ?? r.GrossAmount,
       Net: r.netAmount ?? r.NetAmount,
+      "Previous Arrears": r.previousArrears ?? r.PreviousArrears,
+      Payable: r.payableAmount ?? r.PayableAmount,
+      Paid: r.paidAmount ?? r.PaidAmount,
+      Balance: r.balanceAmount ?? r.BalanceAmount,
+      Status: r.paymentStatus ?? r.PaymentStatus,
     }));
     if (!rows.length) { toast.info("Nothing to export."); return; }
     downloadCsv(`payroll_${monthKey}.csv`, rows);
@@ -641,9 +708,9 @@ export default function PayrollPage() {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <HeroKpi icon={IndianRupee} label="Net payable" value={formatINRCompact(kpis.netTotal)} delta={kpis.delta} />
-                <HeroKpi icon={IndianRupee} label="Gross"        value={formatINRCompact(kpis.grossTotal)} />
-                <HeroKpi icon={UsersIcon}   label="People paid"  value={kpis.people} />
+                <HeroKpi icon={IndianRupee} label="Payable" value={formatINRCompact(kpis.payableTotal || kpis.netTotal)} delta={kpis.delta} />
+                <HeroKpi icon={CheckCircle2} label="Paid"        value={formatINRCompact(kpis.paidTotal)} />
+                <HeroKpi icon={AlertCircle} label="Balance"      value={formatINRCompact(kpis.balanceTotal)} />
                 <HeroKpi icon={ClipboardList} label="Runs"       value={kpis.runs} />
               </div>
             </div>
@@ -789,6 +856,10 @@ export default function PayrollPage() {
                   toDate={toDate}
                   loadingSummary={loadingSummary}
                   loadingSlip={loadingSlip}
+                  paidAmount={paidAmount}
+                  setPaidAmount={setPaidAmount}
+                  paymentNotes={paymentNotes}
+                  setPaymentNotes={setPaymentNotes}
                   onCalculate={handleCalculate}
                   onDownload={handleDownloadSlip}
                   onOpenSetup={() => setTab("setup")}
@@ -895,6 +966,7 @@ function EmptyHero() {
 function CalculateTab({
   staff, summary, preview, fromDate, toDate,
   loadingSummary, loadingSlip,
+  paidAmount, setPaidAmount, paymentNotes, setPaymentNotes,
   onCalculate, onDownload, onOpenSetup, prevMonthRuns,
 }) {
   const setupComplete = preview.rate > 0 || preview.fixed > 0;
@@ -902,6 +974,10 @@ function CalculateTab({
   const prevNet = safeNum(prevRun?.netAmount ?? prevRun?.NetAmount);
   const currentNet = summary.netAmount || preview.net;
   const delta = prevNet > 0 ? Math.round(((currentNet - prevNet) / prevNet) * 100) : null;
+  const previousArrears = safeNum(summary.previousArrears);
+  const payableAmount = safeNum(summary.payableAmount, currentNet + previousArrears) || currentNet + previousArrears;
+  const paidNow = Math.min(Math.max(0, safeNum(paidAmount)), payableAmount);
+  const balanceAmount = Math.max(0, payableAmount - paidNow);
 
   return (
     <div className="space-y-4">
@@ -929,9 +1005,9 @@ function CalculateTab({
       {/* Big net card */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2 rounded-3xl bg-gradient-to-br from-slate-900 to-indigo-900 text-white p-5">
-          <div className="text-[11px] uppercase tracking-wider text-indigo-200">Net pay</div>
+          <div className="text-[11px] uppercase tracking-wider text-indigo-200">Payable</div>
           <div className="mt-2 text-4xl sm:text-5xl font-bold tabular-nums tracking-tight">
-            {formatINR(summary.netAmount || preview.net)}
+            {formatINR(payableAmount)}
           </div>
           <div className="mt-3 flex items-center gap-3 text-[12px] text-indigo-100/85 flex-wrap">
             <span className="inline-flex items-center gap-1">
@@ -963,9 +1039,38 @@ function CalculateTab({
             <span className="text-base font-bold text-rose-600 tabular-nums">− {formatINR(summary.deductions || preview.totalDed)}</span>
           </div>
           <div className="border-t border-slate-100 pt-3 flex items-center gap-2 justify-between">
-            <span className="text-sm text-slate-700 font-medium">Net</span>
-            <span className="text-base font-bold text-emerald-700 tabular-nums">{formatINR(summary.netAmount || preview.net)}</span>
+            <span className="text-sm text-slate-700 font-medium">Balance</span>
+            <span className="text-base font-bold text-amber-700 tabular-nums">{formatINR(balanceAmount)}</span>
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.2fr] gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+        <div>
+          <Label>Paid this run</Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{RUPEE}</span>
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={paidAmount}
+              onChange={(event) => setPaidAmount(event.target.value)}
+              className="input pl-8 tabular-nums"
+            />
+          </div>
+          <p className="mt-1 text-[11px] font-semibold text-amber-800">
+            Payable {formatINR(payableAmount)}. Balance {formatINR(balanceAmount)} will carry as arrears.
+          </p>
+        </div>
+        <div>
+          <Label>Payment notes</Label>
+          <input
+            value={paymentNotes}
+            onChange={(event) => setPaymentNotes(event.target.value)}
+            className="input"
+            placeholder="Bank ref, cash voucher, partial reason..."
+          />
         </div>
       </div>
 
@@ -986,6 +1091,10 @@ function CalculateTab({
           <BreakdownRow icon={MinusCircle} accent="rose" label="Fines"           value={formatINR(summary.fines || preview.deduct)} />
           <BreakdownRow icon={MinusCircle} accent="rose" label="Payroll advances" value={formatINR(summary.payrollAdvance || preview.advances)} />
           <BreakdownRow icon={ChevronRight} accent="indigo" label="Net pay"      value={formatINR(summary.netAmount || preview.net)} bold highlight />
+          <BreakdownRow icon={ArrowRight} accent="slate" label="Previous arrears" value={formatINR(previousArrears)} />
+          <BreakdownRow icon={IndianRupee} accent="indigo" label="Total payable" value={formatINR(payableAmount)} bold />
+          <BreakdownRow icon={CheckCircle2} accent="emerald" label="Paid" value={formatINR(paidNow)} />
+          <BreakdownRow icon={AlertCircle} accent="rose" label="Carry forward balance" value={formatINR(balanceAmount)} bold highlight />
         </div>
       </div>
 
@@ -1183,6 +1292,11 @@ function HistoryTab({ history, loadingHistory, downloadingHistoryId, deletingRun
                 <Th num>Gross</Th>
                 <Th num>Ded.</Th>
                 <Th num>Net</Th>
+                <Th num>Arrears</Th>
+                <Th num>Payable</Th>
+                <Th num>Paid</Th>
+                <Th num>Balance</Th>
+                <Th>Status</Th>
                 <Th center>Actions</Th>
               </tr>
             </thead>
@@ -1212,6 +1326,21 @@ function HistoryTab({ history, loadingHistory, downloadingHistoryId, deletingRun
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-900 font-medium">{formatINR(r.grossAmount ?? r.GrossAmount ?? 0)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-rose-600">− {formatINR(r.deductions ?? r.Deductions ?? 0)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-emerald-700 font-bold">{formatINR(r.netAmount ?? r.NetAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-amber-700">{formatINR(r.previousArrears ?? r.PreviousArrears ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-indigo-700 font-bold">{formatINR(r.payableAmount ?? r.PayableAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatINR(r.paidAmount ?? r.PaidAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-rose-700 font-semibold">{formatINR(r.balanceAmount ?? r.BalanceAmount ?? 0)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                        (r.paymentStatus ?? r.PaymentStatus) === "PAID"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : (r.paymentStatus ?? r.PaymentStatus) === "PARTIAL"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-rose-50 text-rose-700"
+                      }`}>
+                        {r.paymentStatus ?? r.PaymentStatus ?? "UNPAID"}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 text-center">
                       <div className="inline-flex gap-1">
                         <button onClick={() => onDownload(r)} disabled={downloadingHistoryId === id}
@@ -1286,8 +1415,8 @@ function BulkRunModal({ onClose, staff, allSettings, fromDate, toDate, calculate
       try {
         const settings = allSettings.find((s) => s.userId === id);
         const res = await calculateFor(id, settings);
-        await persistRun(res);
-        out.push({ id, name, ok: true, net: res.netAmount });
+        const created = await persistRun(res);
+        out.push({ id, name, ok: true, net: created?.payableAmount ?? res.payableAmount ?? res.netAmount });
       } catch (err) {
         out.push({ id, name, ok: false, error: errMsg(err) });
       }

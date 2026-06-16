@@ -26,6 +26,7 @@ import { speakText } from "./speech";
 const STORAGE_KEY = "jm_chat_muted";
 const NOTIFICATION_TITLE = "Jai Masih Di";
 const DEFAULT_NOTIFICATION_ICON = mahimaLogoUrl;
+const ANDROID_NOTIFICATION_ICON = "ic_stat_jai_masih";
 
 let audioCtx = null;
 function getAudioContext() {
@@ -171,43 +172,115 @@ export function notificationsAllowed() {
   return window.Notification.permission === "granted";
 }
 
+// ── LocalNotifications plugin access via Capacitor WebView bridge ─────────────
+// The plugin is registered in capacitor.plugins.json and available on the bridge.
+// No ESM import needed — dynamic imports of @capacitor/* packages fail at build
+// time when they're not installed as npm packages (they ship as native plugins).
+
 function getLocalNotifications() {
   try {
-    return window.Capacitor?.Plugins?.LocalNotifications || null;
+    return (typeof window !== "undefined" && window.Capacitor?.Plugins?.LocalNotifications) || null;
   } catch {
     return null;
   }
 }
 
-function scheduleNativeNotification(title, options = {}) {
-  const localNotifications = getLocalNotifications();
-  if (!localNotifications?.schedule) return false;
+// Async wrapper — waits briefly for the bridge to initialize if needed
+async function getLocalNotificationsPlugin() {
+  let ln = getLocalNotifications();
+  if (ln) return ln;
+  // Bridge may not be ready on the very first call — retry a few times
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    ln = getLocalNotifications();
+    if (ln) return ln;
+  }
+  return null;
+}
 
-  const {
-    body = "",
-    tag,
-    data,
-    requireInteraction = false,
-  } = options;
+// ── Channel + permission state ─────────────────────────────────────────────────
+
+let _channelEnsured = false;
+let _permissionChecked = false;
+let _permissionGranted = false;
+
+async function ensureNativeReady() {
+  const ln = await getLocalNotificationsPlugin();
+  if (!ln) return null; // not in a native context
+
+  // 1. Create channel (idempotent)
+  if (!_channelEnsured && ln.createChannel) {
+    try {
+      await ln.createChannel({
+        id: "jai-masih",
+        name: "Jai Masih – Chat Messages",
+        importance: 5,
+        visibility: 1,
+        sound: "default",
+        vibration: true,
+        lights: true,
+        lightColor: "#047857",
+      });
+      _channelEnsured = true;
+    } catch (err) {
+      console.warn("[chatNotifications] createChannel failed:", err);
+    }
+  }
+
+  // 2. Check / request permission — only do this once
+  if (!_permissionChecked) {
+    _permissionChecked = true;
+    try {
+      // First check existing permission without prompting
+      if (ln.checkPermissions) {
+        const current = await ln.checkPermissions();
+        if (current?.display === "granted") {
+          _permissionGranted = true;
+        } else if (ln.requestPermissions) {
+          // Show the OS dialog
+          const result = await ln.requestPermissions();
+          _permissionGranted = result?.display === "granted";
+        }
+      } else if (ln.requestPermissions) {
+        const result = await ln.requestPermissions();
+        _permissionGranted = result?.display === "granted";
+      } else {
+        // Plugin exists but no permission API — assume granted (older Android)
+        _permissionGranted = true;
+      }
+    } catch (err) {
+      console.warn("[chatNotifications] permission check failed:", err);
+      // Attempt to schedule anyway — Android < 13 doesn't need explicit permission
+      _permissionGranted = true;
+    }
+  }
+
+  return _permissionGranted ? ln : null;
+}
+
+// Returns true if the native tray notification was scheduled, false otherwise.
+async function scheduleNativeNotification(title, options = {}) {
+  const { body = "", tag, data } = options;
 
   try {
-    localNotifications.requestPermissions?.().catch?.(() => {});
-    localNotifications.schedule({
-      notifications: [
-        {
-          id: Math.floor(Date.now() % 2147483000),
-          title,
-          body,
-          largeIcon: DEFAULT_NOTIFICATION_ICON,
-          channelId: "jai-masih",
-          extra: { tag, requireInteraction, ...(data || {}) },
-          schedule: { at: new Date(Date.now() + 80) },
-        },
-      ],
-    }).catch?.((err) => console.warn("[chatNotifications] native notification failed", err));
+    const ln = await ensureNativeReady();
+    if (!ln?.schedule) return false;
+
+    await ln.schedule({
+      notifications: [{
+        id: Math.floor(Date.now() % 2147483000),
+        title,
+        body,
+        channelId: "jai-masih",
+        sound: "default",
+        smallIcon: ANDROID_NOTIFICATION_ICON,
+        iconColor: "#047857",
+        extra: { tag, ...(data || {}) },
+      }],
+    });
     return true;
   } catch (err) {
-    console.warn("[chatNotifications] native notification failed", err);
+    console.warn("[chatNotifications] native notification failed:", err);
     return false;
   }
 }
@@ -240,7 +313,10 @@ export function requestNotificationPermission() {
  */
 export function showSystemNotification(title, options = {}) {
   if (isMuted()) return null;
-  if (scheduleNativeNotification(title, options)) return null;
+  // Foreground Firebase pushes arrive inside the WebView. Mirror them into
+  // Android/iOS local notifications so the message still appears in the tray.
+  scheduleNativeNotification(title, options).catch(() => {});
+
   if (!notificationsSupported() || !notificationsAllowed()) return null;
   try {
     const {
@@ -292,7 +368,7 @@ export function showSystemNotification(title, options = {}) {
  * @param {object} opts
  *   - chatId, senderName, preview, onClick (focus + open chat callback)
  */
-export function notifyIncomingMessage({
+export async function notifyIncomingMessage({
   chatId,
   senderName = "New message",
   preview = "",
@@ -300,25 +376,34 @@ export function notifyIncomingMessage({
 } = {}) {
   if (isMuted()) return;
 
-  if (isTabActive()) {
-    if (isTypingInChat()) {
-      buzz();
-      return;
-    }
-    if (!speakJaiMasih()) playBeep();
-    buzz();
-    return;
-  }
+  const body = preview
+    ? `${senderName}: ${String(preview).slice(0, 120)}`
+    : "New chat message";
 
-  // Tab not active: loud-ish system banner + small sound (if browser allows).
-  showSystemNotification(NOTIFICATION_TITLE, {
-    body: preview ? `${senderName}: ${String(preview).slice(0, 120)}` : "New chat message",
+  // Always attempt the native tray notification first.
+  // scheduleNativeNotification returns false if the Capacitor plugin isn't
+  // available (i.e. running in a plain web browser, not in the Android app).
+  const nativeOk = await scheduleNativeNotification(NOTIFICATION_TITLE, {
+    body,
     tag: chatId ? `chat:${chatId}` : undefined,
     data: { kind: "message", chatId },
-    onClick,
   });
-  playBeep();
+
+  // Sound + haptics — always play unless user is actively typing
+  if (!isTypingInChat()) {
+    if (!speakJaiMasih()) playBeep();
+  }
   buzz();
+
+  // Web-only fallback: browser Notification API banner when tab is not active
+  if (!nativeOk && !isTabActive()) {
+    showSystemNotification(NOTIFICATION_TITLE, {
+      body,
+      tag: chatId ? `chat:${chatId}` : undefined,
+      data: { kind: "message", chatId },
+      onClick,
+    });
+  }
 }
 
 /**
@@ -327,7 +412,7 @@ export function notifyIncomingMessage({
  * @param {object} opts
  *   - chatId, callerName, type ("audio"|"video"), onClick (accept/focus)
  */
-export function notifyIncomingCall({
+export async function notifyIncomingCall({
   chatId,
   callerName = "Incoming call",
   type = "audio",
@@ -338,11 +423,18 @@ export function notifyIncomingCall({
     return;
   }
 
-  // Always ring + buzz, even when the tab is foregrounded — calls are important.
+  // Always ring + buzz — calls are important.
   if (!speakJaiMasih()) playBeep();
   buzz();
 
-  if (!isTabActive()) {
+  // Try native tray notification first; fall back to browser API
+  const nativeOk = await scheduleNativeNotification(NOTIFICATION_TITLE, {
+    body: `${callerName}: incoming ${type} call. Tap to answer.`,
+    tag: chatId ? `call:${chatId}` : "call",
+    data: { kind: "call", chatId, type },
+  });
+
+  if (!nativeOk && !isTabActive()) {
     showSystemNotification(NOTIFICATION_TITLE, {
       body: `${callerName}: incoming ${type} call. Tap to answer.`,
       tag: chatId ? `call:${chatId}` : "call",

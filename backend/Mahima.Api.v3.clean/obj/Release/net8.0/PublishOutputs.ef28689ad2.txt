@@ -6,6 +6,7 @@
 /var/www/mahima-api/publish/appsettings.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.deps.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.runtimeconfig.json
+/var/www/mahima-api/services/Ai/scripture_pack.json
 /var/www/mahima-api/LatoFont/Lato-Black.ttf
 /var/www/mahima-api/LatoFont/Lato-BlackItalic.ttf
 /var/www/mahima-api/LatoFont/Lato-Bold.ttf
@@ -29,6 +30,9 @@
 /var/www/mahima-api/Mahima.Api.v3.clean.runtimeconfig.json
 /var/www/mahima-api/Mahima.Api.v3.clean.pdb
 /var/www/mahima-api/BouncyCastle.Cryptography.dll
+/var/www/mahima-api/Google.Apis.dll
+/var/www/mahima-api/Google.Apis.Auth.dll
+/var/www/mahima-api/Google.Apis.Core.dll
 /var/www/mahima-api/itext.barcodes.dll
 /var/www/mahima-api/itext.bouncy-castle-connector.dll
 /var/www/mahima-api/itext.forms.dll
@@ -64,8 +68,10 @@
 /var/www/mahima-api/Swashbuckle.AspNetCore.Swagger.dll
 /var/www/mahima-api/Swashbuckle.AspNetCore.SwaggerGen.dll
 /var/www/mahima-api/Swashbuckle.AspNetCore.SwaggerUI.dll
+/var/www/mahima-api/System.CodeDom.dll
 /var/www/mahima-api/System.IdentityModel.Tokens.Jwt.dll
 /var/www/mahima-api/System.IO.Pipelines.dll
+/var/www/mahima-api/System.Management.dll
 /var/www/mahima-api/System.Text.Encodings.Web.dll
 /var/www/mahima-api/System.Text.Json.dll
 /var/www/mahima-api/Twilio.dll
@@ -91,5 +97,6 @@
 /var/www/mahima-api/runtimes/win-x86/native/libwinpthread-1.dll
 /var/www/mahima-api/runtimes/win-x86/native/qpdf.dll
 /var/www/mahima-api/runtimes/win-x86/native/zlib1.dll
+/var/www/mahima-api/runtimes/win/lib/net7.0/System.Management.dll
 /var/www/mahima-api/runtimes/browser/lib/net8.0/System.Text.Encodings.Web.dll
 /var/www/mahima-api/Mahima.Api.v3.clean.deps.json

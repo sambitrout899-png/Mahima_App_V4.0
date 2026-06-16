@@ -223,8 +223,30 @@ namespace Mahima.Api.v3.clean.Controllers
             await using var cmd = new NpgsqlCommand(@"
                 INSERT INTO pages (key, title, description, created_at, updated_at)
                 VALUES
+                    ('DASHBOARD', 'Home', 'Main home dashboard and quick links.', now(), now()),
                     ('PASTOR', 'AI Pastor', 'Pastoral AI assistant for prayer, Scripture, and daily guidance.', now(), now()),
-                    ('SERVER_FILES', 'Server Files', 'Admin-only upload and download manager for the backend download folder.', now(), now())
+                    ('APP_DOWNLOADS', 'App Downloads', 'Android and iOS app download and upgrade page.', now(), now()),
+                    ('SERMONS', 'Sermons', 'Sermon library and media management.', now(), now()),
+                    ('PRAYER_REQUESTS', 'Prayer Requests', 'Prayer request intake, tracking, and updates.', now(), now()),
+                    ('TASKS', 'Tasks', 'Team task management and follow-up tracking.', now(), now()),
+                    ('USERS', 'Users', 'User account and staff profile management.', now(), now()),
+                    ('TEAMS', 'Teams', 'Team setup, membership, and ministry group management.', now(), now()),
+                    ('ROLES', 'Roles', 'Role setup and page permission assignment.', now(), now()),
+                    ('PAGES', 'Pages', 'Application page registry used by role permissions.', now(), now()),
+                    ('ATTENDANCE', 'Attendance', 'Timesheets, attendance, and staff tracking.', now(), now()),
+                    ('PAYROLL', 'Payroll', 'Payroll runs, payslips, payments, and arrears.', now(), now()),
+                    ('COSTS', 'Costs', 'Cost and expense tracking.', now(), now()),
+                    ('MARRIAGE', 'Marriage', 'Marriage ministry records and workflow.', now(), now()),
+                    ('BAPTISM', 'Baptism', 'Baptism ministry records and workflow.', now(), now()),
+                    ('COUNSELLING', 'Counselling', 'Counselling ministry records and workflow.', now(), now()),
+                    ('ADMIN_DASHBOARD', 'Admin Dashboard', 'Administrative dashboard and system overview.', now(), now()),
+                    ('LIVE_USERS', 'Live Users', 'Live user activity and login monitoring.', now(), now()),
+                    ('MESSAGE_CENTER', 'Message Center', 'Ministry automation and scheduled message controls.', now(), now()),
+                    ('LANGUAGES', 'Languages', 'Application language and translation management.', now(), now()),
+                    ('EMAIL_CLIENT', 'Email Client', 'Mailbox, SMTP compose, folders, and email connection controls.', now(), now()),
+                    ('GOOGLE_DRIVE', 'Google Drive', 'Google Drive integration and ministry cloud file access.', now(), now()),
+                    ('SERVER_FILES', 'Server Files', 'Admin-only upload and download manager for the backend download folder.', now(), now()),
+                    ('REPORTS', 'Reports', 'Administrative reports and analytics.', now(), now())
                 ON CONFLICT (key) DO UPDATE
                 SET title = EXCLUDED.title,
                     description = EXCLUDED.description,

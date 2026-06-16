@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   RefreshCw,
@@ -26,6 +26,18 @@ import {
   Users,
   User,
   ChevronDown,
+  Bell,
+  Send,
+  Repeat,
+  Zap,
+  Settings,
+  CalendarCheck,
+  Moon,
+  Heart,
+  MessageCircle,
+  Star,
+  BarChart3,
+  ChevronUp,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -48,6 +60,148 @@ const PRIORITY = {
   4: { label: "Critical", color: "#ef4444", soft: "#fee2e2" },
   5: { label: "Urgent",   color: "#dc2626", soft: "#fecaca" },
 };
+
+const TASK_TYPES = [
+  { value: "general", label: "General" },
+  { value: "pastoral-care", label: "Pastoral care" },
+  { value: "prayer-follow-up", label: "Prayer follow-up" },
+  { value: "member-care", label: "Member care" },
+  { value: "visitor-follow-up", label: "Visitor follow-up" },
+  { value: "service-planning", label: "Service planning" },
+  { value: "worship", label: "Worship" },
+  { value: "sermon-prep", label: "Sermon prep" },
+  { value: "event", label: "Event" },
+  { value: "outreach", label: "Outreach" },
+  { value: "discipleship", label: "Discipleship" },
+  { value: "children-youth", label: "Children/youth" },
+  { value: "admin", label: "Admin" },
+  { value: "finance", label: "Finance" },
+  { value: "facility", label: "Facility" },
+  { value: "media", label: "Media" },
+  { value: "volunteer", label: "Volunteer" },
+  { value: "counselling", label: "Counselling" },
+];
+
+const PROCESS_STAGES = [
+  { value: "intake", label: "Intake" },
+  { value: "assigned", label: "Assigned" },
+  { value: "in-progress", label: "In progress" },
+  { value: "waiting", label: "Waiting" },
+  { value: "follow-up", label: "Follow-up" },
+  { value: "review", label: "Review" },
+  { value: "done", label: "Done" },
+];
+
+// ── Church event auto-generator ──────────────────────────────────────────────
+const CHURCH_EVENTS_DEFAULT = [
+  { id: "sat_meeting", label: "Saturday Evening Meeting", day: 6, time: "18:00", taskType: "event",            priority: 3, icon: "🙌", defaultTeamId: null },
+  { id: "tue_prayer",  label: "Tuesday Night Prayer",     day: 2, time: "19:00", taskType: "prayer-follow-up", priority: 2, icon: "🙏", defaultTeamId: null },
+  { id: "fri_prayer",  label: "Friday Night Prayer",      day: 5, time: "19:00", taskType: "prayer-follow-up", priority: 2, icon: "🕯️", defaultTeamId: null },
+];
+
+// ── Jai Masih reminder templates ─────────────────────────────────────────────
+const JAI_MASIH_TEMPLATES = [
+  { id: "jm1", label: "Morning Blessing",   message: "Jai Masih Ji! 🙏 Good morning, beloved. May today be filled with God's grace and strength. You are loved! 💛" },
+  { id: "jm2", label: "Event Reminder",     message: "Jai Masih Ji! This is a friendly reminder about today's task/event. See you there! 🙌" },
+  { id: "jm3", label: "Prayer Call",        message: "Jai Masih Ji! 🙏 Come join us for prayer. Together in His presence. ✨" },
+  { id: "jm4", label: "Follow-up Nudge",    message: "Jai Masih Ji! 🌟 Just checking in on this task — let us know if you need any support. We're here for you!" },
+];
+
+// ── Recurring patterns ────────────────────────────────────────────────────────
+const RECUR_PATTERNS = [
+  { value: "none",    label: "Does not repeat" },
+  { value: "daily",   label: "Daily" },
+  { value: "weekly",  label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
+// ── Radar: task types grouped for the spider chart ────────────────────────────
+const RADAR_CATEGORIES = [
+  { type: "event",            label: "Events",      color: "#6366f1" },
+  { type: "prayer-follow-up", label: "Prayer F/U",  color: "#8b5cf6" },
+  { type: "pastoral-care",    label: "Pastoral",    color: "#ec4899" },
+  { type: "member-care",      label: "Member",      color: "#0ea5e9" },
+  { type: "outreach",         label: "Outreach",    color: "#f97316" },
+  { type: "worship",          label: "Worship",     color: "#f59e0b" },
+  { type: "admin",            label: "Admin",       color: "#64748b" },
+  { type: "general",          label: "General",     color: "#10b981" },
+];
+
+// ── Smart team keyword map ────────────────────────────────────────────────────
+// Keys match taskType values. Each array lists substrings to look for in a
+// team name (case-insensitive). First match wins.
+const TEAM_KEYWORDS = {
+  "event":            ["service", "event", "meeting", "evening", "sunday", "main"],
+  "prayer-follow-up": ["prayer", "intercession", "pray", "night"],
+  "pastoral-care":    ["pastoral", "shepherd", "care", "pastor"],
+  "member-care":      ["member", "care", "pastoral", "connect"],
+  "outreach":         ["outreach", "evangelism", "mission", "street"],
+  "worship":          ["worship", "music", "choir", "band", "praise"],
+  "admin":            ["admin", "office", "management", "operations"],
+  "counselling":      ["counsell", "support", "welfare"],
+  "children-youth":   ["youth", "children", "kids", "young", "junior"],
+  "sermon-prep":      ["sermon", "teaching", "preaching", "media"],
+  "media":            ["media", "tech", "audio", "visual", "stream"],
+  "finance":          ["finance", "steward", "account", "treasurer"],
+  "facility":         ["facility", "property", "maintenance", "ushers"],
+  "visitor-follow-up":["welcome", "visitor", "hospitality", "connect"],
+  "discipleship":     ["discipleship", "bible", "study", "growth"],
+  "general":          [],
+};
+
+/**
+ * Attempt to find the best matching team for a given task.
+ * Priority order:
+ *   1. Explicit defaultTeamId configured on the church event
+ *   2. Keyword match by taskType
+ *   3. Keyword match by title words
+ *   4. null (no auto-assign)
+ */
+function smartMatchTeam(taskType, title, teams, defaultTeamId) {
+  if (!teams || teams.length === 0) return null;
+
+  // 1. Explicit override
+  if (defaultTeamId) {
+    const explicit = teams.find((t) => String(t.id) === String(defaultTeamId));
+    if (explicit) return explicit;
+  }
+
+  // 2. Type-based keyword match
+  const typeKws = TEAM_KEYWORDS[taskType] || [];
+  for (const kw of typeKws) {
+    const m = teams.find((t) => t.name.toLowerCase().includes(kw));
+    if (m) return m;
+  }
+
+  // 3. Title word match (words > 3 chars, skip stop-words)
+  const STOP = new Set(["that", "this", "with", "from", "team", "for", "the", "and", "night", "evening", "morning", "weekly", "saturday", "tuesday", "friday"]);
+  const titleKws = title
+    .toLowerCase()
+    .split(/[\s\-–]+/)
+    .filter((w) => w.length > 3 && !STOP.has(w));
+
+  for (const kw of titleKws) {
+    const m = teams.find((t) => t.name.toLowerCase().includes(kw));
+    if (m) return m;
+  }
+
+  return null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function nextOccurrence(dayOfWeek, timeStr) {
+  const [h, m] = timeStr.split(":").map(Number);
+  const now = new Date();
+  const d = new Date(now);
+  d.setHours(h, m, 0, 0);
+  const diff = (dayOfWeek - now.getDay() + 7) % 7;
+  d.setDate(d.getDate() + (diff === 0 && d <= now ? 7 : diff));
+  return d;
+}
+
+const labelFrom = (items, value, fallback = "General") =>
+  items.find((x) => x.value === value)?.label || fallback;
+const subTaskPlural = (count) => count === 1 ? "" : "s";
 
 /* ------------------------------------------------------------------ */
 /*  API helpers                                                        */
@@ -92,6 +246,20 @@ const fmtDate = (d) => {
 
 const isOverdue = (t) =>
   t.dueDate && t.status !== 2 && new Date(t.dueDate).getTime() < Date.now();
+
+function readOnlyMessage(task) {
+  const reason = task?.visibilityReason || "";
+  if (reason.startsWith("member-")) {
+    return "Member position users can edit only records they created.";
+  }
+  if (reason === "same-position-readonly") {
+    return "Same-position visibility: ask the position leader to assign this task before editing.";
+  }
+  if (reason === "position-scope") {
+    return "This task is visible to your position, but not editable until assigned to you.";
+  }
+  return "This task is read-only for your current position.";
+}
 
 const daysUntil = (d) => {
   if (!d) return null;
@@ -202,9 +370,31 @@ export default function TasksPage() {
   const [query, setQuery]       = useState("");
   const [form, setForm]         = useState({
     id: null, title: "", description: "", priority: 2, status: 0, dueDate: "",
-    assignees: [],
+    parentTaskId: "", taskType: "general", processStage: "intake", followUpDate: "", followUpNotes: "",
+    assignees: [], recurring: "none",
   });
   const toast = useToasts();
+
+  // ── Radar + auto-gen + reminders ──
+  const [showRadar,    setShowRadar]    = useState(true);
+  const [showAutoGen,  setShowAutoGen]  = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
+  const [reminderTask, setReminderTask] = useState(null);
+  const [reminderNote, setReminderNote] = useState("");
+  const [reminderSent, setReminderSent] = useState(false);
+  const [generating,   setGenerating]   = useState(false);
+  const [genWeeks,     setGenWeeks]     = useState(4);
+  const [genSelected,  setGenSelected]  = useState(() => new Set(CHURCH_EVENTS_DEFAULT.map((e) => e.id)));
+  const [churchEvents, setChurchEvents] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("mahima_church_events") || "null") || CHURCH_EVENTS_DEFAULT; }
+    catch { return CHURCH_EVENTS_DEFAULT; }
+  });
+  // Track which auto-reminders have already been sent: key = `{taskId}_{days}d`
+  const [sentReminders, setSentReminders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("mahima_sent_reminders") || "{}"); }
+    catch { return {}; }
+  });
 
   /* ------------------ data ------------------ */
 
@@ -216,7 +406,7 @@ export default function TasksPage() {
       const normalized = Array.isArray(data)
         ? data.map((t) => {
             // assignees can be: an array of {id,type}, separate users[]+teams[],
-            // or just a legacy assigneeId — handle all three
+            // or just a legacy assigneeId â€” handle all three
             let assignees = [];
             const raw = t.assignees ?? t.Assignees;
             if (Array.isArray(raw)) {
@@ -238,7 +428,23 @@ export default function TasksPage() {
               status: Number(t.status ?? t.Status ?? 0),
               priority: Number(t.priority ?? t.Priority ?? 2),
               dueDate: t.dueDate ?? t.DueDate ?? null,
+              parentTaskId: t.parentTaskId ?? t.ParentTaskId ?? null,
+              taskType: t.taskType ?? t.TaskType ?? "general",
+              processStage: t.processStage ?? t.ProcessStage ?? "intake",
+              followUpDate: t.followUpDate ?? t.FollowUpDate ?? null,
+              followUpNotes: t.followUpNotes ?? t.FollowUpNotes ?? "",
+              subTaskIds: t.subTaskIds ?? t.SubTaskIds ?? [],
+              subTaskCount: Number(t.subTaskCount ?? t.SubTaskCount ?? 0),
+              activityLog: t.activityLog ?? t.ActivityLog ?? [],
+              canUpdate: Boolean(t.canUpdate ?? t.CanUpdate ?? true),
+              readOnly: Boolean(t.readOnly ?? t.ReadOnly ?? false),
+              visibilityReason: t.visibilityReason ?? t.VisibilityReason ?? "",
+              ownerPositionId: t.ownerPositionId ?? t.OwnerPositionId ?? null,
+              createdById: t.createdById ?? t.CreatedById ?? null,
               assigneeId: legacyId ?? null,
+              recurring: t.recurring ?? t.Recurring ?? "none",
+              eventRef:  t.eventRef  ?? t.EventRef  ?? null,
+              isAutoGen: Boolean(t.isAutoGen ?? t.IsAutoGen ?? false),
               assignees,
             };
           })
@@ -287,9 +493,150 @@ export default function TasksPage() {
   }
 
   useEffect(() => {
-    fetchTasks();
+    fetchTasks().then(() => checkDueReminders());
     fetchPeople();
-  }, []);
+    // Re-check once per day while the page is open
+    const interval = setInterval(() => checkDueReminders(), 24 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-generate church event tasks ──────────────────────────────────────
+  async function generateChurchTasks() {
+    setGenerating(true);
+    const created = [];
+    for (const evt of churchEvents.filter((e) => genSelected.has(e.id))) {
+      // Resolve the team to assign (explicit → smart match → null)
+      const resolvedTeam = smartMatchTeam(evt.taskType, evt.label, teams, evt.defaultTeamId);
+
+      for (let w = 0; w < genWeeks; w++) {
+        const base = nextOccurrence(evt.day, evt.time);
+        base.setDate(base.getDate() + w * 7);
+        const isoDate = base.toISOString();
+        const eventRef = `${evt.id}_${base.toDateString()}`;
+        // skip duplicates already in state
+        if (tasks.some((t) => t.eventRef === eventRef)) continue;
+
+        const assignees = resolvedTeam
+          ? [{ Id: String(resolvedTeam.id), Type: "team" }]
+          : [];
+
+        const payload = {
+          Title: `${evt.label} – ${base.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`,
+          Description: `Auto-generated for ${evt.label}.${resolvedTeam ? ` Assigned to: ${resolvedTeam.name}.` : ""}`,
+          Status: 0,
+          Priority: evt.priority,
+          DueDate: isoDate,
+          TaskType: evt.taskType,
+          ProcessStage: "intake",
+          Recurring: "weekly",
+          EventRef: eventRef,
+          IsAutoGen: true,
+          Assignees: assignees,
+          AssigneeId: null,
+        };
+        try {
+          const res = await api("/tasks", { method: "POST", body: JSON.stringify(payload) });
+          created.push(res);
+        } catch {
+          created.push({ ...payload, id: `local_${Date.now()}_${w}`, eventRef });
+        }
+      }
+    }
+    if (created.length === 0) {
+      toast.push("No new tasks to generate (all already exist)", "info");
+    } else {
+      toast.push(`Generated ${created.length} task${created.length === 1 ? "" : "s"} ✓`, "success");
+      fetchTasks().then(() => checkDueReminders());
+    }
+    setShowAutoGen(false);
+    setGenerating(false);
+  }
+
+  // ── Send Jai Masih reminder ───────────────────────────────────────────────
+  async function sendReminder(task, message) {
+    const userIds = (task.assignees || [])
+      .filter((a) => a.type === "user")
+      .map((a) => a.id)
+      .filter(Boolean);
+    // fire-and-forget to messages API
+    api("/messages/send", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "Reminder",
+        message,
+        userIds,
+        channels: { email: false, whatsapp: false, sms: false },
+      }),
+    }).catch(() => {});
+    toast.push(`🙏 Jai Masih reminder sent for "${task.title}"`, "success");
+    setReminderSent(true);
+  }
+
+  // ── Smart due-date reminders (auto, threshold-based) ─────────────────────
+  // Reads tasks from the latest fetched list (via a ref so this function is
+  // always fresh without needing tasks in the dep array).
+  const tasksRef = React.useRef([]);
+  React.useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  const REMINDER_THRESHOLDS = [
+    { days: 7, label: "7 days",  message: (title) => `🙏 Jai Masih Ji! Just a gentle reminder — "${title}" is due in 7 days. Please plan accordingly. God bless you! 🙌` },
+    { days: 5, label: "5 days",  message: (title) => `🙏 Jai Masih Ji! "${title}" is approaching — due in 5 days. Please make sure preparations are on track. Jai Masih! ✝️` },
+    { days: 3, label: "3 days",  message: (title) => `🙏 Jai Masih Ji! Friendly reminder — "${title}" is due in just 3 days. Please wrap up any pending items. Blessings! 🙏` },
+    { days: 2, label: "2 days",  message: (title) => `⚠️ Jai Masih Ji! "${title}" is due in 2 days. Please ensure everything is ready. Jai Masih Ji! 🙏` },
+    { days: 1, label: "1 day",   message: (title) => `🔴 Jai Masih Ji! URGENT — "${title}" is due TOMORROW. Please complete it today. God's grace be with you! 🙏` },
+  ];
+
+  function checkDueReminders() {
+    const now = new Date();
+    const allTasks = tasksRef.current;
+    // Load latest sent log from localStorage (handles page-reload freshness)
+    let sent = {};
+    try { sent = JSON.parse(localStorage.getItem("mahima_sent_reminders") || "{}"); } catch { sent = {}; }
+    let updated = false;
+
+    for (const task of allTasks) {
+      // Skip completed / on-hold tasks
+      if (task.status === 2 || task.status === 3) continue;
+      if (!task.dueDate) continue;
+      const due = new Date(task.dueDate);
+      const daysLeft = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+
+      for (const threshold of REMINDER_THRESHOLDS) {
+        // Only fire when daysLeft is exactly at this threshold (±0.5 day window)
+        if (daysLeft > threshold.days || daysLeft < threshold.days - 0.5) continue;
+        const key = `${task.id}_${threshold.days}d`;
+        if (sent[key]) continue; // already sent for this threshold
+
+        const userIds = (task.assignees || [])
+          .filter((a) => a.type === "user")
+          .map((a) => a.id)
+          .filter(Boolean);
+
+        if (userIds.length === 0) continue; // no one to notify
+
+        const message = threshold.message(task.title);
+        api("/messages/send", {
+          method: "POST",
+          body: JSON.stringify({
+            type: "Reminder",
+            message,
+            userIds,
+            taskId: task.id,
+            channels: { email: false, whatsapp: false, sms: false },
+          }),
+        }).catch(() => {});
+
+        sent[key] = new Date().toISOString();
+        updated = true;
+        toast.push(`🔔 ${threshold.label} reminder sent — "${task.title}"`, "info");
+      }
+    }
+
+    if (updated) {
+      localStorage.setItem("mahima_sent_reminders", JSON.stringify(sent));
+      setSentReminders({ ...sent });
+    }
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -299,7 +646,7 @@ export default function TasksPage() {
     }
     setSaving(true);
     const assignees = form.assignees ?? [];
-    // Legacy column is bigint — only safe to populate from numeric IDs.
+    // Legacy column is bigint â€” only safe to populate from numeric IDs.
     // Once the TaskAssignees join table is live, this can stay null and the
     // join table becomes the source of truth.
     const numericId = (() => {
@@ -315,6 +662,12 @@ export default function TasksPage() {
       Status: parseInt(form.status, 10),
       Priority: parseInt(form.priority, 10),
       DueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+      ParentTaskId: form.parentTaskId ? Number(form.parentTaskId) : null,
+      TaskType: form.taskType || "general",
+      ProcessStage: form.processStage || "intake",
+      FollowUpDate: form.followUpDate ? new Date(form.followUpDate).toISOString() : null,
+      FollowUpNotes: form.followUpNotes?.trim() || null,
+      Recurring: form.recurring || "none",
       AssigneeId: numericId, // legacy single-assignee column (bigint)
       Assignees: assignees.map((a) => ({ Id: String(a.id), Type: a.type })),
     };
@@ -327,8 +680,8 @@ export default function TasksPage() {
         toast.push("Task created", "success");
       }
       setShow(false);
-      setForm({ id: null, title: "", description: "", priority: 2, status: 0, dueDate: "", assignees: [] });
-      fetchTasks();
+      setForm(emptyForm());
+      fetchTasks().then(() => checkDueReminders());
     } catch (e) {
       toast.push(e.message || "Save failed", "error");
     } finally {
@@ -337,6 +690,12 @@ export default function TasksPage() {
   }
 
   async function handleDelete(id) {
+    const task = tasks.find((item) => item.id === id);
+    if (task?.readOnly || task?.canUpdate === false) {
+      setConf(null);
+      toast.push(readOnlyMessage(task), "info");
+      return;
+    }
     setConf(null);
     // optimistic
     const prev = tasks;
@@ -351,6 +710,10 @@ export default function TasksPage() {
   }
 
   async function toggleStatus(task) {
+    if (task?.readOnly || task?.canUpdate === false) {
+      toast.push(readOnlyMessage(task), "info");
+      return;
+    }
     const next = task.status === 2 ? 0 : 2;
     // optimistic
     setTasks((s) => s.map((t) => (t.id === task.id ? { ...t, status: next } : t)));
@@ -364,6 +727,11 @@ export default function TasksPage() {
           Status: next,
           Priority: task.priority,
           DueDate: task.dueDate,
+          ParentTaskId: task.parentTaskId ?? null,
+          TaskType: task.taskType || "general",
+          ProcessStage: next === 2 ? "done" : (task.processStage || "intake"),
+          FollowUpDate: task.followUpDate ?? null,
+          FollowUpNotes: task.followUpNotes ?? null,
           AssigneeId: firstUser ? firstUser.id : (task.assigneeId ?? null),
           Assignees: (task.assignees || []).map((a) => ({ Id: a.id, Type: a.type })),
         }),
@@ -376,6 +744,10 @@ export default function TasksPage() {
   }
 
   function openEdit(t) {
+    if (t?.readOnly || t?.canUpdate === false) {
+      toast.push(readOnlyMessage(t), "info");
+      return;
+    }
     setForm({
       id: t.id,
       title: t.title,
@@ -383,14 +755,38 @@ export default function TasksPage() {
       priority: t.priority,
       status: t.status,
       dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : "",
+      parentTaskId: t.parentTaskId ? String(t.parentTaskId) : "",
+      taskType: t.taskType || "general",
+      processStage: t.processStage || "intake",
+      followUpDate: t.followUpDate ? new Date(t.followUpDate).toISOString().slice(0, 10) : "",
+      followUpNotes: t.followUpNotes || "",
       assigneeId: t.assigneeId ?? null,
       assignees: t.assignees ? [...t.assignees] : [],
+      recurring: t.recurring || "none",
     });
     setShow(true);
   }
 
-  function openNew() {
-    setForm({ id: null, title: "", description: "", priority: 2, status: 0, dueDate: "", assignees: [] });
+  function emptyForm(parentTask = null) {
+    return {
+      id: null,
+      title: "",
+      description: "",
+      priority: 2,
+      status: 0,
+      dueDate: "",
+      parentTaskId: parentTask ? String(parentTask.id) : "",
+      taskType: parentTask?.taskType || "general",
+      processStage: parentTask ? "assigned" : "intake",
+      followUpDate: "",
+      followUpNotes: "",
+      assignees: [],
+      recurring: "none",
+    };
+  }
+
+  function openNew(parentTask = null) {
+    setForm(emptyForm(parentTask));
     setShow(true);
   }
 
@@ -404,6 +800,18 @@ export default function TasksPage() {
     overdue: tasks.filter(isOverdue).length,
   }), [tasks]);
 
+  const sortTasks = useCallback((list) => {
+    return [...list].sort((a, b) => {
+      if (sortBy === "due") {
+        const av = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const bv = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        return av - bv;
+      }
+      if (sortBy === "priority") return b.priority - a.priority;
+      return b.id - a.id;
+    });
+  }, [sortBy]);
+
   const filtered = useMemo(() => {
     let list = tasks;
     if (statusFilter !== "all")    list = list.filter((t) => t.status === Number(statusFilter));
@@ -413,20 +821,52 @@ export default function TasksPage() {
       list = list.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
-          (t.description || "").toLowerCase().includes(q)
+          (t.description || "").toLowerCase().includes(q) ||
+          labelFrom(TASK_TYPES, t.taskType).toLowerCase().includes(q) ||
+          labelFrom(PROCESS_STAGES, t.processStage, "Intake").toLowerCase().includes(q)
       );
     }
-    list = [...list].sort((a, b) => {
-      if (sortBy === "due") {
-        const av = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-        const bv = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-        return av - bv;
+    return sortTasks(list);
+  }, [tasks, statusFilter, priorityFilter, query, sortTasks]);
+
+  const hierarchy = useMemo(() => {
+    const byId = new Map(tasks.map((t) => [String(t.id), t]));
+    const visibleIds = new Set(filtered.map((t) => String(t.id)));
+    const displayIds = new Set(visibleIds);
+
+    for (const task of filtered) {
+      let parentId = task.parentTaskId ? String(task.parentTaskId) : "";
+      const seen = new Set([String(task.id)]);
+      while (parentId && byId.has(parentId) && !seen.has(parentId)) {
+        displayIds.add(parentId);
+        seen.add(parentId);
+        const parent = byId.get(parentId);
+        parentId = parent?.parentTaskId ? String(parent.parentTaskId) : "";
       }
-      if (sortBy === "priority") return b.priority - a.priority;
-      return b.id - a.id; // newest
-    });
-    return list;
-  }, [tasks, statusFilter, priorityFilter, sortBy, query]);
+    }
+
+    const nodes = new Map();
+    for (const id of displayIds) {
+      const task = byId.get(id);
+      if (task) nodes.set(id, { task, children: [], isContext: !visibleIds.has(id) });
+    }
+
+    const roots = [];
+    for (const node of nodes.values()) {
+      const parentId = node.task.parentTaskId ? String(node.task.parentTaskId) : "";
+      const parent = parentId ? nodes.get(parentId) : null;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
+
+    const sortNodes = (items) => {
+      const sorted = sortTasks(items.map((n) => n.task)).map((task) => nodes.get(String(task.id))).filter(Boolean);
+      for (const node of sorted) node.children = sortNodes(node.children);
+      return sorted;
+    };
+
+    return sortNodes(roots);
+  }, [tasks, filtered, sortTasks]);
 
   /* ------------------ render ------------------ */
 
@@ -448,7 +888,7 @@ export default function TasksPage() {
           <div className="tp-search">
             <Search size={16} />
             <input
-              placeholder="Search tasks…"
+              placeholder="Search tasksâ€¦"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -463,6 +903,17 @@ export default function TasksPage() {
             <button className="tp-btn ghost" onClick={fetchTasks} title="Refresh">
               <RefreshCw size={15} className={loading ? "spin" : ""} />
               <span className="hide-sm">Refresh</span>
+            </button>
+            <button className="tp-btn ghost" onClick={() => setShowRadar((v) => !v)} title="Toggle radar">
+              <BarChart3 size={15} />
+              <span className="hide-sm">Radar</span>
+            </button>
+            <button className="tp-btn ghost" onClick={() => { setShowAutoGen(true); }} title="Auto-generate church events">
+              <Zap size={15} />
+              <span className="hide-sm">Auto-generate</span>
+            </button>
+            <button className="tp-btn ghost" onClick={() => setShowSettings(true)} title="Church event settings">
+              <Settings size={15} />
             </button>
             <button className="tp-btn primary" onClick={openNew}>
               <Plus size={16} /> New task
@@ -587,23 +1038,22 @@ export default function TasksPage() {
             onNew={openNew}
           />
         ) : view === "grid" ? (
-          <div className="tp-grid">
-            {filtered.map((t) => (
-              <TaskCard
-                key={t.id}
-                task={t}
-                onToggle={() => toggleStatus(t)}
-                onEdit={() => openEdit(t)}
-                onDelete={() => setConf(t)}
-              />
-            ))}
-          </div>
+          <TaskHierarchy
+            nodes={hierarchy}
+            onToggle={toggleStatus}
+            onEdit={openEdit}
+            onSubTask={openNew}
+            onDelete={setConf}
+            onRemind={(t) => { setReminderTask(t); setReminderNote(""); setReminderSent(false); setShowReminder(true); }}
+          />
         ) : (
           <Board
             tasks={filtered}
             onToggle={toggleStatus}
             onEdit={openEdit}
+            onSubTask={openNew}
             onDelete={setConf}
+            onRemind={(t) => { setReminderTask(t); setReminderNote(""); setReminderSent(false); setShowReminder(true); }}
           />
         )}
       </main>
@@ -622,6 +1072,7 @@ export default function TasksPage() {
           users={users}
           teams={teams}
           loadTeamMembers={loadTeamMembers}
+          tasks={tasks}
           onClose={() => setShow(false)}
           onSubmit={handleSave}
         />
@@ -638,6 +1089,134 @@ export default function TasksPage() {
       )}
 
       <Toasts items={toast.items} />
+
+      {/* ── Activity Radar panel ── */}
+      {showRadar && (
+        <div className="tp-radar-wrap">
+          <div className="tp-radar-header">
+            <BarChart3 size={16} /> Activity Radar
+            <button className="tp-radar-close" onClick={() => setShowRadar(false)}><X size={14} /></button>
+          </div>
+          <div className="tp-radar-body">
+            <TaskRadar tasks={tasks} />
+            <div className="tp-radar-legend">
+              {RADAR_CATEGORIES.map((c) => {
+                const count = tasks.filter((t) => t.taskType === c.type).length;
+                return (
+                  <div key={c.type} className="tp-radar-legend-row">
+                    <span className="tp-radar-dot" style={{ background: c.color }} />
+                    <span className="tp-radar-legend-label">{c.label}</span>
+                    <span className="tp-radar-legend-count">{count}</span>
+                  </div>
+                );
+              })}
+              <div className="tp-radar-legend-row" style={{ marginTop: 8, borderTop: "1px solid #e5e7eb", paddingTop: 8 }}>
+                <Repeat size={12} style={{ color: "#6366f1" }} />
+                <span className="tp-radar-legend-label">Recurring</span>
+                <span className="tp-radar-legend-count">{tasks.filter((t) => t.recurring && t.recurring !== "none").length}</span>
+              </div>
+              <div className="tp-radar-legend-row">
+                <Zap size={12} style={{ color: "#f59e0b" }} />
+                <span className="tp-radar-legend-label">Auto-generated</span>
+                <span className="tp-radar-legend-count">{tasks.filter((t) => t.isAutoGen).length}</span>
+              </div>
+            </div>
+          </div>
+          {/* Upcoming 7 days */}
+          <div className="tp-upcoming">
+            <div className="tp-upcoming-title"><CalendarCheck size={13} /> Upcoming (next 7 days)</div>
+            {tasks
+              .filter((t) => {
+                if (!t.dueDate || t.status === 2 || t.status === 3) return false;
+                const d = new Date(t.dueDate);
+                const now = new Date();
+                return d >= now && d <= new Date(now.getTime() + 7 * 864e5);
+              })
+              .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+              .slice(0, 5)
+              .map((t) => {
+                const daysLeft = t.dueDate
+                  ? Math.ceil((new Date(t.dueDate) - new Date()) / (1000 * 60 * 60 * 24))
+                  : null;
+                // Find the highest-priority threshold already sent for this task
+                const sentThreshold = [1, 2, 3, 5, 7].find(
+                  (d) => sentReminders[`${t.id}_${d}d`]
+                );
+                // What's the next upcoming threshold that will fire?
+                const nextThreshold = daysLeft !== null
+                  ? [7, 5, 3, 2, 1].find((d) => daysLeft <= d && !sentReminders[`${t.id}_${d}d`])
+                  : null;
+                return (
+                  <div key={t.id} className="tp-upcoming-item">
+                    <span className="tp-upcoming-dot" style={{ background: PRIORITY[t.priority]?.color ?? "#ccc" }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span className="tp-upcoming-title-text">{t.title}</span>
+                      <div style={{ display: "flex", gap: 4, marginTop: 2, flexWrap: "wrap" }}>
+                        {sentThreshold && (
+                          <span style={{ fontSize: 10, background: "#d1fae5", color: "#065f46", borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>
+                            🔔 {sentThreshold}d reminder sent
+                          </span>
+                        )}
+                        {nextThreshold && (
+                          <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>
+                            ⏳ {nextThreshold}d reminder upcoming
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="tp-upcoming-date">{dueLabel(t)}</span>
+                  </div>
+                );
+              })}
+            {tasks.filter((t) => {
+              if (!t.dueDate || t.status === 2 || t.status === 3) return false;
+              const d = new Date(t.dueDate); const now = new Date();
+              return d >= now && d <= new Date(now.getTime() + 7 * 864e5);
+            }).length === 0 && <div className="tp-upcoming-empty">Nothing due this week 🎉</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Auto-generate modal ── */}
+      {showAutoGen && (
+        <AutoGenModal
+          churchEvents={churchEvents}
+          genSelected={genSelected}
+          setGenSelected={setGenSelected}
+          genWeeks={genWeeks}
+          setGenWeeks={setGenWeeks}
+          generating={generating}
+          onGenerate={generateChurchTasks}
+          onClose={() => setShowAutoGen(false)}
+          existingTasks={tasks}
+          teams={teams}
+        />
+      )}
+
+      {/* ── Church event settings modal ── */}
+      {showSettings && (
+        <ChurchEventSettings
+          churchEvents={churchEvents}
+          setChurchEvents={(next) => {
+            setChurchEvents(next);
+            localStorage.setItem("mahima_church_events", JSON.stringify(next));
+          }}
+          onClose={() => setShowSettings(false)}
+          teams={teams}
+        />
+      )}
+
+      {/* ── Jai Masih reminder modal ── */}
+      {showReminder && reminderTask && (
+        <ReminderModal
+          task={reminderTask}
+          reminderNote={reminderNote}
+          setReminderNote={setReminderNote}
+          reminderSent={reminderSent}
+          onSend={() => sendReminder(reminderTask, reminderNote)}
+          onClose={() => { setShowReminder(false); setReminderSent(false); setReminderNote(""); }}
+        />
+      )}
     </div>
   );
 }
@@ -670,15 +1249,70 @@ function Chip({ active, onClick, color, children }) {
   );
 }
 
-function TaskCard({ task, onToggle, onEdit, onDelete }) {
+
+function TaskHierarchy({ nodes, onToggle, onEdit, onSubTask, onDelete, onRemind }) {
+  return (
+    <div className="tp-tree">
+      {nodes.map((node) => (
+        <TaskTreeNode
+          key={node.task.id}
+          node={node}
+          depth={0}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onSubTask={onSubTask}
+          onDelete={onDelete}
+          onRemind={onRemind}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TaskTreeNode({ node, depth, onToggle, onEdit, onSubTask, onDelete, onRemind }) {
+  const task = node.task;
+  return (
+    <div className={`tp-tree-node ${depth > 0 ? "is-child" : ""} ${node.isContext ? "is-context" : ""}`} style={{ "--depth": Math.min(depth, 5) }}>
+      {depth > 0 && <div className="tp-tree-rail" aria-hidden="true" />}
+      <TaskCard
+        task={task}
+        onToggle={() => onToggle(task)}
+        onEdit={() => onEdit(task)}
+        onSubTask={() => onSubTask(task)}
+        onDelete={() => onDelete(task)}
+        onRemind={() => onRemind(task)}
+      />
+      {node.children.length > 0 && (
+        <div className="tp-tree-children">
+          {node.children.map((child) => (
+            <TaskTreeNode
+              key={child.task.id}
+              node={child}
+              depth={depth + 1}
+              onToggle={onToggle}
+              onEdit={onEdit}
+              onSubTask={onSubTask}
+              onDelete={onDelete}
+              onRemind={onRemind}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskCard({ task, onToggle, onEdit, onSubTask, onDelete, onRemind }) {
   const status = STATUS[task.status];
   const priority = PRIORITY[task.priority];
   const overdue = isOverdue(task);
   const StatusIcon = status.icon;
   const completed = task.status === 2;
+  const readOnly = task.readOnly || task.canUpdate === false;
+  const readOnlyTitle = readOnlyMessage(task);
 
   return (
-    <article className={`tp-card ${completed ? "done" : ""} ${overdue ? "overdue" : ""}`}>
+    <article className={`tp-card ${completed ? "done" : ""} ${overdue ? "overdue" : ""} ${readOnly ? "read-only" : ""}`}>
       <div className="tp-card-bar" style={{ background: priority.color }} />
       <div className="tp-card-body">
         <div className="tp-card-head">
@@ -716,15 +1350,37 @@ function TaskCard({ task, onToggle, onEdit, onDelete }) {
           <span className={`tp-pill due ${overdue ? "overdue" : ""}`}>
             <Clock size={12} /> {dueLabel(task)}
           </span>
+          <span className="tp-pill">
+            <Filter size={12} /> {labelFrom(TASK_TYPES, task.taskType)}
+          </span>
+          <span className="tp-pill">
+            <ListTodo size={12} /> {labelFrom(PROCESS_STAGES, task.processStage, "Intake")}
+          </span>
+          {task.parentTaskId ? <span className="tp-pill">Subtask</span> : null}
+          {task.subTaskCount > 0 ? <span className="tp-pill">{task.subTaskCount} follow-up{subTaskPlural(task.subTaskCount)}</span> : null}
+          {task.followUpDate ? <span className="tp-pill due"><CalendarDays size={12} /> Follow up {fmtDate(task.followUpDate)}</span> : null}
+          {task.recurring && task.recurring !== "none" && (
+            <span className="tp-pill tp-pill-recur"><Repeat size={11} /> {task.recurring}</span>
+          )}
+          {task.isAutoGen && (
+            <span className="tp-pill tp-pill-autogen"><Zap size={11} /> Auto</span>
+          )}
+          {readOnly ? <span className="tp-pill readonly" title={readOnlyTitle}>Read-only</span> : null}
         </div>
 
         <div className="tp-card-actions">
           <AvatarStack assignees={task.assignees} max={3} />
           <div className="tp-card-actions-end">
-            <button className="tp-icon-btn" onClick={onEdit} title="Edit">
+            <button className="tp-icon-btn remind" onClick={onRemind} title="Send Jai Masih reminder">
+              <Bell size={14} />
+            </button>
+            <button className="tp-icon-btn" onClick={onSubTask} title={readOnly ? readOnlyTitle : "Add follow-up subtask"} disabled={readOnly}>
+              <Plus size={14} />
+            </button>
+            <button className="tp-icon-btn" onClick={onEdit} title={readOnly ? readOnlyTitle : "Edit"} disabled={readOnly}>
               <Pencil size={14} />
             </button>
-            <button className="tp-icon-btn danger" onClick={onDelete} title="Delete">
+            <button className="tp-icon-btn danger" onClick={onDelete} title={readOnly ? readOnlyTitle : "Delete"} disabled={readOnly}>
               <Trash2 size={14} />
             </button>
           </div>
@@ -734,7 +1390,7 @@ function TaskCard({ task, onToggle, onEdit, onDelete }) {
   );
 }
 
-function Board({ tasks, onToggle, onEdit, onDelete }) {
+function Board({ tasks, onToggle, onEdit, onSubTask, onDelete, onRemind }) {
   const cols = Object.entries(STATUS).map(([k, v]) => ({
     key: Number(k),
     label: v.label,
@@ -765,7 +1421,9 @@ function Board({ tasks, onToggle, onEdit, onDelete }) {
                     task={t}
                     onToggle={() => onToggle(t)}
                     onEdit={() => onEdit(t)}
+                    onSubTask={() => onSubTask(t)}
                     onDelete={() => onDelete(t)}
+                    onRemind={() => onRemind(t)}
                   />
                 ))
               )}
@@ -849,8 +1507,8 @@ function Avatar({ entity, size = 26, ring = true }) {
     boxShadow: ring ? "0 0 0 2px #fff" : "none",
   };
   const title = isTeam
-    ? `${entity.name}${entity.memberCount ? ` (${entity.memberCount})` : ""} · Team`
-    : `${entity.name}${entity.email ? ` · ${entity.email}` : ""}`;
+    ? `${entity.name}${entity.memberCount ? ` (${entity.memberCount})` : ""} Â· Team`
+    : `${entity.name}${entity.email ? ` Â· ${entity.email}` : ""}`;
 
   return (
     <span className={`tp-avatar ${isTeam ? "is-team" : ""}`} style={style} title={title}>
@@ -971,7 +1629,7 @@ function AssigneePicker({ users, teams, selected, onChange, loadTeamMembers }) {
         <div className="tp-picker-chips">
           {selected.length === 0 ? (
             <span className="tp-picker-placeholder">
-              <Users size={14} /> Assign people or teams…
+              <Users size={14} /> Assign people or teamsâ€¦
             </span>
           ) : (
             selected.map((a) => (
@@ -1007,7 +1665,7 @@ function AssigneePicker({ users, teams, selected, onChange, loadTeamMembers }) {
             <Search size={14} />
             <input
               autoFocus
-              placeholder="Search people or teams…"
+              placeholder="Search people or teamsâ€¦"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -1058,7 +1716,7 @@ function AssigneePicker({ users, teams, selected, onChange, loadTeamMembers }) {
                             <div className="tp-team-members">
                               {loading ? (
                                 <div className="tp-picker-empty small">
-                                  <Loader2 size={13} className="spin" /> Loading members…
+                                  <Loader2 size={13} className="spin" /> Loading membersâ€¦
                                 </div>
                               ) : memberIds.length === 0 ? (
                                 <div className="tp-picker-empty small">No members in this team</div>
@@ -1075,7 +1733,7 @@ function AssigneePicker({ users, teams, selected, onChange, loadTeamMembers }) {
                                     const u = userIndex.get(String(uid));
                                     if (!u) return (
                                       <div key={`m-${uid}`} className="tp-picker-empty small">
-                                        Unknown user · {String(uid).slice(0, 8)}…
+                                        Unknown user Â· {String(uid).slice(0, 8)}â€¦
                                       </div>
                                     );
                                     return (
@@ -1141,7 +1799,7 @@ function PickerRow({ entity, selected, onToggle, compact = false }) {
         <div className="tp-picker-row-name">{entity.name}</div>
         <div className="tp-picker-row-sub">
           {entity.type === "team"
-            ? `Team${entity.memberCount ? ` · ${entity.memberCount} members` : ""}`
+            ? `Team${entity.memberCount ? ` Â· ${entity.memberCount} members` : ""}`
             : entity.email || "User"}
         </div>
       </div>
@@ -1154,7 +1812,7 @@ function PickerRow({ entity, selected, onToggle, compact = false }) {
 
 /* ------------------ Modal ------------------ */
 
-function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, onClose, onSubmit }) {
+function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, tasks, onClose, onSubmit }) {
   useEffect(() => {
     const onEsc = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onEsc);
@@ -1188,34 +1846,34 @@ function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, onClo
           <Field label="Description">
             <textarea
               rows={4}
-              placeholder="Add notes, links, acceptance criteria…"
+              placeholder="Add notes, links, acceptance criteria..."
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </Field>
 
           <div className="tp-row-2">
-            <Field label="Priority">
-              <select
-                value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: e.target.value })}
-              >
-                {Object.entries(PRIORITY).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
+            <Field label="Task type">
+              <select value={form.taskType} onChange={(e) => setForm({ ...form, taskType: e.target.value })}>
+                {TASK_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </Field>
-            <Field label="Status">
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-              >
-                {Object.entries(STATUS).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
+            <Field label="Process stage">
+              <select value={form.processStage} onChange={(e) => setForm({ ...form, processStage: e.target.value })}>
+                {PROCESS_STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </Field>
           </div>
+
+          <Field label="Parent task / follow-up of">
+            <select value={form.parentTaskId || ""} onChange={(e) => setForm({ ...form, parentTaskId: e.target.value })}>
+              <option value="">Top-level task</option>
+              {(tasks || []).filter((t) => String(t.id) !== String(form.id)).map((t) => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+            <div className="tp-field-hint">Use this to create follow-up activities and subtasks under a larger process.</div>
+          </Field>
 
           <Field label="Assignees">
             <AssigneePicker
@@ -1232,6 +1890,26 @@ function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, onClo
             )}
           </Field>
 
+          <div className="tp-row-2">
+            <Field label="Follow-up date">
+              <div className="tp-date-input">
+                <CalendarDays size={15} />
+                <input
+                  type="date"
+                  value={form.followUpDate}
+                  onChange={(e) => setForm({ ...form, followUpDate: e.target.value })}
+                />
+              </div>
+            </Field>
+            <Field label="Follow-up notes">
+              <input
+                value={form.followUpNotes}
+                onChange={(e) => setForm({ ...form, followUpNotes: e.target.value })}
+                placeholder="Call, visit, reminder, review..."
+              />
+            </Field>
+          </div>
+
           <Field label="Due date">
             <div className="tp-date-input">
               <CalendarDays size={15} />
@@ -1242,12 +1920,18 @@ function TaskModal({ form, setForm, saving, users, teams, loadTeamMembers, onClo
               />
             </div>
           </Field>
+
+          <Field label="Recurring">
+            <select value={form.recurring || "none"} onChange={(e) => setForm({ ...form, recurring: e.target.value })}>
+              {RECUR_PATTERNS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
         </div>
 
         <footer className="tp-modal-foot">
           <button type="button" className="tp-btn ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="tp-btn primary" disabled={saving}>
-            {saving ? <><Loader2 size={15} className="spin" /> Saving…</> : (form.id ? "Save changes" : "Create task")}
+            {saving ? <><Loader2 size={15} className="spin" /> Savingâ€¦</> : (form.id ? "Save changes" : "Create task")}
           </button>
         </footer>
       </form>
@@ -1279,6 +1963,336 @@ function ConfirmDialog({ title, message, onCancel, onConfirm }) {
             <Trash2 size={15} /> Delete
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Task Radar (SVG spider chart)                                      */
+/* ------------------------------------------------------------------ */
+
+function TaskRadar({ tasks }) {
+  const N  = RADAR_CATEGORIES.length;
+  const R  = 70;
+  const cx = 90;
+  const cy = 90;
+
+  const counts = useMemo(() => {
+    const map = {};
+    RADAR_CATEGORIES.forEach((c) => { map[c.type] = 0; });
+    tasks.forEach((t) => { if (map[t.taskType] !== undefined) map[t.taskType]++; });
+    return map;
+  }, [tasks]);
+
+  const maxCount = Math.max(...Object.values(counts), 1);
+
+  const pts = RADAR_CATEGORIES.map((cat, i) => {
+    const angle = (2 * Math.PI * i) / N - Math.PI / 2;
+    const r = (counts[cat.type] / maxCount) * R;
+    return {
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle),
+      lx: cx + (R + 20) * Math.cos(angle),
+      ly: cy + (R + 20) * Math.sin(angle),
+      cat,
+    };
+  });
+
+  const gridLine = (scale) =>
+    RADAR_CATEGORIES.map((_, i) => {
+      const angle = (2 * Math.PI * i) / N - Math.PI / 2;
+      return `${cx + R * scale * Math.cos(angle)},${cy + R * scale * Math.sin(angle)}`;
+    }).join(" ");
+
+  const dataPath = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") + "Z";
+
+  return (
+    <svg viewBox="0 0 180 180" width="180" height="180" style={{ overflow: "visible", flexShrink: 0 }}>
+      {[0.25, 0.5, 0.75, 1].map((s) => (
+        <polygon key={s} points={gridLine(s)} fill="none" stroke="#e5e7eb" strokeWidth={s === 1 ? 1.5 : 0.7} />
+      ))}
+      {RADAR_CATEGORIES.map((_, i) => {
+        const angle = (2 * Math.PI * i) / N - Math.PI / 2;
+        return (
+          <line key={i} x1={cx} y1={cy}
+            x2={cx + R * Math.cos(angle)} y2={cy + R * Math.sin(angle)}
+            stroke="#e5e7eb" strokeWidth={0.7} />
+        );
+      })}
+      <polygon points={pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+        fill="rgba(99,102,241,0.15)" stroke="#6366f1" strokeWidth={2} />
+      {pts.map((p) => (
+        <circle key={p.cat.type} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r={3}
+          fill={p.cat.color} stroke="#fff" strokeWidth={1.5} />
+      ))}
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Auto-generate modal                                                */
+/* ------------------------------------------------------------------ */
+
+function AutoGenModal({ churchEvents, genSelected, setGenSelected, genWeeks, setGenWeeks, generating, onGenerate, onClose, existingTasks, teams = [] }) {
+  useEffect(() => {
+    const onEsc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [onClose]);
+
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="tp-modal-bg" onClick={(e) => e.target.classList.contains("tp-modal-bg") && onClose()}>
+      <div className="tp-modal" style={{ maxWidth: 540 }}>
+        <header className="tp-modal-head">
+          <div>
+            <h2><Zap size={18} style={{ verticalAlign: "middle", marginRight: 6, color: "#f59e0b" }} />Auto-generate Church Tasks</h2>
+            <p>Create tasks for upcoming church events automatically.</p>
+          </div>
+          <button type="button" className="tp-icon-btn" onClick={onClose}><X size={16} /></button>
+        </header>
+
+        <div className="tp-modal-body">
+          <div className="tp-field">
+            <span className="tp-field-label">Generate for how many weeks?</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {[1, 2, 4, 8, 12].map((w) => (
+                <button key={w} type="button"
+                  className={`tp-gen-chip${genWeeks === w ? " active" : ""}`}
+                  onClick={() => setGenWeeks(w)}>
+                  {w}w
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="tp-field" style={{ marginTop: 14 }}>
+            <span className="tp-field-label">Select events</span>
+            <div style={{ display: "grid", gap: 10, marginTop: 6 }}>
+              {churchEvents.map((evt) => {
+                const sel = genSelected.has(evt.id);
+                const upcoming = [];
+                for (let w = 0; w < Math.min(genWeeks, 3); w++) {
+                  const d = nextOccurrence(evt.day, evt.time);
+                  d.setDate(d.getDate() + w * 7);
+                  upcoming.push(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+                }
+                const dupCount = existingTasks.filter((t) => t.eventRef?.startsWith(evt.id)).length;
+                const resolvedTeam = smartMatchTeam(evt.taskType, evt.label, teams, evt.defaultTeamId);
+                return (
+                  <div key={evt.id}
+                    className={`tp-gen-card${sel ? " selected" : ""}`}
+                    onClick={() => setGenSelected((prev) => {
+                      const next = new Set(prev);
+                      next.has(evt.id) ? next.delete(evt.id) : next.add(evt.id);
+                      return next;
+                    })}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 22 }}>{evt.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{evt.label}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>
+                          {DAYS[evt.day]} · {evt.time} · {upcoming.join(", ")}
+                          {dupCount > 0 && <span style={{ color: "#f59e0b", marginLeft: 6 }}>({dupCount} already exist)</span>}
+                        </div>
+                        {resolvedTeam ? (
+                          <div style={{ marginTop: 3, fontSize: 11, color: "#6366f1", fontWeight: 600 }}>
+                            👥 Auto-assign → {resolvedTeam.name}
+                            {evt.defaultTeamId ? " (explicit)" : " (smart match)"}
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 3, fontSize: 11, color: "#9ca3af" }}>
+                            No team matched — assign manually after
+                          </div>
+                        )}
+                      </div>
+                      <input type="checkbox" readOnly checked={sel} style={{ width: 16, height: 16, accentColor: "#6366f1" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 12, color: "#166534" }}>
+            Will create up to <strong>{genSelected.size * genWeeks}</strong> tasks (skipping duplicates).
+          </div>
+        </div>
+
+        <footer className="tp-modal-foot">
+          <button type="button" className="tp-btn ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="tp-btn primary" disabled={generating || genSelected.size === 0} onClick={onGenerate}>
+            {generating ? <><Loader2 size={14} className="spin" /> Generating…</> : <><Zap size={14} /> Generate {genSelected.size * genWeeks} tasks</>}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Church event settings modal                                        */
+/* ------------------------------------------------------------------ */
+
+function ChurchEventSettings({ churchEvents, setChurchEvents, onClose, teams = [] }) {
+  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  useEffect(() => {
+    const onEsc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [onClose]);
+
+  const update = (idx, key, val) => {
+    const next = churchEvents.map((e, i) => i === idx ? { ...e, [key]: val } : e);
+    setChurchEvents(next);
+  };
+
+  return (
+    <div className="tp-modal-bg" onClick={(e) => e.target.classList.contains("tp-modal-bg") && onClose()}>
+      <div className="tp-modal" style={{ maxWidth: 560 }}>
+        <header className="tp-modal-head">
+          <div>
+            <h2><Settings size={18} style={{ verticalAlign: "middle", marginRight: 6 }} />Church Event Settings</h2>
+            <p>Customise the recurring events used for auto-generation.</p>
+          </div>
+          <button type="button" className="tp-icon-btn" onClick={onClose}><X size={16} /></button>
+        </header>
+
+        <div className="tp-modal-body">
+          {churchEvents.map((evt, idx) => (
+            <div key={evt.id} style={{ padding: 14, borderRadius: 12, border: "1px solid #e5e7eb", marginBottom: 10, background: "#fafafa" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="Event name">
+                  <input value={evt.label} onChange={(e) => update(idx, "label", e.target.value)} />
+                </Field>
+                <Field label="Icon (emoji)">
+                  <input value={evt.icon} onChange={(e) => update(idx, "icon", e.target.value)} style={{ maxWidth: 80 }} />
+                </Field>
+                <Field label="Day of week">
+                  <select value={evt.day} onChange={(e) => update(idx, "day", Number(e.target.value))}>
+                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                </Field>
+                <Field label="Time">
+                  <input type="time" value={evt.time} onChange={(e) => update(idx, "time", e.target.value)} />
+                </Field>
+                {teams.length > 0 && (
+                  <Field label="Default Team (explicit)" style={{ gridColumn: "1 / -1" }}>
+                    <select
+                      value={evt.defaultTeamId || ""}
+                      onChange={(e) => update(idx, "defaultTeamId", e.target.value || null)}>
+                      <option value="">— Use smart auto-match —</option>
+                      {teams.map((t) => (
+                        <option key={t.id} value={String(t.id)}>{t.name}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>
+                      If set, always assigns this team. Otherwise, smart keyword matching is used.
+                    </div>
+                  </Field>
+                )}
+              </div>
+            </div>
+          ))}
+          <button type="button" className="tp-btn ghost" style={{ width: "100%", marginTop: 4, justifyContent: "center" }}
+            onClick={() => setChurchEvents([...churchEvents, { id: `custom_${Date.now()}`, label: "New Event", day: 0, time: "10:00", taskType: "event", priority: 2, icon: "⛪" }])}>
+            <Plus size={14} /> Add event
+          </button>
+        </div>
+
+        <footer className="tp-modal-foot">
+          <button type="button" className="tp-btn ghost"
+            onClick={() => { setChurchEvents(CHURCH_EVENTS_DEFAULT); localStorage.removeItem("mahima_church_events"); }}>
+            Reset defaults
+          </button>
+          <button type="button" className="tp-btn primary" onClick={onClose}>Done</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Jai Masih reminder modal                                           */
+/* ------------------------------------------------------------------ */
+
+function ReminderModal({ task, reminderNote, setReminderNote, reminderSent, onSend, onClose }) {
+  useEffect(() => {
+    const onEsc = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [onClose]);
+
+  return (
+    <div className="tp-modal-bg" onClick={(e) => e.target.classList.contains("tp-modal-bg") && onClose()}>
+      <div className="tp-modal" style={{ maxWidth: 500 }}>
+        <header className="tp-modal-head">
+          <div>
+            <h2><Bell size={18} style={{ verticalAlign: "middle", marginRight: 6, color: "#f59e0b" }} />Jai Masih Reminder</h2>
+            <p style={{ fontWeight: 600 }}>{task.title}</p>
+          </div>
+          <button type="button" className="tp-icon-btn" onClick={onClose}><X size={16} /></button>
+        </header>
+
+        <div className="tp-modal-body">
+          {reminderSent ? (
+            <div style={{ textAlign: "center", padding: "28px 0" }}>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>🙏</div>
+              <div style={{ fontWeight: 700, fontSize: 17, color: "#065f46" }}>Jai Masih Ji!</div>
+              <div style={{ color: "#6b7280", fontSize: 13, marginTop: 6 }}>
+                Reminder sent to {task.assignees?.filter((a) => a.type === "user").length || 0} assignee(s).
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="tp-field">
+                <span className="tp-field-label">Quick templates</span>
+                <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
+                  {JAI_MASIH_TEMPLATES.map((tpl) => (
+                    <button key={tpl.id} type="button"
+                      style={{
+                        textAlign: "left", padding: "10px 14px", borderRadius: 10,
+                        border: `1.5px solid ${reminderNote === tpl.message ? "#6366f1" : "#e5e7eb"}`,
+                        background: reminderNote === tpl.message ? "#eef2ff" : "#fff",
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                      onClick={() => setReminderNote(tpl.message)}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: "#6366f1", marginBottom: 3 }}>🕊 {tpl.label}</div>
+                      <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.4 }}>{tpl.message}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Field label="Custom message">
+                <textarea
+                  rows={4}
+                  placeholder="Jai Masih Ji! 🙏 Your message here…"
+                  value={reminderNote}
+                  onChange={(e) => setReminderNote(e.target.value)}
+                />
+              </Field>
+
+              <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 4 }}>
+                Sends an in-app notification to all assignees of this task.
+              </div>
+            </>
+          )}
+        </div>
+
+        <footer className="tp-modal-foot">
+          <button type="button" className="tp-btn ghost" onClick={onClose}>
+            {reminderSent ? "Close" : "Cancel"}
+          </button>
+          {!reminderSent && (
+            <button type="button" className="tp-btn primary" disabled={!reminderNote.trim()} onClick={onSend}>
+              <Send size={14} /> Jai Masih Ji! 🙏
+            </button>
+          )}
+        </footer>
       </div>
     </div>
   );
@@ -1560,6 +2574,40 @@ function Styles() {
         padding: 4px; border-radius: 4px;
       }
       .tp-alert button:hover { background: rgba(185,28,28,.08); }
+
+      /* Hierarchy */
+      .tp-tree {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .tp-tree-node {
+        position: relative;
+        margin-left: calc(var(--depth, 0) * 28px);
+      }
+      .tp-tree-node.is-child {
+        margin-top: 10px;
+      }
+      .tp-tree-node.is-context > .tp-card {
+        opacity: .72;
+      }
+      .tp-tree-children {
+        position: relative;
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .tp-tree-rail {
+        position: absolute;
+        left: -18px;
+        top: -10px;
+        bottom: 50%;
+        width: 18px;
+        border-left: 2px solid var(--border-strong);
+        border-bottom: 2px solid var(--border-strong);
+        border-bottom-left-radius: 10px;
+      }
 
       /* Grid + Card */
       .tp-grid {
@@ -1955,6 +3003,99 @@ function Styles() {
       .spin { animation: spin 1s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
 
+      /* ── Recurring / autogen pills ── */
+      .tp-pill-recur  { background: #ede9fe; color: #7c3aed; }
+      .tp-pill-autogen{ background: #fef3c7; color: #b45309; }
+
+      /* ── Remind icon button ── */
+      .tp-icon-btn.remind:hover { background: #fef3c7; color: #b45309; border-color: #fde68a; }
+
+      /* ── Activity Radar panel ── */
+      .tp-radar-wrap {
+        position: fixed;
+        bottom: 24px; right: 24px;
+        z-index: 50;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 18px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.14);
+        width: min(440px, calc(100vw - 40px));
+        overflow: hidden;
+        animation: pop .22s cubic-bezier(.2,.7,.3,1.3);
+      }
+      .tp-radar-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px 16px;
+        font-weight: 700; font-size: 13px; color: #111827;
+        border-bottom: 1px solid #f3f4f6;
+        background: #f9fafb;
+      }
+      .tp-radar-close {
+        margin-left: auto;
+        background: transparent; border: none; cursor: pointer;
+        color: #9ca3af; display: grid; place-items: center;
+        border-radius: 6px; padding: 3px;
+      }
+      .tp-radar-close:hover { background: #f3f4f6; color: #374151; }
+      .tp-radar-body {
+        display: flex; gap: 16px; align-items: flex-start;
+        padding: 14px 16px;
+      }
+      .tp-radar-legend { flex: 1; display: grid; gap: 5px; }
+      .tp-radar-legend-row {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; color: #374151;
+      }
+      .tp-radar-dot {
+        width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0;
+      }
+      .tp-radar-legend-label { flex: 1; font-weight: 500; }
+      .tp-radar-legend-count {
+        font-weight: 700; color: #6366f1; font-size: 12px;
+        background: #eef2ff; border-radius: 6px;
+        padding: 1px 7px;
+      }
+      .tp-upcoming {
+        border-top: 1px solid #f3f4f6;
+        padding: 12px 16px;
+      }
+      .tp-upcoming-title {
+        font-size: 11px; font-weight: 700; color: #6b7280;
+        text-transform: uppercase; letter-spacing: .05em;
+        display: flex; align-items: center; gap: 5px;
+        margin-bottom: 8px;
+      }
+      .tp-upcoming-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 0;
+        border-bottom: 1px solid #f9fafb;
+        font-size: 12px;
+      }
+      .tp-upcoming-item:last-child { border-bottom: none; }
+      .tp-upcoming-dot {
+        width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      }
+      .tp-upcoming-title-text { flex: 1; font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tp-upcoming-date { font-size: 11px; color: #6b7280; white-space: nowrap; }
+      .tp-upcoming-empty { font-size: 12px; color: #9ca3af; text-align: center; padding: 8px 0; }
+
+      /* ── Auto-gen chips & cards ── */
+      .tp-gen-chip {
+        padding: 5px 14px; border-radius: 20px;
+        border: 1.5px solid #e5e7eb; background: #fff;
+        font-size: 13px; font-weight: 600; cursor: pointer;
+        font-family: inherit; transition: all .14s; color: #374151;
+      }
+      .tp-gen-chip.active { background: #eef2ff; color: #6366f1; border-color: #c7d2fe; }
+      .tp-gen-chip:hover { border-color: #6366f1; }
+      .tp-gen-card {
+        padding: 12px 14px; border-radius: 12px;
+        border: 1.5px solid #e5e7eb; background: #fff;
+        cursor: pointer; transition: all .14s;
+      }
+      .tp-gen-card.selected { border-color: #6366f1; background: #eef2ff; }
+      .tp-gen-card:hover { border-color: #6366f1; }
+
       /* Field hint */
       .tp-field-hint {
         font-size: 12px; color: var(--text-3); margin-top: 4px;
@@ -2046,7 +3187,7 @@ function Styles() {
       }
       .tp-picker-caret.open { transform: rotate(180deg); }
 
-      /* Inline expanding panel — no overflow surprises inside scrollable parents */
+      /* Inline expanding panel â€” no overflow surprises inside scrollable parents */
       .tp-picker-panel {
         border-top: 1px solid var(--border);
         display: flex;
@@ -2233,3 +3374,6 @@ function Styles() {
     `}</style>
   );
 }
+
+
+

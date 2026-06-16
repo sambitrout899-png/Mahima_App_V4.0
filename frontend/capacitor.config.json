@@ -16,6 +16,21 @@
     },
     "Keyboard": {
       "resize": "body"
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_jai_masih",
+      "iconColor": "#047857",
+      "sound": "default",
+      "channelId": "jai-masih",
+      "channelName": "Jai Masih - Chat Messages",
+      "channelDescription": "Real-time chat messages from the Mahima Ministry community",
+      "channelImportance": 5,
+      "channelVisibility": 1,
+      "channelSound": "default",
+      "channelVibration": true
     }
   }
 }

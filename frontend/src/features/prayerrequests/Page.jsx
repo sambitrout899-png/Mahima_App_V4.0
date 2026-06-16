@@ -1,6 +1,6 @@
 // src/features/prayerrequests/Page.jsx
 //
-// Community Prayer Wall â€” redesigned for clarity and warmth.
+// Community Prayer Wall — redesigned for clarity and warmth.
 //   - Hero compose card with character count + toasts
 //   - Stats summary (total / this week / answered)
 //   - Tabs (All / Mine / Active / Answered) + status chips + search
@@ -33,6 +33,11 @@ import {
   Reply,
   CheckCheck,
   AlertCircle,
+  Image as ImageIcon,
+  Mic,
+  MicOff,
+  UploadCloud,
+  Save,
 } from "lucide-react";
 import { getToken as getStoredToken } from "../auth/authService";
 import { getCurrentUser } from "../auth/permissionService";
@@ -43,16 +48,28 @@ import { getCurrentUser } from "../auth/permissionService";
 const API_BASE =
   import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || window.location.origin;
 const PRAYER_REQUESTS_URL = `${API_BASE}/prayerrequests`;
+const apiUrl = (path) => {
+  const base = API_BASE.replace(/\/+$/, "");
+  if (base.toLowerCase().endsWith("/api")) return `${base}${path}`;
+  return `${base}/api${path}`;
+};
 
 const fetchJson = async (url, options = {}) => {
   const res = await fetch(url, options);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `HTTP ${res.status} ${res.statusText || ""} â€“ ${text || "Request failed"}`
+      `HTTP ${res.status} ${res.statusText || ""} – ${text || "Request failed"}`
     );
   }
   return res.json().catch(() => null);
+};
+
+const ragMeta = (status) => {
+  const value = String(status || "green").toLowerCase();
+  if (value === "red") return { label: "Red", dot: "bg-red-500", chip: "border-red-200 bg-red-50 text-red-700" };
+  if (value === "amber") return { label: "Amber", dot: "bg-amber-500", chip: "border-amber-200 bg-amber-50 text-amber-700" };
+  return { label: "Green", dot: "bg-emerald-500", chip: "border-emerald-200 bg-emerald-50 text-emerald-700" };
 };
 
 /* ============================================================================
@@ -161,14 +178,23 @@ export default function PrayerRequestsPage() {
   // Data
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [childApplet, setChildApplet] = useState("prayers");
+  const [testimonies, setTestimonies] = useState([]);
+  const [testimoniesLoading, setTestimoniesLoading] = useState(false);
+  const [editingTestimonyId, setEditingTestimonyId] = useState(null);
+  const [testimonyDraft, setTestimonyDraft] = useState({ title: "", testimonyText: "", imageUrl: "", voiceUrl: "" });
+  const [testimonySaving, setTestimonySaving] = useState(false);
 
   // Compose
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [title, setTitle] = useState("");
   const [anonymous, setAnonymous] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceLang, setVoiceLang] = useState("en-IN");
 
-  // Respond â€” only one card expanded at a time
+  // Respond — only one card expanded at a time
   const [expandedRespondId, setExpandedRespondId] = useState(null);
   const [responseText, setResponseText] = useState("");
   const [responseSubmitting, setResponseSubmitting] = useState(false);
@@ -205,6 +231,90 @@ export default function PrayerRequestsPage() {
   const dismissToast = (id) => setToasts((arr) => arr.filter((t) => t.id !== id));
 
   const tokenRef = useRef(getStoredToken());
+  const voiceRecognitionRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      try { voiceRecognitionRef.current?.stop?.(); } catch {}
+      voiceRecognitionRef.current = null;
+    };
+  }, []);
+
+  const stopVoiceCapture = useCallback(() => {
+    try { voiceRecognitionRef.current?.stop?.(); } catch {}
+    voiceRecognitionRef.current = null;
+    setVoiceListening(false);
+    setVoiceBusy(false);
+  }, []);
+
+  const startVoiceCapture = useCallback((lang = voiceLang) => {
+    if (voiceListening || voiceBusy) {
+      stopVoiceCapture();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      pushToast("Voice typing is not available in this browser. Please use Chrome on Android or the Mahima app.", "error");
+      return;
+    }
+
+    setVoiceLang(lang);
+    setVoiceBusy(true);
+    setVoiceListening(true);
+
+    const recognition = new SpeechRecognition();
+    voiceRecognitionRef.current = recognition;
+    recognition.lang = lang;
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    const existing = message.trim();
+    let finalText = "";
+
+    recognition.onstart = () => {
+      setVoiceBusy(false);
+      pushToast("Listening now. Speak your prayer request, then review before sharing.", "info", 2500);
+    };
+
+    recognition.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0]?.transcript || "";
+        if (event.results[i].isFinal) finalText += transcript;
+        else interim += transcript;
+      }
+      const spoken = (finalText || interim).trim();
+      if (spoken) setMessage([existing, spoken].filter(Boolean).join(existing ? "\n" : ""));
+    };
+
+    recognition.onerror = () => {
+      setVoiceListening(false);
+      setVoiceBusy(false);
+      voiceRecognitionRef.current = null;
+      pushToast("Could not hear clearly. Please try again or type the request.", "error");
+    };
+
+    recognition.onend = () => {
+      setVoiceListening(false);
+      setVoiceBusy(false);
+      voiceRecognitionRef.current = null;
+      const spoken = finalText.trim();
+      if (spoken) {
+        setMessage([existing, spoken].filter(Boolean).join(existing ? "\n" : ""));
+        pushToast("Voice request captured. Please review and share.", "success", 3000);
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      setVoiceBusy(false);
+      voiceRecognitionRef.current = null;
+      pushToast("Microphone could not start. Please allow microphone access.", "error");
+    }
+  }, [message, pushToast, stopVoiceCapture, voiceBusy, voiceLang, voiceListening]);
 
   /* -------------------------- LOAD USER + ADMIN -------------------------- */
   useEffect(() => {
@@ -223,8 +333,12 @@ export default function PrayerRequestsPage() {
           }
         }
         const rolesLower = rawRoles.map((r) => r.toLowerCase().trim());
+        const positionNames = Array.isArray(u?.positions)
+          ? u.positions.map((position) => String(position?.name || position?.positionName || "").toLowerCase().replace(/[^a-z0-9]+/g, ""))
+          : [];
+        const isCallCenterManager = positionNames.some((name) => name === "callcentermanager" || name === "callcentremanager");
         setIsAdmin(
-          rolesLower.some((r) =>
+          isCallCenterManager || rolesLower.some((r) =>
             ["admin", "administrator", "superadmin"].includes(r)
           )
         );
@@ -274,6 +388,27 @@ export default function PrayerRequestsPage() {
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
 
+  const loadTestimonies = useCallback(async () => {
+    setTestimoniesLoading(true);
+    try {
+      const data = await fetchJson(`${PRAYER_REQUESTS_URL}/testimonies`, {
+        headers: {
+          Authorization: tokenRef.current ? `Bearer ${tokenRef.current}` : "",
+        },
+      });
+      setTestimonies(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+      pushToast("Failed to load testimonies.", "error");
+    } finally {
+      setTestimoniesLoading(false);
+    }
+  }, [pushToast]);
+
+  useEffect(() => {
+    if (childApplet === "testimonies") loadTestimonies();
+  }, [childApplet, loadTestimonies]);
+
   /* --------------------------- SUBMIT NEW REQUEST ------------------------ */
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -303,7 +438,7 @@ export default function PrayerRequestsPage() {
       setMessage("");
       setTitle("");
       setAnonymous(false);
-      pushToast("Your prayer request has been shared. ðŸ™", "success");
+      pushToast("Your prayer request has been shared. ??", "success");
     } catch (err) {
       console.error(err);
       pushToast("Couldn't submit. Please try again.", "error");
@@ -376,7 +511,7 @@ export default function PrayerRequestsPage() {
       } else {
         next.add(id);
         nextCount = prevCount + 1;
-        pushToast("Thank you for praying. ðŸ™", "success", 2500);
+        pushToast("Thank you for praying. ??", "success", 2500);
       }
       setPrayerCounts((pc) => {
         const updated = { ...pc, [id]: nextCount };
@@ -452,12 +587,71 @@ export default function PrayerRequestsPage() {
       );
       setClosingId(null);
       setCloseComment("");
-      pushToast("Marked as answered. ðŸŽ‰", "success");
+      pushToast("Marked as answered. ??", "success");
     } catch (e) {
       console.error(e);
       pushToast("Failed to close prayer request.", "error");
     } finally {
       setCloseSubmitting(false);
+    }
+  };
+
+  const startEditTestimony = (t) => {
+    setEditingTestimonyId(t.id);
+    setTestimonyDraft({
+      title: t.title || "",
+      testimonyText: t.testimonyText || "",
+      imageUrl: t.imageUrl || "",
+      voiceUrl: t.voiceUrl || "",
+    });
+  };
+
+  const saveTestimony = async (id) => {
+    setTestimonySaving(true);
+    try {
+      const updated = await fetchJson(`${PRAYER_REQUESTS_URL}/testimonies/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: tokenRef.current ? `Bearer ${tokenRef.current}` : "",
+        },
+        body: JSON.stringify(testimonyDraft),
+      });
+      setTestimonies((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
+      setEditingTestimonyId(null);
+      pushToast("Testimony updated.", "success");
+    } catch (err) {
+      console.error(err);
+      pushToast("Failed to update testimony.", "error");
+    } finally {
+      setTestimonySaving(false);
+    }
+  };
+
+  const uploadTestimonyMedia = async (kind, file) => {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch(apiUrl("/uploads"), {
+        method: "POST",
+        headers: {
+          Authorization: tokenRef.current ? `Bearer ${tokenRef.current}` : "",
+        },
+        body: form,
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => "Upload failed."));
+      const data = await res.json();
+      const url = data?.url || data?.absoluteUrl;
+      if (!url) throw new Error("Upload did not return a file URL.");
+      setTestimonyDraft((draft) => ({
+        ...draft,
+        [kind === "voice" ? "voiceUrl" : "imageUrl"]: url,
+      }));
+      pushToast(kind === "voice" ? "Voice record uploaded." : "Image uploaded.", "success");
+    } catch (err) {
+      console.error(err);
+      pushToast(err?.message || "Upload failed.", "error");
     }
   };
 
@@ -556,7 +750,7 @@ export default function PrayerRequestsPage() {
         return `
         <tr>
           <td>${req.anonymous ? "Anonymous" : req.createdBy || "Member"}</td>
-          <td>${req.title || "â€”"}</td>
+          <td>${req.title || "—"}</td>
           <td>
             <div>${(req.message || "").toString().replace(/</g, "&lt;")}</div>
             ${responsesHtml ? `<ul style="margin-top:4px;padding-left:16px;font-size:11px;">${responsesHtml}</ul>` : ""}
@@ -580,7 +774,7 @@ export default function PrayerRequestsPage() {
           </style>
         </head>
         <body>
-          <h1>Mahima Ministry â€“ Prayer Requests</h1>
+          <h1>Mahima Ministry – Prayer Requests</h1>
           <h2>Printed at ${now.toLocaleString()}</h2>
           <table>
             <thead>
@@ -610,383 +804,376 @@ export default function PrayerRequestsPage() {
     { id: "answered", label: "Answered", count: stats.answered },
   ];
 
+  const adminInsights = useMemo(() => {
+    const counts = { new: 0, open: 0, prayed: 0, closed: 0, reminders: 0, remindersToday: 0, red: 0, amber: 0, green: 0 };
+    sortedRequests.forEach((request) => {
+      const status = (request.status || "new").toLowerCase();
+      counts[status] = (counts[status] || 0) + 1;
+      counts.reminders += Number(request.reminderCount || 0);
+      counts.remindersToday += Number(request.reminderTodayCount || 0);
+      const rag = String(request.ragStatus || "green").toLowerCase();
+      if (rag === "red") counts.red += 1;
+      else if (rag === "amber") counts.amber += 1;
+      else counts.green += 1;
+    });
+    return counts;
+  }, [sortedRequests]);
+
+  const activeQueue = sortedRequests.filter((request) => (request.status || "new").toLowerCase() !== "closed").slice(0, 5);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-rose-50/40">
+    <div className="min-h-screen bg-[#f5f7fb]">
       <Toasts items={toasts} onDismiss={dismissToast} />
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-
-        {/* =================== HERO + COMPOSE =================== */}
-        <section className="relative overflow-hidden rounded-3xl border border-white/70 bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-xl">
-          {/* decorative blobs */}
-          <div className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-white/10 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-fuchsia-300/30 blur-3xl" />
-
-          <div className="relative p-6 sm:p-8">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shadow-md">
-                <HandHeart className="w-6 h-6 text-white" />
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="grid gap-6 border-b border-slate-100 bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-900 p-5 text-white sm:p-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-emerald-50">
+                <HandHeart className="h-4 w-4 text-emerald-200" />
+                Community care
               </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                  Prayer Wall
-                </h1>
-                <p className="text-indigo-100 text-sm">
-                  Share what's on your heart. Pray for one another.
-                </p>
+              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Prayer Wall</h1>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-emerald-50">
+                A shared place for requests, encouragement, follow-up, and answered prayer testimonies.
+              </p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-4">
+                <StatCard icon={MessageCircle} label="Total" value={stats.total} accent="text-slate-950 bg-white" compact />
+                <StatCard icon={Calendar} label="This week" value={stats.thisWeek} accent="text-sky-700 bg-sky-50" compact />
+                <StatCard icon={HandHeart} label="Being prayed for" value={stats.prayed} accent="text-violet-700 bg-violet-50" compact />
+                <StatCard icon={CheckCircle2} label="Answered" value={stats.answered} accent="text-emerald-700 bg-emerald-50" compact />
               </div>
             </div>
 
-            {/* Compose */}
-            <form onSubmit={handleSubmit} className="mt-5 rounded-2xl bg-white/95 backdrop-blur p-4 sm:p-5 shadow-lg">
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Title (optional)"
-                maxLength={120}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent transition"
-              />
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                rows={4}
-                maxLength={1000}
-                placeholder="Share your prayer request..."
-                className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent resize-y transition"
-              />
-
-              <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="rounded border-slate-300 text-violet-500 focus:ring-violet-400"
-                      checked={anonymous}
-                      onChange={(e) => setAnonymous(e.target.checked)}
-                    />
-                    {anonymous ? <Lock className="w-3.5 h-3.5 text-slate-500" /> : <Globe className="w-3.5 h-3.5 text-slate-500" />}
-                    {anonymous ? "Posting anonymously" : "Post as me"}
-                  </label>
-                  <span className="text-[11px] text-slate-400 tabular-nums">
-                    {message.length}/1000
-                  </span>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting || !message.trim()}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Submitting...</>
-                  ) : (
-                    <><Send className="w-4 h-4" /> Share Request</>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
-
-        {/* =================== STATS =================== */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard icon={MessageCircle} label="Total" value={stats.total} accent="text-indigo-600 bg-indigo-50" />
-          <StatCard icon={Calendar}      label="This week" value={stats.thisWeek} accent="text-sky-600 bg-sky-50" />
-          <StatCard icon={HandHeart}     label="Being prayed for" value={stats.prayed} accent="text-violet-600 bg-violet-50" />
-          <StatCard icon={CheckCircle2}  label="Answered" value={stats.answered} accent="text-emerald-600 bg-emerald-50" />
-        </section>
-
-        {/* =================== TABS + SEARCH =================== */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 sm:p-4 border-b border-slate-100">
-            <div className="flex items-center gap-1 overflow-x-auto -mx-1 px-1">
-              {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setActiveTab(t.id)}
-                  className={`shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition ${
-                    activeTab === t.id
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {t.label}
-                  <span className={`text-[11px] font-semibold rounded-full px-1.5 py-0.5 tabular-nums ${
-                    activeTab === t.id ? "bg-white/15 text-white" : "bg-slate-200 text-slate-600"
-                  }`}>{t.count}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex-1" />
-            <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search title, message, or person..."
-                className="w-full pl-9 pr-3 py-2 rounded-full bg-slate-50 border border-slate-200 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          {/* Status chips */}
-          <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3">
-            <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <Filter className="w-3.5 h-3.5" /> Status:
-            </span>
-            <ChipButton active={statusFilter === null} onClick={() => setStatusFilter(null)}>
-              Any
-            </ChipButton>
-            {NORMALIZED_STATUSES.map((s) => {
-              const m = statusMeta(s);
-              return (
-                <ChipButton
-                  key={s}
-                  active={statusFilter === s}
-                  onClick={() => setStatusFilter(statusFilter === s ? null : s)}
-                  className={statusFilter === s ? m.chip : ""}
-                >
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${m.dot}`} />
-                  {m.label}
-                </ChipButton>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* =================== REQUESTS LIST =================== */}
-        <section className="space-y-3">
-          {loading ? (
-            <SkeletonList />
-          ) : filteredRequests.length === 0 ? (
-            <EmptyState
-              hasAny={sortedRequests.length > 0}
-              activeTab={activeTab}
-              clearFilters={() => {
-                setSearch("");
-                setStatusFilter(null);
-                setActiveTab("all");
-              }}
-            />
-          ) : (
-            filteredRequests.map((req) => (
-              <PrayerCard
-                key={req.id}
-                req={req}
-                meta={statusMeta(req.status)}
-                mine={isMine(req)}
-                isAdmin={isAdmin}
-                expanded={expandedRespondId === req.id}
-                onExpand={() => {
-                  setExpandedRespondId((id) => (id === req.id ? null : req.id));
-                  setResponseText("");
-                }}
-                responseText={responseText}
-                setResponseText={setResponseText}
-                onSubmitResponse={() => handleAddResponse(req)}
-                responseSubmitting={responseSubmitting && expandedRespondId === req.id}
-                onDelete={() => handleDeleteRequest(req.id)}
-                onPray={() => togglePray(req.id)}
-                prayedByMe={iPrayed.has(req.id)}
-                prayerCount={prayerCounts[req.id] || 0}
-              />
-            ))
-          )}
-        </section>
-
-        {/* =================== ADMIN SECTION =================== */}
-        {isAdmin && (
-          <section className="mt-6 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-                  <Sparkles className="w-5 h-5" />
+            <div className="rounded-lg border border-white/15 bg-white/10 p-4 backdrop-blur">
+              <div className="flex items-start gap-3">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white text-emerald-800">
+                  <Sparkles className="h-6 w-6" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">
-                    Admin Console
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Manage status, close with comment, and print.
-                  </p>
+                  <h2 className="text-lg font-black">Today&apos;s care queue</h2>
+                  <p className="mt-1 text-sm font-semibold text-emerald-50">{activeQueue.length} active requests need prayer or follow-up.</p>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintSelected}
-                  disabled={!selectedIds.length}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold px-4 py-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  Print ({selectedIds.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAdminTable((v) => !v)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 text-slate-600 text-xs font-semibold px-3 py-2 hover:bg-slate-50 transition"
-                >
-                  {showAdminTable ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  {showAdminTable ? "Hide" : "Show"}
-                </button>
+              <div className="mt-4 space-y-2">
+                {activeQueue.length ? activeQueue.map((request) => (
+                  <button key={request.id} type="button" onClick={() => { setChildApplet("prayers"); setActiveTab("all"); setStatusFilter((request.status || "new").toLowerCase()); }} className="flex w-full items-center justify-between gap-3 rounded-lg bg-white/10 px-3 py-2 text-left text-sm font-bold text-white hover:bg-white/15">
+                    <span className="truncate">{request.title || request.message || "Prayer request"}</span>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black ${statusMeta(request.status).chip}`}>{statusMeta(request.status).label}</span>
+                  </button>
+                )) : (
+                  <div className="rounded-lg bg-white/10 px-3 py-3 text-sm font-semibold text-emerald-50">No active prayer requests right now.</div>
+                )}
               </div>
             </div>
+          </div>
 
-            {showAdminTable && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs sm:text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr className="text-left font-semibold">
-                      <th className="px-3 py-2.5 w-8 text-center">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          onChange={toggleSelectAll}
-                          className="rounded border-slate-300"
-                        />
-                      </th>
-                      <th className="px-3 py-2.5">Requester</th>
-                      <th className="px-3 py-2.5">Title</th>
-                      <th className="px-3 py-2.5">Message &amp; Responses</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Created</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap text-center">Anon</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap text-center">#R</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedRequests.map((req) => {
-                      const m = statusMeta(req.status);
-                      return (
-                        <React.Fragment key={req.id}>
-                          <tr className="border-t border-slate-100 hover:bg-slate-50/60">
-                            <td className="px-3 py-2.5 align-top text-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(req.id)}
-                                onChange={() => toggleSelected(req.id)}
-                                className="rounded border-slate-300"
-                              />
-                            </td>
-                            <td className="px-3 py-2.5 align-top whitespace-nowrap text-slate-800 font-medium">
-                              {req.anonymous ? "Anonymous" : req.createdBy || "Member"}
-                            </td>
-                            <td className="px-3 py-2.5 align-top whitespace-nowrap text-slate-700">
-                              {req.title || "â€”"}
-                            </td>
-                            <td className="px-3 py-2.5 align-top text-slate-700 max-w-md">
-                              <div className="whitespace-pre-line line-clamp-3">{req.message}</div>
-                              {Array.isArray(req.responses) && req.responses.length > 0 && (
-                                <ul className="mt-1.5 border-t border-dashed border-slate-200 pt-1 space-y-0.5">
-                                  {req.responses.map((res) => (
-                                    <li key={res.id} className="text-[11px] text-slate-600">
-                                      <span className="font-semibold">
-                                        {res.respondedBy || res.author || "Team"}:
-                                      </span>{" "}
-                                      <span>{res.responseText || res.message}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                              {req.closeComment && (
-                                <div className="mt-1.5 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1">
-                                  <CheckCheck className="w-3 h-3 inline mr-1" />
-                                  {req.closeComment}
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 align-top whitespace-nowrap text-slate-600 text-xs">
-                              {new Date(req.createdAt).toLocaleDateString()}
-                              <span className="block text-[10px] text-slate-400">
-                                {new Date(req.createdAt).toLocaleTimeString()}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 align-top text-center text-slate-700">
-                              {req.anonymous ? "Yes" : "â€”"}
-                            </td>
-                            <td className="px-3 py-2.5 align-top whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`inline-block w-2 h-2 rounded-full ${m.dot}`} />
-                                <select
-                                  value={(req.status || "new").toLowerCase()}
-                                  onChange={(e) => handleStatusChange(req.id, e.target.value)}
-                                  disabled={statusUpdatingId === req.id}
-                                  className={`border rounded-full px-2.5 py-1 text-[11px] font-medium bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 ${m.chip}`}
-                                >
-                                  <option value="new">New</option>
-                                  <option value="open">Open</option>
-                                  <option value="prayed">Prayed</option>
-                                  <option value="closed">Answered</option>
-                                </select>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 align-top text-center text-slate-700 tabular-nums">
-                              {Array.isArray(req.responses) ? req.responses.length : 0}
-                            </td>
-                            <td className="px-3 py-2.5 align-top text-center">
-                              <button
-                                type="button"
-                                onClick={() => startClose(req)}
-                                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition"
-                              >
-                                <CheckCheck className="w-3 h-3" />
-                                Answered
-                              </button>
-                            </td>
-                          </tr>
+          <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
+            <aside className="space-y-5">
+              <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-800">
+                    <Send className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-950">Share a Request</h2>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">Type it, or tap the mic and speak it. Review once, then share.</p>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-black text-emerald-950">Speak instead of typing</div>
+                      <div className="text-xs font-semibold leading-5 text-emerald-800">Tap the mic, speak your request, then review the text before sharing.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startVoiceCapture(voiceLang)}
+                      disabled={voiceBusy}
+                      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-black shadow-sm transition disabled:opacity-60 ${voiceListening ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-emerald-700 text-white hover:bg-emerald-800"}`}
+                    >
+                      {voiceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {voiceListening ? "Stop listening" : "Start voice request"}
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[
+                      ["en-IN", "English"],
+                      ["hi-IN", "Hindi"],
+                      ["pa-IN", "Punjabi"],
+                    ].map(([code, label]) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setVoiceLang(code)}
+                        className={`rounded-full border px-3 py-1 text-xs font-black ${voiceLang === code ? "border-emerald-700 bg-white text-emerald-800" : "border-emerald-200 bg-emerald-100/70 text-emerald-800 hover:bg-white"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                          {closingId === req.id && (
-                            <tr>
-                              <td className="px-3 pb-4 pt-0 bg-slate-50" colSpan={9}>
-                                <div className="mt-2 flex flex-col sm:flex-row gap-2 items-start">
-                                  <textarea
-                                    value={closeComment}
-                                    onChange={(e) => setCloseComment(e.target.value)}
-                                    rows={3}
-                                    placeholder="How did God answer this prayer?"
-                                    className="w-full sm:flex-1 rounded-2xl border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent"
-                                  />
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      disabled={closeSubmitting}
-                                      onClick={handleCloseWithComment}
-                                      className="inline-flex items-center justify-center rounded-full bg-emerald-500 text-white text-xs font-semibold px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-600 transition"
-                                    >
-                                      {closeSubmitting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                                      Save &amp; Close
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={cancelClose}
-                                      className="inline-flex items-center justify-center rounded-full border border-slate-200 text-slate-700 text-xs font-semibold px-4 py-2 hover:bg-white transition"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                    {sortedRequests.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="px-4 py-6 text-center text-xs text-slate-500">
-                          No prayer requests found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <div className="mt-4 grid gap-3">
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={7}
+                    maxLength={1000}
+                    placeholder="Type here, or use the mic above and your spoken request will appear here..."
+                    className="min-h-44 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-base font-semibold leading-7 text-slate-900 outline-none ring-emerald-100 transition focus:bg-white focus:ring-4"
+                  />
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Optional title"
+                    maxLength={120}
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none ring-emerald-100 transition focus:ring-4"
+                  />
+                </div>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
+                    <input type="checkbox" className="h-4 w-4 accent-emerald-700" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+                    {anonymous ? <Lock className="h-4 w-4 text-slate-500" /> : <Globe className="h-4 w-4 text-slate-500" />}
+                    {anonymous ? "Anonymous" : "Post as me"}
+                  </label>
+                  <span className="text-xs font-bold text-slate-400">{message.length}/1000</span>
+                </div>
+                <button type="submit" disabled={submitting || !message.trim()} className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {submitting ? "Sharing..." : "Share Prayer Request"}
+                </button>
+              </form>
+
+              <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-black text-slate-950">Prayer Flow</h2>
+                <div className="mt-4 space-y-3">
+                  {[
+                    ["New", "Request is received by the community."],
+                    ["Open", "A leader or prayer partner is following up."],
+                    ["Prayed", "The request is actively covered in prayer."],
+                    ["Answered", "Closed with a testimony or response."],
+                  ].map(([label, copy]) => (
+                    <div key={label} className="flex gap-3 rounded-lg bg-slate-50 p-3">
+                      <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statusMeta(label.toLowerCase() === "answered" ? "closed" : label.toLowerCase()).dot}`} />
+                      <div>
+                        <div className="text-sm font-black text-slate-900">{label}</div>
+                        <div className="text-xs font-semibold leading-5 text-slate-500">{copy}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </aside>
+
+            <main className="min-w-0 space-y-5">
+              <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+                <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-1">
+                  <button type="button" onClick={() => setChildApplet("prayers")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "prayers" ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Prayer Wall</button>
+                  <button type="button" onClick={() => setChildApplet("testimonies")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "testimonies" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Testimonies</button>
+                </div>
+                {childApplet === "prayers" && (
+                  <div className="relative w-full xl:max-w-sm">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, message, or person" className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm font-semibold outline-none ring-emerald-100 focus:bg-white focus:ring-4" />
+                  </div>
+                )}
               </div>
-            )}
-          </section>
-        )}
+
+              {childApplet === "testimonies" && (
+                <TestimoniesApplet
+                  testimonies={testimonies}
+                  loading={testimoniesLoading}
+                  editingId={editingTestimonyId}
+                  draft={testimonyDraft}
+                  setDraft={setTestimonyDraft}
+                  onEdit={startEditTestimony}
+                  onCancel={() => setEditingTestimonyId(null)}
+                  onSave={saveTestimony}
+                  saving={testimonySaving}
+                  onUpload={uploadTestimonyMedia}
+                />
+              )}
+
+              {childApplet === "prayers" && (
+                <>
+                  <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-col gap-3 border-b border-slate-100 p-3 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="flex items-center gap-1 overflow-x-auto">
+                        {TABS.map((tab) => (
+                          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-black transition ${activeTab === tab.id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                            {tab.label}
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] ${activeTab === tab.id ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600"}`}>{tab.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-black uppercase tracking-wide text-slate-400"><Filter className="h-3.5 w-3.5" /> Status</span>
+                        <ChipButton active={statusFilter === null} onClick={() => setStatusFilter(null)}>Any</ChipButton>
+                        {NORMALIZED_STATUSES.map((status) => {
+                          const meta = statusMeta(status);
+                          return (
+                            <ChipButton key={status} active={statusFilter === status} onClick={() => setStatusFilter(statusFilter === status ? null : status)} className={statusFilter === status ? meta.chip : ""}>
+                              <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                              {meta.label}
+                            </ChipButton>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </section>
+
+                  {isAdmin && (
+                    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="flex flex-col gap-4 border-b border-slate-100 p-4 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-white">
+                            <Sparkles className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-lg font-black text-slate-950">Admin Prayer Desk</h2>
+                            <p className="text-sm font-semibold text-slate-500">Triage, update, close, and print prayer requests.</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={handlePrintSelected} disabled={!selectedIds.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                            <Printer className="h-4 w-4" /> Print {selectedIds.length ? `(${selectedIds.length})` : ""}
+                          </button>
+                          <button type="button" onClick={() => setShowAdminTable((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">
+                            {showAdminTable ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {showAdminTable ? "Hide desk" : "Show desk"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+                        <StatCard icon={AlertCircle} label="New" value={adminInsights.new || 0} accent="text-emerald-700 bg-emerald-50" />
+                        <StatCard icon={Clock} label="Open" value={adminInsights.open || 0} accent="text-sky-700 bg-sky-50" />
+                        <StatCard icon={HandHeart} label="Prayed" value={adminInsights.prayed || 0} accent="text-violet-700 bg-violet-50" />
+                        <StatCard icon={AlertCircle} label="Reminders" value={adminInsights.remindersToday || 0} accent="text-amber-700 bg-amber-50" />
+                        <StatCard icon={AlertCircle} label="RAG Red" value={adminInsights.red || 0} accent="text-red-700 bg-red-50" />
+                        <StatCard icon={CheckCheck} label="Answered" value={adminInsights.closed || 0} accent="text-slate-700 bg-slate-100" />
+                      </div>
+
+                      {showAdminTable && (
+                        <div className="overflow-x-auto border-t border-slate-100">
+                          <table className="min-w-[1120px] text-sm">
+                            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+                              <tr className="text-left">
+                                <th className="w-10 px-4 py-3 text-center"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="rounded border-slate-300" /></th>
+                                <th className="w-44 px-4 py-3">Requester</th>
+                                <th className="min-w-[360px] px-4 py-3">Request</th>
+                                <th className="w-36 px-4 py-3">Created</th>
+                                <th className="w-40 px-4 py-3">Status</th>
+                                <th className="w-28 px-4 py-3 text-center">RAG</th>
+                                <th className="w-24 px-4 py-3 text-center">Replies</th>
+                                <th className="w-32 px-4 py-3 text-center">Reminders</th>
+                                <th className="w-32 px-4 py-3 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sortedRequests.map((req) => {
+                                const meta = statusMeta(req.status);
+                                const rag = ragMeta(req.ragStatus);
+                                return (
+                                  <React.Fragment key={req.id}>
+                                    <tr className="border-t border-slate-100 align-top hover:bg-slate-50/70">
+                                      <td className="px-4 py-4 text-center"><input type="checkbox" checked={selectedIds.includes(req.id)} onChange={() => toggleSelected(req.id)} className="rounded border-slate-300" /></td>
+                                      <td className="whitespace-nowrap px-4 py-4 font-bold text-slate-800">{req.anonymous ? "Anonymous" : req.createdBy || "Member"}{req.anonymous && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Hidden</span>}</td>
+                                      <td className="max-w-xl px-4 py-4">
+                                        <div className="font-black text-slate-950">{req.title || "Prayer request"}</div>
+                                        <div className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">{req.message}</div>
+                                        {req.closeComment && <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800"><CheckCheck className="mr-1 inline h-3.5 w-3.5" />{req.closeComment}</div>}
+                                      </td>
+                                      <td className="whitespace-nowrap px-4 py-4 text-xs font-bold text-slate-500">{new Date(req.createdAt).toLocaleDateString()}<span className="block text-slate-400">{new Date(req.createdAt).toLocaleTimeString()}</span></td>
+                                      <td className="px-4 py-4">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`h-2.5 w-2.5 rounded-full ${meta.dot}`} />
+                                          <select value={(req.status || "new").toLowerCase()} onChange={(e) => handleStatusChange(req.id, e.target.value)} disabled={statusUpdatingId === req.id} className={`rounded-lg border px-2.5 py-2 text-xs font-black outline-none ring-emerald-100 focus:ring-4 ${meta.chip}`}>
+                                            <option value="new">New</option>
+                                            <option value="open">Open</option>
+                                            <option value="prayed">Prayed</option>
+                                            <option value="closed">Answered</option>
+                                          </select>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-4 text-center">
+                                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wide ${rag.chip}`} title={req.ragReason || "Prayer RAG status"}>
+                                          <span className={`h-1.5 w-1.5 rounded-full ${rag.dot}`} />
+                                          {rag.label}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-4 text-center font-black text-slate-700">{Array.isArray(req.responses) ? req.responses.length : 0}</td>
+                                      <td className="px-4 py-4 text-center">
+                                        <div className={`inline-flex min-w-10 items-center justify-center rounded-full px-2 py-1 text-xs font-black tabular-nums ${Number(req.reminderCount || 0) > 0 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`} title={req.lastReminderAtUtc ? `Last reminder: ${new Date(req.lastReminderAtUtc).toLocaleString()}` : "No reminders sent"}>
+                                          {Number(req.reminderCount || 0)}
+                                          {Number(req.reminderTodayCount || 0) > 0 && <span className="ml-1 rounded-full bg-amber-200 px-1 text-[10px] text-amber-900">+{req.reminderTodayCount}</span>}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-4 text-right"><button type="button" onClick={() => startClose(req)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100"><CheckCheck className="h-3.5 w-3.5" /> Answered</button></td>
+                                    </tr>
+                                    {closingId === req.id && (
+                                      <tr>
+                                        <td className="bg-slate-50 px-4 pb-4" colSpan={9}>
+                                          <div className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-white p-3 lg:grid-cols-[1fr_auto] lg:items-start">
+                                            <textarea value={closeComment} onChange={(e) => setCloseComment(e.target.value)} rows={3} placeholder="How did God answer this prayer?" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold outline-none ring-emerald-100 focus:ring-4" />
+                                            <div className="flex gap-2">
+                                              <button type="button" disabled={closeSubmitting} onClick={handleCloseWithComment} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:opacity-50">{closeSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save</button>
+                                              <button type="button" onClick={cancelClose} className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Cancel</button>
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                              {sortedRequests.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-sm font-semibold text-slate-500">No prayer requests found.</td></tr>}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </section>
+                  )}
+
+                  <section className="grid gap-3 xl:grid-cols-2">
+                    {loading ? (
+                      <div className="xl:col-span-2"><SkeletonList /></div>
+                    ) : filteredRequests.length === 0 ? (
+                      <div className="xl:col-span-2"><EmptyState hasAny={sortedRequests.length > 0} activeTab={activeTab} clearFilters={() => { setSearch(""); setStatusFilter(null); setActiveTab("all"); }} /></div>
+                    ) : (
+                      filteredRequests.map((req) => (
+                        <PrayerCard
+                          key={req.id}
+                          req={req}
+                          meta={statusMeta(req.status)}
+                          mine={isMine(req)}
+                          isAdmin={isAdmin}
+                          expanded={expandedRespondId === req.id}
+                          onExpand={() => { setExpandedRespondId((id) => (id === req.id ? null : req.id)); setResponseText(""); }}
+                          responseText={responseText}
+                          setResponseText={setResponseText}
+                          onSubmitResponse={() => handleAddResponse(req)}
+                          responseSubmitting={responseSubmitting && expandedRespondId === req.id}
+                          onDelete={() => handleDeleteRequest(req.id)}
+                          onPray={() => togglePray(req.id)}
+                          prayedByMe={iPrayed.has(req.id)}
+                          prayerCount={prayerCounts[req.id] || 0}
+                          reminderCount={Number(req.reminderCount || 0)}
+                          reminderTodayCount={Number(req.reminderTodayCount || 0)}
+                          lastReminderAtUtc={req.lastReminderAtUtc}
+                          ragStatus={req.ragStatus}
+                          ragReason={req.ragReason}
+                          ragAgeHours={req.ragAgeHours}
+                        />
+                      ))
+                    )}
+                  </section>
+                </>
+              )}
+            </main>
+          </div>
+        </section>
       </div>
 
       <style>{`
@@ -1003,22 +1190,128 @@ export default function PrayerRequestsPage() {
  *  SUB-COMPONENTS
  * ========================================================================= */
 
-function StatCard({ icon: Icon, label, value, accent }) {
+function TestimoniesApplet({
+  testimonies,
+  loading,
+  editingId,
+  draft,
+  setDraft,
+  onEdit,
+  onCancel,
+  onSave,
+  saving,
+  onUpload,
+}) {
+  if (loading) return <SkeletonList />;
+  if (!testimonies.length) {
+    return (
+      <div className="rounded-3xl border border-dashed border-emerald-200 bg-white p-8 text-center shadow-sm">
+        <Sparkles className="mx-auto h-10 w-10 text-emerald-500" />
+        <h2 className="mt-3 text-lg font-bold text-slate-900">No testimonies yet</h2>
+        <p className="mt-1 text-sm text-slate-500">When a prayer is marked answered, AI Counseller will draft a testimony here.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm">
-      <div className="flex items-center gap-2.5">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${accent}`}>
-          <Icon className="w-4 h-4" />
+    <section className="space-y-4">
+      {testimonies.map((t) => {
+        const editing = editingId === t.id;
+        return (
+          <article key={t.id} className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Answered Prayer Testimony
+                </div>
+                {editing ? (
+                  <input
+                    value={draft.title}
+                    onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                    className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-400"
+                  />
+                ) : (
+                  <h2 className="mt-3 text-xl font-black text-slate-900">{t.title || "Answered Prayer"}</h2>
+                )}
+                <p className="mt-1 text-xs text-slate-500">
+                  {t.createdBy ? `${t.createdBy} · ` : ""}{t.createdAt ? new Date(t.createdAt).toLocaleDateString() : ""}
+                </p>
+              </div>
+              {editing ? (
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => onSave(t.id)} disabled={saving} className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    Save
+                  </button>
+                  <button type="button" onClick={onCancel} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">Cancel</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => onEdit(t)} className="rounded-full border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
+                  Edit testimony
+                </button>
+              )}
+            </div>
+
+            {editing ? (
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={draft.testimonyText}
+                  onChange={(e) => setDraft((d) => ({ ...d, testimonyText: e.target.value }))}
+                  rows={6}
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    Upload image
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => onUpload("image", e.target.files?.[0])} />
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    <Mic className="h-3.5 w-3.5" />
+                    Upload voice
+                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => onUpload("voice", e.target.files?.[0])} />
+                  </label>
+                  {(draft.imageUrl || draft.voiceUrl) && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                      <UploadCloud className="h-3.5 w-3.5" />
+                      Media ready
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">{t.testimonyText}</p>
+            )}
+
+            {!editing && (t.imageUrl || t.voiceUrl) && (
+              <div className="mt-4 flex flex-wrap gap-3">
+                {t.imageUrl && <img src={t.imageUrl} alt="Testimony" className="max-h-56 rounded-2xl border border-slate-100 object-cover" />}
+                {t.voiceUrl && <audio controls src={t.voiceUrl} className="w-full max-w-md" />}
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, accent, compact = false }) {
+  return (
+    <div className={`${compact ? "border-white/15 bg-white/10 text-white" : "border-slate-200 bg-white"} rounded-lg border px-4 py-3 shadow-sm`}>
+      <div className="flex items-center gap-3">
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${accent}`}>
+          <Icon className="h-4 w-4" />
         </div>
-        <div>
-          <div className="text-xl font-bold text-slate-900 tabular-nums leading-none">{value}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{label}</div>
+        <div className="min-w-0">
+          <div className={`text-2xl font-black tabular-nums leading-none ${compact ? "text-white" : "text-slate-950"}`}>{value}</div>
+          <div className={`mt-1 truncate text-xs font-black uppercase tracking-wide ${compact ? "text-emerald-50" : "text-slate-500"}`}>{label}</div>
         </div>
       </div>
     </div>
   );
 }
-
 function ChipButton({ active, children, onClick, className = "" }) {
   return (
     <button
@@ -1081,7 +1374,7 @@ function EmptyState({ hasAny, activeTab, clearFilters }) {
       ) : (
         <>
           <p className="text-sm font-medium text-slate-700">
-            The wall is quiet â€” be the first to share.
+            The wall is quiet — be the first to share.
           </p>
           <p className="text-xs text-slate-500 mt-1">
             Whatever is on your heart, this community is here for you.
@@ -1107,167 +1400,119 @@ function PrayerCard({
   onPray,
   prayedByMe,
   prayerCount,
+  reminderCount = 0,
+  reminderTodayCount = 0,
+  lastReminderAtUtc = null,
+  ragStatus = null,
+  ragReason = "",
+  ragAgeHours = null,
 }) {
   const canDelete = mine || isAdmin;
   const responses = Array.isArray(req.responses) ? req.responses : [];
+  const rag = ragMeta(ragStatus);
 
   return (
-    <article className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition px-4 sm:px-5 py-4">
-      {/* Header */}
+    <article className="group flex min-h-[260px] flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200 hover:shadow-md">
       <div className="flex items-start gap-3">
         <Avatar name={req.createdBy} anonymous={req.anonymous} />
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <p className="text-sm font-semibold text-slate-900 truncate">
-                  {req.anonymous ? "Anonymous" : req.createdBy || "Member"}
-                </p>
-                {mine && (
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">
-                    you
-                  </span>
-                )}
-                <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold rounded-full px-2 py-0.5 border ${meta.chip}`}>
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-sm font-black text-slate-950">{req.anonymous ? "Anonymous" : req.createdBy || "Member"}</p>
+                {mine && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-700">Mine</span>}
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${meta.chip}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
                   {meta.label}
                 </span>
+                {isAdmin && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${rag.chip}`}
+                    title={`${ragReason || "Prayer RAG status"}${ragAgeHours !== null && ragAgeHours !== undefined ? ` (${ragAgeHours}h old)` : ""}`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${rag.dot}`} />
+                    RAG {rag.label}
+                  </span>
+                )}
+                {isAdmin && reminderCount > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-700"
+                    title={lastReminderAtUtc ? `Last reminder: ${new Date(lastReminderAtUtc).toLocaleString()}` : "Prayer response reminders sent"}
+                  >
+                    <AlertCircle className="h-3 w-3" />
+                    {reminderCount} reminder{reminderCount === 1 ? "" : "s"}
+                    {reminderTodayCount > 0 && <span className="rounded-full bg-amber-200 px-1 text-amber-900">+{reminderTodayCount} today</span>}
+                  </span>
+                )}
               </div>
-              <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                <Clock className="w-3 h-3" /> {timeAgo(req.createdAt)}
-              </p>
+              <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-slate-400"><Clock className="h-3.5 w-3.5" />{timeAgo(req.createdAt)}</p>
             </div>
-
             {canDelete && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="opacity-0 group-hover:opacity-100 transition inline-flex items-center justify-center w-7 h-7 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50"
-                title="Delete request"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
+              <button type="button" onClick={onDelete} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100" title="Delete request">
+                <Trash2 className="h-4 w-4" />
               </button>
             )}
           </div>
-
-          {req.title && (
-            <p className="mt-1.5 text-[15px] font-semibold text-slate-900 leading-snug">
-              {req.title}
-            </p>
-          )}
-          <p className="mt-1 text-sm text-slate-700 whitespace-pre-line leading-relaxed">
-            {req.message}
-          </p>
-
-          {/* Close comment when answered */}
-          {req.closeComment && (
-            <div className="mt-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 px-3 py-2 flex items-start gap-2">
-              <CheckCheck className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-              <div className="text-xs text-emerald-900">
-                <span className="font-semibold">Answered: </span>{req.closeComment}
-              </div>
-            </div>
-          )}
-
-          {/* Existing responses */}
-          {responses.length > 0 && (
-            <div className="mt-3 space-y-1.5 border-l-2 border-violet-100 pl-3">
-              {responses.map((res) => (
-                <div key={res.id} className="text-xs text-slate-700">
-                  <span className="font-semibold text-violet-700">
-                    {res.respondedBy || res.author || "Team"}
-                  </span>{" "}
-                  <span>{res.responseText || res.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={onPray}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
-                prayedByMe
-                  ? "bg-rose-50 border-rose-200 text-rose-600"
-                  : "bg-white border-slate-200 text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600"
-              }`}
-              title={prayedByMe ? "You prayed for this" : "I'm praying"}
-            >
-              <Heart className={`w-3.5 h-3.5 ${prayedByMe ? "fill-rose-500 text-rose-500" : ""}`} />
-              {prayedByMe ? "Praying" : "I'm praying"}
-              {prayerCount > 0 && (
-                <span className="tabular-nums text-[11px] bg-white/60 rounded-full px-1.5">
-                  {prayerCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={onExpand}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition ${
-                expanded
-                  ? "bg-violet-500 text-white border-violet-500"
-                  : "bg-white border-slate-200 text-slate-600 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
-              }`}
-            >
-              <Reply className="w-3.5 h-3.5" />
-              Respond
-              {responses.length > 0 && (
-                <span className={`tabular-nums text-[11px] rounded-full px-1.5 ${
-                  expanded ? "bg-white/20" : "bg-slate-100"
-                }`}>
-                  {responses.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Inline respond form */}
-          {expanded && (
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
-              <textarea
-                value={responseText}
-                onChange={(e) => setResponseText(e.target.value)}
-                rows={2}
-                autoFocus
-                placeholder="Write a kind, encouraging response..."
-                className="w-full rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent resize-none"
-              />
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-400">
-                  Responses are visible to the community.
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={onExpand}
-                    className="rounded-full border border-slate-200 text-slate-600 text-xs font-medium px-3 py-1.5 hover:bg-white transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={responseSubmitting || !responseText.trim()}
-                    onClick={onSubmitResponse}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-violet-500 hover:bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
-                  >
-                    {responseSubmitting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Send className="w-3.5 h-3.5" />
-                    )}
-                    Send
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      <div className="mt-4 flex-1">
+        <h3 className="text-lg font-black leading-snug text-slate-950">{req.title || "Prayer request"}</h3>
+        <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-7 text-slate-700">{req.message}</p>
+
+        {req.closeComment && (
+          <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+            <div className="flex items-start gap-2 text-sm font-bold leading-6 text-emerald-900">
+              <CheckCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+              <span>{req.closeComment}</span>
+            </div>
+          </div>
+        )}
+
+        {responses.length > 0 && (
+          <div className="mt-4 space-y-2 border-l-2 border-emerald-100 pl-3">
+            {responses.slice(0, 3).map((res) => (
+              <div key={res.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-700">
+                <span className="font-black text-emerald-700">{res.respondedBy || res.author || "Team"}:</span>{" "}
+                {res.responseText || res.message}
+              </div>
+            ))}
+            {responses.length > 3 && <div className="text-xs font-bold text-slate-400">+{responses.length - 3} more responses</div>}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+        <button type="button" onClick={onPray} className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-black transition ${prayedByMe ? "border-rose-200 bg-rose-50 text-rose-600" : "border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"}`} title={prayedByMe ? "You prayed for this" : "I'm praying"}>
+          <Heart className={`h-3.5 w-3.5 ${prayedByMe ? "fill-rose-500 text-rose-500" : ""}`} />
+          {prayedByMe ? "Praying" : "Pray"}
+          {prayerCount > 0 && <span className="rounded-full bg-white/70 px-1.5 text-[11px] tabular-nums">{prayerCount}</span>}
+        </button>
+        <button type="button" onClick={onExpand} className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-black transition ${expanded ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"}`}>
+          <Reply className="h-3.5 w-3.5" />
+          Respond
+          {responses.length > 0 && <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${expanded ? "bg-white/20" : "bg-slate-100"}`}>{responses.length}</span>}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <textarea value={responseText} onChange={(e) => setResponseText(e.target.value)} rows={3} autoFocus placeholder="Write an encouraging response..." className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none ring-emerald-100 focus:ring-4" />
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-xs font-semibold text-slate-400">Responses are visible on the prayer wall.</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={onExpand} className="min-h-9 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-white">Cancel</button>
+              <button type="button" disabled={responseSubmitting || !responseText.trim()} onClick={onSubmitResponse} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {responseSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
+
+
+

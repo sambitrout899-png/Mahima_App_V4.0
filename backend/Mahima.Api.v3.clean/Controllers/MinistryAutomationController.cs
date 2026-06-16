@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
@@ -429,24 +430,103 @@ namespace Mahima.Api.v3.clean.Controllers
         private async Task<List<WelcomeCandidate>> QueryWelcomeCandidatesAsync(IEnumerable<Guid>? ids, System.Threading.CancellationToken ct)
         {
             var idList = (ids ?? Array.Empty<Guid>()).Distinct().ToList();
-            var query = _db.Users
-                .AsNoTracking()
-                .Where(u => u.Username != PastorBotService.BotUsername && u.UserCode != PastorBotService.BotUserCode);
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync(ct);
+
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await using (var colCmd = conn.CreateCommand())
+            {
+                colCmd.CommandText = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users';";
+                await using var reader = await colCmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                    columns.Add(reader.GetString(0));
+            }
+
+            string Expr(params string[] names)
+            {
+                var column = names.FirstOrDefault(columns.Contains);
+                return column == null ? "NULL" : $@"u.""{column}""";
+            }
+
+            var idExpr = Expr("id");
+            var usernameExpr = Expr("username");
+            var emailExpr = Expr("email");
+            var displayNameExpr = Expr("displayname");
+            var roleExpr = Expr("role");
+            var joinDateExpr = Expr("joindate");
+            var userCodeExpr = Expr("UserCode", "usercode");
+            var isDeletedExpr = Expr("isdeleted", "IsDeleted");
+
+            var conditions = new List<string>
+            {
+                $"COALESCE(({usernameExpr})::text, '') <> @botUsername",
+                $"COALESCE(({userCodeExpr})::text, '') <> @botCode",
+                $"COALESCE(({usernameExpr})::text, '') NOT ILIKE 'deleted_%'",
+                $"COALESCE(({displayNameExpr})::text, '') NOT ILIKE 'deleted_%'",
+                $"COALESCE(({emailExpr})::text, '') NOT ILIKE 'deleted_%'"
+            };
+
+            if (isDeletedExpr != "NULL")
+                conditions.Add($"COALESCE(({isDeletedExpr})::boolean, false) = false");
+
+            await using var cmd = conn.CreateCommand();
+            var botUsername = cmd.CreateParameter();
+            botUsername.ParameterName = "@botUsername";
+            botUsername.Value = PastorBotService.BotUsername;
+            cmd.Parameters.Add(botUsername);
+
+            var botCode = cmd.CreateParameter();
+            botCode.ParameterName = "@botCode";
+            botCode.Value = PastorBotService.BotUserCode;
+            cmd.Parameters.Add(botCode);
 
             if (idList.Count > 0)
-                query = query.Where(u => idList.Contains(u.Id));
-
-            return await query
-                .Select(u => new WelcomeCandidate
+            {
+                var idParams = new List<string>();
+                for (var i = 0; i < idList.Count; i++)
                 {
-                    Id = u.Id,
-                    Name = u.DisplayName ?? u.Username ?? u.Email ?? "New member",
-                    Username = u.Username,
-                    Email = u.Email,
-                    Role = u.Role,
-                    JoinDate = u.JoinDate == default ? DateTime.UtcNow : u.JoinDate
-                })
-                .ToListAsync(ct);
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = $"@id{i}";
+                    p.Value = idList[i];
+                    cmd.Parameters.Add(p);
+                    idParams.Add(p.ParameterName);
+                }
+                conditions.Add($@"({idExpr}) IN ({string.Join(",", idParams)})");
+            }
+
+            cmd.CommandText = $@"
+                SELECT
+                    {idExpr} AS id,
+                    COALESCE(({displayNameExpr})::text, ({usernameExpr})::text, ({emailExpr})::text, 'New member') AS name,
+                    ({usernameExpr})::text AS username,
+                    ({emailExpr})::text AS email,
+                    ({roleExpr})::text AS role,
+                    COALESCE(({joinDateExpr})::timestamp, now()) AS joindate
+                FROM public.users u
+                WHERE {string.Join(" AND ", conditions)};";
+
+            var users = new List<WelcomeCandidate>();
+            await using (var reader = await cmd.ExecuteReaderAsync(ct))
+            {
+                while (await reader.ReadAsync(ct))
+                {
+                    if (reader["id"] == DBNull.Value || !Guid.TryParse(reader["id"]?.ToString(), out var id))
+                        continue;
+
+                    users.Add(new WelcomeCandidate
+                    {
+                        Id = id,
+                        Name = reader["name"]?.ToString() ?? "New member",
+                        Username = reader["username"] == DBNull.Value ? null : reader["username"]?.ToString(),
+                        Email = reader["email"] == DBNull.Value ? null : reader["email"]?.ToString(),
+                        Role = reader["role"] == DBNull.Value ? null : reader["role"]?.ToString(),
+                        JoinDate = reader["joindate"] == DBNull.Value ? DateTime.UtcNow : DateTime.SpecifyKind(Convert.ToDateTime(reader["joindate"]), DateTimeKind.Utc)
+                    });
+                }
+            }
+
+            return users;
         }
 
         private async Task<List<WelcomeCandidate>> ResolveWelcomeUsersAsync(NewUserWelcomeDraftRequest? dto, bool pendingOnly)

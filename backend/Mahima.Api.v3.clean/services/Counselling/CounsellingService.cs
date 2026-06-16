@@ -30,6 +30,10 @@ namespace Mahima.Api.v3.clean.services.Counselling
             Guid sessionId,
             CompleteSessionDto dto,
             CancellationToken ct = default);
+
+        Task DeleteSessionAsync(
+            Guid sessionId,
+            CancellationToken ct = default);
     }
 
     public class CounsellingService : ICounsellingService
@@ -109,16 +113,7 @@ namespace Mahima.Api.v3.clean.services.Counselling
             _db.CounsellingSessions.Add(session);
             await _db.SaveChangesAsync(ct);
 
-            return new CounsellingSessionSummaryDto
-            {
-                SessionId = session.Id,
-                CandidateName = candidate.FullName,
-                IssueCategory = caseEntity.IssueCategory,
-                SessionType = session.SessionType.ToString(),
-                Status = session.Status.ToString(),
-                ScheduledAt = session.ScheduledAt,
-                TokenNumber = session.TokenNumber
-            };
+            return Map(session);
         }
 
         /// <summary>
@@ -129,11 +124,11 @@ namespace Mahima.Api.v3.clean.services.Counselling
             CancellationToken ct = default)
         {
             IQueryable<CounsellingSession> q = _db.CounsellingSessions
+                .AsNoTracking()
                 .Include(s => s.Case)
                 .ThenInclude(c => c.Candidate);
 
-            if (!string.IsNullOrWhiteSpace(status)
-                && Enum.TryParse<CounsellingSessionStatus>(status, true, out var parsedStatus))
+            if (TryNormalizeStatus(status, out var parsedStatus))
             {
                 q = q.Where(s => s.Status == parsedStatus);
             }
@@ -143,18 +138,7 @@ namespace Mahima.Api.v3.clean.services.Counselling
                 .Take(200)
                 .ToListAsync(ct);
 
-            return sessions
-                .Select(s => new CounsellingSessionSummaryDto
-                {
-                    SessionId = s.Id,
-                    CandidateName = s.Case.Candidate.FullName,
-                    IssueCategory = s.Case.IssueCategory,
-                    SessionType = s.SessionType.ToString(),
-                    Status = s.Status.ToString(),
-                    ScheduledAt = s.ScheduledAt,
-                    TokenNumber = s.TokenNumber
-                })
-                .ToList();
+            return sessions.Select(Map).ToList();
         }
 
         /// <summary>
@@ -202,16 +186,7 @@ namespace Mahima.Api.v3.clean.services.Counselling
 
             await _db.SaveChangesAsync(ct);
 
-            return new CounsellingSessionSummaryDto
-            {
-                SessionId = session.Id,
-                CandidateName = session.Case.Candidate.FullName,
-                IssueCategory = session.Case.IssueCategory,
-                SessionType = session.SessionType.ToString(),
-                Status = session.Status.ToString(),
-                ScheduledAt = session.ScheduledAt,
-                TokenNumber = session.TokenNumber
-            };
+            return Map(session);
         }
 
         /// <summary>
@@ -270,6 +245,88 @@ namespace Mahima.Api.v3.clean.services.Counselling
             }
 
             await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task DeleteSessionAsync(
+            Guid sessionId,
+            CancellationToken ct = default)
+        {
+            var session = await _db.CounsellingSessions
+                .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+
+            if (session == null)
+            {
+                throw new InvalidOperationException($"Session {sessionId} not found.");
+            }
+
+            var caseId = session.CaseId;
+            _db.CounsellingSessions.Remove(session);
+            await _db.SaveChangesAsync(ct);
+
+            var caseHasSessions = await _db.CounsellingSessions
+                .AnyAsync(s => s.CaseId == caseId, ct);
+
+            if (!caseHasSessions)
+            {
+                var caseEntity = await _db.CounsellingCases
+                    .FirstOrDefaultAsync(c => c.Id == caseId, ct);
+
+                if (caseEntity != null)
+                {
+                    _db.CounsellingCases.Remove(caseEntity);
+                    await _db.SaveChangesAsync(ct);
+                }
+            }
+        }
+
+        private static bool TryNormalizeStatus(string? status, out CounsellingSessionStatus parsedStatus)
+        {
+            parsedStatus = default;
+            if (string.IsNullOrWhiteSpace(status)) return false;
+
+            var key = status.Trim().Replace(" ", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal).ToLowerInvariant();
+            if (key is "all" or "any") return false;
+
+            var normalized = key switch
+            {
+                "new" or "request" or "requested" or "pending" => nameof(CounsellingSessionStatus.Requested),
+                "scheduled" or "booked" => nameof(CounsellingSessionStatus.Scheduled),
+                "completed" or "complete" or "closed" => nameof(CounsellingSessionStatus.Completed),
+                "cancelled" or "canceled" => nameof(CounsellingSessionStatus.Cancelled),
+                _ => status.Trim()
+            };
+
+            return Enum.TryParse(normalized, true, out parsedStatus);
+        }
+
+        private static CounsellingSessionSummaryDto Map(CounsellingSession session)
+        {
+            var caseEntity = session.Case;
+            var candidate = caseEntity?.Candidate;
+
+            return new CounsellingSessionSummaryDto
+            {
+                SessionId = session.Id,
+                CaseId = session.CaseId,
+                CandidateId = caseEntity?.CandidateId ?? Guid.Empty,
+                CandidateName = candidate?.FullName ?? "-",
+                Email = candidate?.Email,
+                Phone = candidate?.Phone,
+                IsChurchMember = candidate?.IsChurchMember ?? false,
+                MemberId = candidate?.MemberId,
+                IssueCategory = caseEntity?.IssueCategory ?? "-",
+                Description = caseEntity?.Description,
+                SessionType = session.SessionType.ToString(),
+                Status = session.Status.ToString(),
+                ScheduledAt = session.ScheduledAt,
+                Location = session.Location,
+                CounselorId = session.CounselorId,
+                TokenNumber = session.TokenNumber,
+                Outcome = session.Outcome.ToString(),
+                Notes = session.Notes,
+                CreatedAt = session.CreatedAt,
+                CompletedAt = session.CompletedAt
+            };
         }
     }
 }

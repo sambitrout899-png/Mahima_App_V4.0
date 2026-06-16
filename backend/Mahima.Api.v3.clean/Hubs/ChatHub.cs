@@ -249,14 +249,9 @@ namespace Mahima.Api.v3.clean.Hubs
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(parsedChatId, userId);
 
-            _logger.LogDebug("SendToGroup invoked for chat {ChatId}: {Text}", chatId, text);
-            await Clients.Users(UserIds(members)).SendAsync("ReceiveMessage", new
-            {
-                chatId = parsedChatId,
-                content = text,
-                createdAt = DateTime.UtcNow,
-                senderName = "SYSTEM"
-            });
+            var created = await _chatService.AddMessageAsync(parsedChatId, userId, text ?? string.Empty, "text");
+            _logger.LogDebug("SendToGroup persisted encrypted message for chat {ChatId}", chatId);
+            await Clients.Users(UserIds(members)).SendAsync("ReceiveMessage", created);
         }
     }
 }

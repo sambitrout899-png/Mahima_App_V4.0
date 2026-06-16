@@ -3,16 +3,26 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { getToken as authGetToken } from "../features/auth/authService";
 import { API_BASE as ROOT_API_BASE } from "../api";
+import { createWorkflowStyles } from "./ministryWorkflowStyles";
 
 const API_BASE = `${ROOT_API_BASE}/baptisms`;
 
 const statusTabs = [
+  { key: "", label: "All", tone: "#0f172a" },
   { key: "Pending", label: "Pending", tone: "#2563eb" },
   { key: "ChurchVerified", label: "Church Verified", tone: "#0f766e" },
   { key: "AwaitingChurchVerification", label: "Awaiting Verification", tone: "#c2410c" },
   { key: "ReadyForToken", label: "Ready For Token", tone: "#7c3aed" },
   { key: "TokenGenerated", label: "Token Generated", tone: "#0891b2" },
   { key: "Completed", label: "Completed", tone: "#16a34a" },
+];
+
+const workflowSteps = [
+  { label: "Request", hint: "Candidate details captured", tone: "#2563eb" },
+  { label: "Verification", hint: "Church membership checked", tone: "#0f766e" },
+  { label: "Consent", hint: "Consent signed", tone: "#7c3aed" },
+  { label: "Token", hint: "Certificate prepared", tone: "#0891b2" },
+  { label: "Complete", hint: "Baptism closed", tone: "#16a34a" },
 ];
 
 const emptyForm = {
@@ -59,7 +69,7 @@ function getStatusMeta(status) {
 
 export default function BaptismsPage() {
   const [requests, setRequests] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -137,7 +147,7 @@ export default function BaptismsPage() {
       await axios.post(API_BASE, payload, { headers: authHeaders() });
       setForm(emptyForm);
       setCreating(false);
-      setStatusFilter("Pending");
+      setStatusFilter("");
       await loadRequests();
     } catch (err) {
       console.error("Error creating baptism request", err);
@@ -202,6 +212,13 @@ export default function BaptismsPage() {
       )
     );
 
+  const handleDelete = (id) => {
+    if (!window.confirm("Delete this baptism record permanently?")) return;
+    return withActionLoading(id, () =>
+      axios.delete(`${API_BASE}/${id}`, { headers: authHeaders() })
+    );
+  };
+
   return (
     <div className="ministry-workflow-page baptism-workflow-page" style={styles.page}>
       <div style={styles.hero}>
@@ -229,6 +246,8 @@ export default function BaptismsPage() {
         <StatCard label="Consent Signed" value={stats.consent} hint="Consent completed" />
         <StatCard label="Tokens" value={stats.token} hint="Issued tokens" />
       </div>
+
+      <WorkflowSteps steps={workflowSteps} />
 
       {error && <div style={styles.error}>{error}</div>}
 
@@ -390,7 +409,9 @@ export default function BaptismsPage() {
               ) : requests.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={styles.emptyCell}>
-                    No baptism requests found for this status.
+                    {statusFilter
+                      ? "No baptism requests found for this status."
+                      : "No baptism requests found."}
                   </td>
                 </tr>
               ) : (
@@ -403,6 +424,7 @@ export default function BaptismsPage() {
                     onConsent={handleMarkConsent}
                     onToken={handleGenerateToken}
                     onComplete={handleComplete}
+                    onDelete={handleDelete}
                   />
                 ))
               )}
@@ -414,7 +436,7 @@ export default function BaptismsPage() {
   );
 }
 
-function BaptismRow({ item, isLoading, onVerify, onConsent, onToken, onComplete }) {
+function BaptismRow({ item, isLoading, onVerify, onConsent, onToken, onComplete, onDelete }) {
   const meta = getStatusMeta(item.status);
 
   return (
@@ -508,6 +530,15 @@ function BaptismRow({ item, isLoading, onVerify, onConsent, onToken, onComplete 
               PDF
             </a>
           )}
+
+          <button
+            type="button"
+            onClick={() => onDelete(item.id)}
+            disabled={isLoading}
+            style={styles.actionButton("#dc2626")}
+          >
+            {isLoading ? "..." : "Delete"}
+          </button>
         </div>
       </td>
     </tr>
@@ -540,300 +571,31 @@ function StatCard({ label, value, hint }) {
   );
 }
 
+function WorkflowSteps({ steps }) {
+  return (
+    <div style={styles.progressRail}>
+      {steps.map((step) => (
+        <div key={step.label} style={styles.progressStep}>
+          <span style={styles.progressDot(step.tone)} />
+          <span>
+            <span style={styles.progressLabel}>{step.label}</span>
+            <span style={styles.progressHint}>{step.hint}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Flag({ label, bg, color }) {
   return <span style={{ ...styles.flag, background: bg, color }}>{label}</span>;
 }
 
-const styles = {
-  page: {
-    padding: 24,
-    borderRadius: 28,
-    background:
-      "radial-gradient(circle at top left, #ecfeff 0, #fff7ed 42%, #f8fafc 100%)",
-    minHeight: "100%",
-  },
-  hero: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 20,
-    padding: 28,
-    borderRadius: 28,
-    background: "linear-gradient(135deg, #123a63, #075985)",
-    color: "#fff",
-    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
-    marginBottom: 18,
-  },
-  kicker: {
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.22em",
-    textTransform: "uppercase",
-    color: "#bae6fd",
-  },
-  title: {
-    margin: "8px 0 0",
-    fontSize: 36,
-    lineHeight: 1,
-    fontWeight: 950,
-  },
-  subtitle: {
-    margin: "12px 0 0",
-    maxWidth: 760,
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 15,
-    lineHeight: 1.7,
-  },
-  primaryButton: {
-    padding: "12px 20px",
-    borderRadius: 999,
-    border: "none",
-    background: "linear-gradient(135deg, #38bdf8, #f59e0b)",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 16px 34px rgba(56, 189, 248, 0.28)",
-    whiteSpace: "nowrap",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 14,
-    marginBottom: 18,
-  },
-  statCard: {
-    padding: 18,
-    borderRadius: 22,
-    background: "#fff",
-    boxShadow: "0 16px 34px rgba(15, 23, 42, 0.08)",
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#64748b",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  },
-  statValue: {
-    marginTop: 8,
-    fontSize: 32,
-    fontWeight: 950,
-    color: "#0f172a",
-  },
-  statHint: {
-    marginTop: 3,
-    fontSize: 13,
-    color: "#94a3b8",
-  },
-  error: {
-    marginBottom: 14,
-    padding: 16,
-    borderRadius: 16,
-    background: "#fee2e2",
-    color: "#991b1b",
-    fontWeight: 800,
-  },
-  formCard: {
-    marginBottom: 18,
-    padding: 22,
-    borderRadius: 28,
-    background: "#fff",
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
-  },
-  formHeader: {
-    marginBottom: 16,
-  },
-  formTitle: {
-    margin: 0,
-    fontSize: 22,
-    fontWeight: 950,
-    color: "#123a63",
-  },
-  formSub: {
-    margin: "6px 0 0",
-    color: "#64748b",
-    fontSize: 14,
-  },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 14,
-  },
-  field: {
-    display: "block",
-  },
-  label: {
-    display: "block",
-    marginBottom: 6,
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-  },
-  textarea: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-    resize: "vertical",
-  },
-  formActions: {
-    gridColumn: "1 / -1",
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 8,
-  },
-  secondaryButton: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#334155",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  darkButton: {
-    padding: "10px 18px",
-    borderRadius: 999,
-    border: "none",
-    background: "#123a63",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  panel: {
-    background: "#fff",
-    borderRadius: 28,
-    padding: 18,
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
-  },
-  tabs: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16,
-  },
-  tab: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #e2e8f0",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-  },
-  tableWrap: {
-    overflowX: "auto",
-    borderRadius: 20,
-    border: "1px solid #e2e8f0",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: 980,
-    fontSize: 13,
-  },
-  th: {
-    padding: 14,
-    background: "#f8fafc",
-    color: "#475569",
-    textAlign: "left",
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    borderBottom: "1px solid #e2e8f0",
-  },
-  tr: {
-    borderBottom: "1px solid #f1f5f9",
-  },
-  td: {
-    padding: 14,
-    verticalAlign: "top",
-    color: "#1e293b",
-  },
-  name: {
-    fontWeight: 900,
-    color: "#0f172a",
-  },
-  muted: {
-    marginTop: 3,
-    color: "#64748b",
-    fontSize: 12,
-    maxWidth: 320,
-    whiteSpace: "normal",
-  },
-  badge: {
-    display: "inline-flex",
-    padding: "5px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-  },
-  flagGroup: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  flag: {
-    display: "inline-flex",
-    padding: "5px 9px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-  },
-  token: {
-    fontFamily: "monospace",
-    fontWeight: 900,
-    color: "#123a63",
-  },
-  actionGroup: {
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: 8,
-  },
-  actionButton: (tone) => ({
-    padding: "7px 12px",
-    borderRadius: 999,
-    background: tone,
-    color: "#fff",
-    border: "none",
-    fontSize: 12,
-    fontWeight: 900,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  }),
-  pdfButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "7px 12px",
-    borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#334155",
-    fontSize: 12,
-    fontWeight: 900,
-    textDecoration: "none",
-    whiteSpace: "nowrap",
-  },
-  emptyCell: {
-    padding: 28,
-    textAlign: "center",
-    color: "#64748b",
-  },
-};
+const styles = createWorkflowStyles({
+  accent: "#0ea5e9",
+  accent2: "#f59e0b",
+  heroFrom: "#123a63",
+  heroTo: "#075985",
+  kicker: "#bae6fd",
+  title: "#123a63",
+});

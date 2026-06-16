@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "686736938256",
+    "project_id": "mahima-ministry",
+    "storage_bucket": "mahima-ministry.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:686736938256:android:f20f1b9dc28651a7d50195",
+        "android_client_info": {
+          "package_name": "com.mahimaministries.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBkMvIYilBXjNXWmS3kLUwYPzqEvtHlZZs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

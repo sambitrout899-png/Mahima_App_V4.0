@@ -1,12 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import api from "../api";
+import { createWorkflowStyles } from "./ministryWorkflowStyles";
 
 const TABS = [
   { key: "all", label: "All", status: "", tone: "#0f172a" },
   { key: "new", label: "New Requests", status: "Requested", tone: "#2563eb" },
   { key: "scheduled", label: "Scheduled", status: "Scheduled", tone: "#c2410c" },
   { key: "completed", label: "Completed", status: "Completed", tone: "#0f766e" },
+];
+
+const WORKFLOW_STEPS = [
+  { label: "Request", hint: "Need shared safely", tone: "#2563eb" },
+  { label: "Schedule", hint: "Session and token", tone: "#c2410c" },
+  { label: "Care", hint: "Pastoral meeting", tone: "#7c3aed" },
+  { label: "Outcome", hint: "Close or follow up", tone: "#0f766e" },
 ];
 
 const API_BASE = "/counselling";
@@ -134,6 +142,20 @@ export default function CounsellingPage() {
     loadSessions(activeTab);
   }
 
+  async function handleDelete(session) {
+    if (!session?.sessionId) return;
+    if (!window.confirm("Delete this counselling record permanently?")) return;
+
+    try {
+      await api.delete(`${API_BASE}/admin/sessions/${session.sessionId}`);
+      toast.success("Counselling record deleted");
+      await loadSessions(activeTab);
+    } catch (err) {
+      console.error(err);
+      toast.error("Unable to delete counselling record");
+    }
+  }
+
   return (
     <div className="ministry-workflow-page counselling-workflow-page" style={styles.page}>
       <div style={styles.hero}>
@@ -161,6 +183,8 @@ export default function CounsellingPage() {
         <StatCard label="Scheduled" value={counts.scheduled} hint="Upcoming sessions" />
         <StatCard label="Completed" value={counts.completed} hint="Closed cases" />
       </div>
+
+      <WorkflowSteps steps={WORKFLOW_STEPS} />
 
       <div style={styles.panel}>
         <div style={styles.tabs}>
@@ -193,6 +217,7 @@ export default function CounsellingPage() {
             tab={activeTab}
             onSchedule={(session) => setScheduleModal({ open: true, session })}
             onComplete={(session) => setCompleteModal({ open: true, session })}
+            onDelete={handleDelete}
           />
         )}
       </div>
@@ -223,7 +248,7 @@ export default function CounsellingPage() {
   );
 }
 
-function SessionTable({ items, tab, onSchedule, onComplete }) {
+function SessionTable({ items, tab, onSchedule, onComplete, onDelete }) {
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
@@ -300,6 +325,14 @@ function SessionTable({ items, tab, onSchedule, onComplete }) {
                         Complete / Escalate
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => onDelete(s)}
+                      style={styles.actionButton("#dc2626")}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -625,6 +658,22 @@ function TextField({ label, value, onChange, type = "text", placeholder = "" }) 
   );
 }
 
+function WorkflowSteps({ steps }) {
+  return (
+    <div style={styles.progressRail}>
+      {steps.map((step) => (
+        <div key={step.label} style={styles.progressStep}>
+          <span style={styles.progressDot(step.tone)} />
+          <span>
+            <span style={styles.progressLabel}>{step.label}</span>
+            <span style={styles.progressHint}>{step.hint}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StatCard({ label, value, hint }) {
   return (
     <div style={styles.statCard}>
@@ -654,323 +703,11 @@ function ModalHeader({ title, onClose }) {
   );
 }
 
-const styles = {
-  page: {
-    padding: 24,
-    borderRadius: 28,
-    background:
-      "radial-gradient(circle at top left, #eff6ff 0, #fff7ed 42%, #f8fafc 100%)",
-    minHeight: "100%",
-  },
-  hero: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 20,
-    padding: 28,
-    borderRadius: 28,
-    background: "linear-gradient(135deg, #123a63, #7f1d1d)",
-    color: "#fff",
-    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
-    marginBottom: 18,
-  },
-  kicker: {
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.22em",
-    textTransform: "uppercase",
-    color: "#fed7aa",
-  },
-  title: {
-    margin: "8px 0 0",
-    fontSize: 36,
-    lineHeight: 1,
-    fontWeight: 950,
-  },
-  subtitle: {
-    margin: "12px 0 0",
-    maxWidth: 760,
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 15,
-    lineHeight: 1.7,
-  },
-  primaryButton: {
-    padding: "12px 20px",
-    borderRadius: 999,
-    border: "none",
-    background: "linear-gradient(135deg, #38bdf8, #f59e0b)",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 16px 34px rgba(56, 189, 248, 0.28)",
-    whiteSpace: "nowrap",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 14,
-    marginBottom: 18,
-  },
-  statCard: {
-    padding: 18,
-    borderRadius: 22,
-    background: "#fff",
-    boxShadow: "0 16px 34px rgba(15, 23, 42, 0.08)",
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#64748b",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  },
-  statValue: {
-    marginTop: 8,
-    fontSize: 32,
-    fontWeight: 950,
-    color: "#0f172a",
-  },
-  statHint: {
-    marginTop: 3,
-    fontSize: 13,
-    color: "#94a3b8",
-  },
-  panel: {
-    background: "#fff",
-    borderRadius: 28,
-    padding: 18,
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
-  },
-  tabs: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 16,
-  },
-  tab: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #e2e8f0",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 800,
-  },
-  tableWrap: {
-    overflowX: "auto",
-    borderRadius: 20,
-    border: "1px solid #e2e8f0",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: 980,
-    fontSize: 13,
-  },
-  th: {
-    padding: 14,
-    background: "#f8fafc",
-    color: "#475569",
-    textAlign: "left",
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    borderBottom: "1px solid #e2e8f0",
-  },
-  tr: {
-    borderBottom: "1px solid #f1f5f9",
-  },
-  td: {
-    padding: 14,
-    verticalAlign: "top",
-    color: "#1e293b",
-  },
-  name: {
-    fontWeight: 900,
-    color: "#0f172a",
-  },
-  nameSmall: {
-    fontWeight: 800,
-    color: "#1e293b",
-  },
-  muted: {
-    marginTop: 3,
-    color: "#64748b",
-    fontSize: 12,
-    maxWidth: 260,
-    whiteSpace: "normal",
-  },
-  badge: {
-    display: "inline-flex",
-    padding: "5px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-  },
-  token: {
-    fontFamily: "monospace",
-    fontWeight: 900,
-    color: "#123a63",
-  },
-  actionGroup: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 8,
-  },
-  actionButton: (tone) => ({
-    padding: "7px 12px",
-    borderRadius: 999,
-    background: tone,
-    color: "#fff",
-    border: "none",
-    fontSize: 12,
-    fontWeight: 900,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  }),
-  empty: {
-    padding: 30,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  emptyCell: {
-    padding: 26,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  error: {
-    padding: 16,
-    borderRadius: 16,
-    background: "#fee2e2",
-    color: "#991b1b",
-    fontWeight: 800,
-  },
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 100,
-    background: "rgba(15, 23, 42, 0.62)",
-    display: "grid",
-    placeItems: "center",
-    padding: 16,
-    backdropFilter: "blur(6px)",
-  },
-  modalLarge: {
-    width: "min(920px, 96vw)",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    background: "#fff",
-    borderRadius: 28,
-    padding: 24,
-    boxShadow: "0 30px 80px rgba(0,0,0,0.35)",
-  },
-  modalSmall: {
-    width: "min(560px, 94vw)",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    background: "#fff",
-    borderRadius: 28,
-    padding: 24,
-    boxShadow: "0 30px 80px rgba(0,0,0,0.35)",
-  },
-  modalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  modalTitle: {
-    margin: 0,
-    fontSize: 22,
-    color: "#123a63",
-    fontWeight: 950,
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    border: "none",
-    background: "#f1f5f9",
-    cursor: "pointer",
-    fontWeight: 900,
-    color: "#475569",
-  },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 14,
-  },
-  field: {
-    display: "block",
-  },
-  label: {
-    display: "block",
-    marginBottom: 6,
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-  },
-  textarea: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "11px 12px",
-    fontSize: 14,
-    outline: "none",
-    resize: "vertical",
-  },
-  checkboxLine: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: 700,
-  },
-  personBlock: {
-    display: "grid",
-    gap: 4,
-    padding: 14,
-    borderRadius: 18,
-    background: "#f8fafc",
-    color: "#334155",
-    marginBottom: 14,
-  },
-  modalActions: {
-    gridColumn: "1 / -1",
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 8,
-  },
-  secondaryButton: {
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#334155",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  darkButton: {
-    padding: "10px 18px",
-    borderRadius: 999,
-    border: "none",
-    background: "#123a63",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-};
+const styles = createWorkflowStyles({
+  accent: "#2563eb",
+  accent2: "#f59e0b",
+  heroFrom: "#123a63",
+  heroTo: "#7f1d1d",
+  kicker: "#fed7aa",
+  title: "#123a63",
+});

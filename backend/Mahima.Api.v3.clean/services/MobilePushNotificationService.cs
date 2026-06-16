@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Google.Apis.Auth.OAuth2;
 using Mahima.Api.v3.clean.Data;
 using Mahima.Api.v3.clean.Dtos;
 using Microsoft.EntityFrameworkCore;
@@ -18,13 +22,31 @@ namespace Mahima.Api.v3.clean.Services
         Task NotifyChatMessageAsync(Guid chatId, Guid senderId, IEnumerable<Guid> memberIds, MessageDto message);
     }
 
+    /// <summary>
+    /// Sends native Android push notifications via Firebase Cloud Messaging V1 API.
+    ///
+    /// Configuration (appsettings.json or environment variables):
+    ///   MobilePush:FirebaseProjectId   — Firebase project ID  (e.g. "mahima-ministry-abc12")
+    ///   MobilePush:ServiceAccountJson  — Full path to the downloaded service-account JSON file
+    ///                                    OR the raw JSON content as a single-line string
+    ///
+    /// Environment variable equivalents:
+    ///   MAHIMA_FIREBASE_PROJECT_ID
+    ///   MAHIMA_FIREBASE_SERVICE_ACCOUNT_JSON   (path or raw JSON)
+    /// </summary>
     public class MobilePushNotificationService : IMobilePushNotificationService
     {
         private const string DeviceTokenPrefix = "DeviceToken:";
+        private const string FcmScope = "https://www.googleapis.com/auth/firebase.messaging";
+
         private readonly MahimaDbContext _db;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<MobilePushNotificationService> _logger;
+
+        // Cache the credential so we don't re-parse the JSON on every send.
+        private GoogleCredential? _cachedCredential;
+        private readonly SemaphoreSlim _credLock = new(1, 1);
 
         public MobilePushNotificationService(
             MahimaDbContext db,
@@ -38,12 +60,17 @@ namespace Mahima.Api.v3.clean.Services
             _logger = logger;
         }
 
-        public async Task NotifyChatMessageAsync(Guid chatId, Guid senderId, IEnumerable<Guid> memberIds, MessageDto message)
+        // ── public entry point ───────────────────────────────────────────────
+
+        public async Task NotifyChatMessageAsync(
+            Guid chatId, Guid senderId, IEnumerable<Guid> memberIds, MessageDto message)
         {
-            var fcmServerKey = _configuration["MobilePush:FcmServerKey"] ?? Environment.GetEnvironmentVariable("MAHIMA_FCM_SERVER_KEY");
-            if (string.IsNullOrWhiteSpace(fcmServerKey))
+            var projectId = ResolveFirebaseProjectId();
+
+            if (string.IsNullOrWhiteSpace(projectId))
             {
-                _logger.LogDebug("Skipping mobile push: MobilePush:FcmServerKey / MAHIMA_FCM_SERVER_KEY is not configured.");
+                _logger.LogWarning(
+                    "Skipping mobile push: Firebase project id is not configured. Set MobilePush:FirebaseProjectId, MAHIMA_FIREBASE_PROJECT_ID, or FIREBASE_PROJECT_ID.");
                 return;
             }
 
@@ -54,7 +81,11 @@ namespace Mahima.Api.v3.clean.Services
             if (recipientIds.Count == 0) return;
 
             var tokens = await ReadTokensAsync(recipientIds);
-            if (tokens.Count == 0) return;
+            if (tokens.Count == 0)
+            {
+                _logger.LogWarning("Skipping mobile push: no registered device tokens for {RecipientCount} recipient(s).", recipientIds.Count);
+                return;
+            }
 
             var senderName = await _db.Users
                 .AsNoTracking()
@@ -63,31 +94,82 @@ namespace Mahima.Api.v3.clean.Services
                 .FirstOrDefaultAsync() ?? "Jai Masih";
 
             var preview = BuildPreview(message);
+
+            string? accessToken;
+            try
+            {
+                accessToken = await GetAccessTokenAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FCM V1: could not obtain access token — push skipped.");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Sending mobile push for chat {ChatId} to {TokenCount} token(s), recipients={RecipientCount}.",
+                chatId, tokens.Count, recipientIds.Count);
+
+            // FCM V1 requires one request per token (no batch registration_ids).
+            var tasks = tokens.Select(token =>
+                SendFcmV1Async(projectId, accessToken, token, senderName, preview, chatId, message));
+
+            await Task.WhenAll(tasks);
+        }
+
+        // ── FCM V1 send ──────────────────────────────────────────────────────
+
+        private async Task SendFcmV1Async(
+            string projectId, string accessToken, string deviceToken,
+            string senderName, string preview, Guid chatId, MessageDto message)
+        {
+            var url = $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send";
+
             var payload = new
             {
-                registration_ids = tokens,
-                priority = "high",
-                notification = new
+                message = new
                 {
-                    title = "Jai Masih Di",
-                    body = $"{senderName}: {preview}",
-                    sound = "default"
-                },
-                data = new
-                {
-                    kind = "message",
-                    chatId = chatId.ToString(),
-                    messageId = message.Id.ToString(),
-                    senderId = senderId.ToString(),
-                    senderName,
-                    preview
+                    token = deviceToken,
+
+                    // Notification block — shown by OS when app is in background/killed.
+                    notification = new
+                    {
+                        title = "Jai Masih Di",
+                        body = $"{senderName}: {preview}"
+                    },
+
+                    // Android-specific overrides.
+                    android = new
+                    {
+                        priority = "HIGH",
+                        notification = new
+                        {
+                            channel_id = "jai-masih",   // must match channel created in initNativeApp.js
+                            sound = "default",
+                            icon = "ic_stat_jai_masih",
+                            color = "#047857",
+                            tag = chatId.ToString()
+                        }
+                    },
+
+                    // Data payload — available to the app in pushNotificationActionPerformed.
+                    data = new Dictionary<string, string>
+                    {
+                        ["kind"]      = "message",
+                        ["chatId"]    = chatId.ToString(),
+                        ["messageId"] = message.Id.ToString(),
+                        ["senderId"]  = message.SenderId.ToString(),
+                        ["senderName"] = senderName,
+                        ["preview"]   = preview
+                    }
                 }
             };
 
             var client = _httpClientFactory.CreateClient();
-            using var request = new HttpRequestMessage(HttpMethod.Post, "https://fcm.googleapis.com/fcm/send");
-            request.Headers.TryAddWithoutValidation("Authorization", $"key={fcmServerKey.Trim()}");
-            request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
             try
             {
@@ -95,13 +177,105 @@ namespace Mahima.Api.v3.clean.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("FCM push failed: {Status} {Body}", response.StatusCode, body);
+                    _logger.LogWarning("FCM V1 push failed for token …{Suffix}: {Status} {Body}",
+                        deviceToken.Length > 8 ? deviceToken[^8..] : deviceToken,
+                        response.StatusCode, body);
+                }
+                else
+                {
+                    _logger.LogInformation("FCM V1 push sent to token ...{Suffix}",
+                        deviceToken.Length > 8 ? deviceToken[^8..] : deviceToken);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "FCM push request failed.");
+                _logger.LogWarning(ex, "FCM V1 HTTP request failed.");
             }
+        }
+
+        // ── OAuth2 access token via service account ──────────────────────────
+
+        private async Task<string> GetAccessTokenAsync()
+        {
+            await _credLock.WaitAsync();
+            try
+            {
+                if (_cachedCredential == null)
+                    _cachedCredential = BuildCredential();
+
+                var scoped = _cachedCredential.CreateScoped(FcmScope);
+                var token = await scoped.UnderlyingCredential.GetAccessTokenForRequestAsync();
+                return token;
+            }
+            finally
+            {
+                _credLock.Release();
+            }
+        }
+
+        private GoogleCredential BuildCredential()
+        {
+            // 1. Try raw JSON from config / env (useful on servers without a file system path)
+            var rawJson = ResolveFirebaseServiceAccount();
+
+            if (!string.IsNullOrWhiteSpace(rawJson))
+            {
+                rawJson = rawJson.Trim();
+
+                // Could be a file path or actual JSON content.
+                if (File.Exists(rawJson))
+                {
+                    _logger.LogInformation("FCM V1: loading service account from file path in config.");
+                    return GoogleCredential.FromFile(rawJson);
+                }
+
+                if (rawJson.StartsWith("{", StringComparison.Ordinal))
+                {
+                    _logger.LogInformation("FCM V1: loading service account from JSON string in config.");
+                    return GoogleCredential.FromJson(rawJson);
+                }
+
+                _logger.LogWarning(
+                    "FCM V1: configured Firebase service account path does not exist or is not readable: {Path}",
+                    rawJson);
+            }
+
+            // 2. Fallback: Application Default Credentials
+            //    (works on GCP / Cloud Run / GKE without any extra config).
+            _logger.LogInformation("FCM V1: using Application Default Credentials.");
+            return GoogleCredential.GetApplicationDefault();
+        }
+
+        // ── helpers ──────────────────────────────────────────────────────────
+
+        private string? ResolveFirebaseProjectId()
+        {
+            return FirstNonEmpty(
+                _configuration["MobilePush:FirebaseProjectId"],
+                _configuration["Firebase:ProjectId"],
+                Environment.GetEnvironmentVariable("MAHIMA_FIREBASE_PROJECT_ID"),
+                Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID"));
+        }
+
+        private string? ResolveFirebaseServiceAccount()
+        {
+            return FirstNonEmpty(
+                _configuration["MobilePush:ServiceAccountJson"],
+                _configuration["Firebase:ServiceAccountJson"],
+                Environment.GetEnvironmentVariable("MAHIMA_FIREBASE_SERVICE_ACCOUNT_JSON"),
+                Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON"),
+                Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS"));
+        }
+
+        private static string? FirstNonEmpty(params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return null;
         }
 
         private async Task<List<string>> ReadTokensAsync(IEnumerable<Guid> userIds)
@@ -123,9 +297,12 @@ namespace Mahima.Api.v3.clean.Services
         private static string BuildPreview(MessageDto message)
         {
             if (!string.IsNullOrWhiteSpace(message.Content))
-                return message.Content.Length > 120 ? message.Content.Substring(0, 120) : message.Content;
+                return message.Content.Length > 120
+                    ? message.Content[..120]
+                    : message.Content;
 
-            if (message.Attachments != null && message.Attachments.Any() || !string.IsNullOrWhiteSpace(message.AttachmentUrl))
+            if ((message.Attachments != null && message.Attachments.Any())
+                || !string.IsNullOrWhiteSpace(message.AttachmentUrl))
                 return "Attachment";
 
             return "New message";
@@ -138,10 +315,7 @@ namespace Mahima.Api.v3.clean.Services
                 using var doc = JsonDocument.Parse(json);
                 return doc.RootElement.TryGetProperty(property, out var prop) ? prop.ToString() : "";
             }
-            catch
-            {
-                return "";
-            }
+            catch { return ""; }
         }
     }
 }

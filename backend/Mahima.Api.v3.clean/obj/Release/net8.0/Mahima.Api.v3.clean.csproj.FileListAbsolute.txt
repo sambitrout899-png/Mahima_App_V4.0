@@ -360,3 +360,9 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/BouncyCastle.Cryptography.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/MailKit.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/MimeKit.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/services/Ai/scripture_pack.json
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/Google.Apis.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/Google.Apis.Auth.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/Google.Apis.Core.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/System.Management.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Release/net8.0/runtimes/win/lib/net7.0/System.Management.dll

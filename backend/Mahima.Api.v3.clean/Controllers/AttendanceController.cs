@@ -40,25 +40,36 @@ namespace Mahima.Api.Controllers
 
         private string? GetActorIdString() => GetActorId()?.ToString();
 
-       // private bool IsAdmin()
-       // {
-         //   if (User.IsInRole("Admin") || User.IsInRole("Administrator"))
-            //    return true;
+        private bool HasAnyRole(params string[] roles)
+        {
+            var allowed = roles
+                .Select(r => r.Trim().ToLowerInvariant())
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .ToHashSet();
 
-           // var roleClaims = User.FindAll(ClaimTypes.Role)
-                                 //.Select(c => c.Value?.ToLowerInvariant())
-                                 //.Where(v => !string.IsNullOrWhiteSpace(v))
-                                 //.ToList();
+            if (allowed.Count == 0)
+                return false;
 
-            //if (roleClaims.Contains("admin") || roleClaims.Contains("administrator"))
-              //  return true;
+            if (roles.Any(role => User.IsInRole(role)))
+                return true;
 
-           // var simpleRole = User.FindFirst("role")?.Value?.ToLowerInvariant();
-          //  if (simpleRole == "admin" || simpleRole == "administrator")
-             //   return true;
+            var roleClaims = User.FindAll(ClaimTypes.Role)
+                .Concat(User.FindAll("role"))
+                .Select(c => c.Value?.Trim().ToLowerInvariant())
+                .Where(v => !string.IsNullOrWhiteSpace(v));
 
-           // return false;
-   //     }
+            return roleClaims.Any(role => allowed.Contains(role!));
+        }
+
+        private bool CanManageOthers() => HasAnyRole("admin", "administrator", "finance");
+
+        private bool IsActor(string? userId)
+        {
+            var actorId = GetActorIdString();
+            return !string.IsNullOrWhiteSpace(actorId)
+                && !string.IsNullOrWhiteSpace(userId)
+                && string.Equals(actorId, userId, StringComparison.OrdinalIgnoreCase);
+        }
 
         private void AddAudit(string action, string entityType, string entityId, object? details)
         {
@@ -76,26 +87,25 @@ namespace Mahima.Api.Controllers
         }
 
         // ---------- GET  /api/attendance ----------
-        [AllowAnonymous]
         [HttpGet]
         public async Task<ActionResult<IEnumerable<AttendanceRecord>>> Get(
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
             [FromQuery] string? userId)
         {
-            //var isAdmin = IsAdmin();
+            var canManageOthers = CanManageOthers();
             var actorId = GetActorIdString();
 
-            //if (!isAdmin)
-            //{
-                //if (string.IsNullOrWhiteSpace(actorId))
-                   // return Forbid();
+            if (!canManageOthers)
+            {
+                if (string.IsNullOrWhiteSpace(actorId))
+                    return Forbid();
 
-                //if (!string.IsNullOrWhiteSpace(userId) && userId != actorId)
-                    //return Forbid();
+                if (!string.IsNullOrWhiteSpace(userId) && !string.Equals(userId, actorId, StringComparison.OrdinalIgnoreCase))
+                    return Forbid();
 
-                //userId = actorId;
-          //  }
+                userId = actorId;
+            }
 
             IQueryable<AttendanceRecord> query = _db.AttendanceRecords;
 
@@ -128,19 +138,20 @@ namespace Mahima.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<AttendanceRecord>> Create([FromBody] AttendanceRecord dto)
         {
-            //var isAdmin = IsAdmin();
+            if (dto == null)
+                return BadRequest("Attendance payload is required.");
+
+            var canManageOthers = CanManageOthers();
             var actorId = GetActorIdString();
 
-           // if (!isAdmin)
-           // {
-                //if (string.IsNullOrWhiteSpace(actorId))
-                   // return Forbid();
-
-                //dto.UserId = actorId;
-            //}
+            if (string.IsNullOrWhiteSpace(dto.UserId))
+                dto.UserId = actorId;
 
             if (string.IsNullOrWhiteSpace(dto.UserId))
                 return BadRequest("UserId is required.");
+
+            if (!canManageOthers && !IsActor(dto.UserId))
+                return Forbid();
 
             dto.Date = DateTime.SpecifyKind(dto.Date, DateTimeKind.Unspecified);
 
@@ -160,12 +171,12 @@ namespace Mahima.Api.Controllers
         }
 
         // ---------- GET  /api/attendance/{id} ----------
-	[AllowAnonymous]
         [HttpGet("{id:int}")]
         public async Task<ActionResult<AttendanceRecord>> GetById(int id)
         {
             var item = await _db.AttendanceRecords.FindAsync(id);
             if (item == null) return NotFound();
+            if (!CanManageOthers() && !IsActor(item.UserId)) return Forbid();
             return Ok(item);
         }
 
@@ -177,14 +188,9 @@ namespace Mahima.Api.Controllers
             var existing = await _db.AttendanceRecords.FindAsync(id);
             if (existing == null) return NotFound();
 
-            //var isAdmin = IsAdmin();
-            var actorId = GetActorIdString();
-
-           // if (!isAdmin)
-            //{
-               // if (string.IsNullOrWhiteSpace(actorId) || existing.UserId != actorId)
-                   // return Forbid();
-        //    }
+            var canManageOthers = CanManageOthers();
+            if (!canManageOthers && !IsActor(existing.UserId))
+                return Forbid();
 
             var before = new
             {
@@ -193,9 +199,8 @@ namespace Mahima.Api.Controllers
                 existing.Status
             };
 
-            // Admin may reassign; staff cannot
-           // if (isAdmin && !string.IsNullOrWhiteSpace(dto.UserId))
-               // existing.UserId = dto.UserId;
+            if (canManageOthers && !string.IsNullOrWhiteSpace(dto.UserId))
+                existing.UserId = dto.UserId;
 
             existing.Date = DateTime.SpecifyKind(dto.Date, DateTimeKind.Unspecified);
             existing.Status = dto.Status;
@@ -227,14 +232,8 @@ namespace Mahima.Api.Controllers
             var existing = await _db.AttendanceRecords.FindAsync(id);
             if (existing == null) return NotFound();
 
-            //var isAdmin = IsAdmin();
-            //var actorId = GetActorIdString();
-
-           // if (!isAdmin)
-           // {
-               // if (string.IsNullOrWhiteSpace(actorId) || existing.UserId != actorId)
-                  //  return Forbid();
-           // }
+            if (!CanManageOthers() && !IsActor(existing.UserId))
+                return Forbid();
 
             var snapshot = new
             {

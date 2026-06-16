@@ -12,9 +12,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
 
 namespace Mahima.Api.Controllers
 {
@@ -26,11 +23,7 @@ namespace Mahima.Api.Controllers
         private readonly MahimaDbContext _db;
         private readonly IWebHostEnvironment _env;
 
-        // QuestPDF's bundled Lato font does not include the rupee glyph (U+20B9),
-        // which causes the generated PDF to be unreadable in some viewers
-        // (e.g. Adobe Reader: "An error occurred"). "Rs." is universally
-        // compatible. If you register a font that supports U+20B9 in Program.cs
-        // via FontManager.RegisterFont(...), you can swap this back to the glyph.
+        // Keep the payslip text ASCII-only so every PDF viewer renders it reliably.
         private const string RUPEE = "Rs.";
 
         public PayrollController(MahimaDbContext db, IWebHostEnvironment env)
@@ -90,6 +83,64 @@ namespace Mahima.Api.Controllers
                             .FirstOrDefaultAsync(x => x.UserId == userId && x.IsActive);
         }
 
+        private async Task EnsurePayrollPaymentColumnsAsync()
+        {
+            await _db.Database.ExecuteSqlRawAsync(@"
+                ALTER TABLE public.payroll_runs
+                    ADD COLUMN IF NOT EXISTS previous_arrears numeric(18,2) NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS payable_amount numeric(18,2) NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS paid_amount numeric(18,2) NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS balance_amount numeric(18,2) NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS payment_status varchar(32) NOT NULL DEFAULT 'UNPAID',
+                    ADD COLUMN IF NOT EXISTS payment_notes text NULL,
+                    ADD COLUMN IF NOT EXISTS paid_at_utc timestamp with time zone NULL;
+            ");
+
+            await _db.Database.ExecuteSqlRawAsync(@"
+                UPDATE public.payroll_runs
+                SET payable_amount = CASE WHEN payable_amount = 0 THEN net_amount + previous_arrears ELSE payable_amount END,
+                    balance_amount = CASE
+                        WHEN balance_amount = 0 AND paid_amount = 0 THEN GREATEST(0, net_amount + previous_arrears)
+                        ELSE GREATEST(0, payable_amount - paid_amount)
+                    END,
+                    payment_status = CASE
+                        WHEN COALESCE(paid_amount, 0) <= 0 THEN 'UNPAID'
+                        WHEN GREATEST(0, COALESCE(payable_amount, net_amount) - COALESCE(paid_amount, 0)) <= 0 THEN 'PAID'
+                        ELSE 'PARTIAL'
+                    END
+                WHERE payable_amount = 0 OR balance_amount = 0 OR payment_status IS NULL OR payment_status = '';
+            ");
+        }
+
+        private async Task<decimal> GetPreviousArrearsAsync(string userId, DateTime from)
+        {
+            await EnsurePayrollPaymentColumnsAsync();
+            var fromDate = DateTime.SpecifyKind(from.Date, DateTimeKind.Utc);
+
+            var previousRun = await _db.PayrollRuns
+                .AsNoTracking()
+                .Where(r => r.UserId == userId && r.To < fromDate)
+                .OrderByDescending(r => r.To)
+                .ThenByDescending(r => r.RunAt)
+                .FirstOrDefaultAsync();
+
+            if (previousRun == null) return 0m;
+
+            var payable = previousRun.PayableAmount > 0m
+                ? previousRun.PayableAmount
+                : previousRun.NetAmount + previousRun.PreviousArrears;
+            return previousRun.BalanceAmount > 0m
+                ? previousRun.BalanceAmount
+                : Math.Max(0m, payable - previousRun.PaidAmount);
+        }
+
+        private static string PaymentStatus(decimal paid, decimal balance, decimal payable)
+        {
+            if (payable <= 0m || balance <= 0m) return "PAID";
+            if (paid <= 0m) return "UNPAID";
+            return "PARTIAL";
+        }
+
         // Resolve a friendly display name from the Users table (best-effort).
         // Users.Id is a Guid in this project, so we parse the string first.
         private async Task<string> ResolveDisplayNameAsync(string userId)
@@ -104,7 +155,7 @@ namespace Mahima.Api.Controllers
                                     .FirstOrDefaultAsync(u => u.Id == userGuid);
                 if (user == null) return userId;
 
-                // Common name fields — fall through whichever is populated.
+                // Common name fields â€” fall through whichever is populated.
                 return
                     NotBlank(user.DisplayName) ??
                     NotBlank(user.Username) ??
@@ -122,18 +173,50 @@ namespace Mahima.Api.Controllers
                 string.IsNullOrWhiteSpace(s) ? null : s;
         }
 
+        private async Task<(string DisplayName, string MahimaId)> ResolvePayrollIdentityAsync(string userId)
+        {
+            try
+            {
+                if (!Guid.TryParse(userId, out var userGuid))
+                    return (userId, userId);
+
+                var user = await _db.Users
+                                    .AsNoTracking()
+                                    .FirstOrDefaultAsync(u => u.Id == userGuid);
+                if (user == null) return (userId, userId);
+
+                var displayName =
+                    NotBlank(user.DisplayName) ??
+                    NotBlank(user.Username) ??
+                    NotBlank(user.Email) ??
+                    userId;
+
+                return (displayName, NotBlank(user.UserCode) ?? userId);
+            }
+            catch
+            {
+                return (userId, userId);
+            }
+
+            static string? NotBlank(string? s) =>
+                string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+
         /// <summary>
         /// CORRECT formula:
-        ///   Gross = FixedAmount + (Hours × Rate) + Allowances
+        ///   Gross = FixedAmount + (Hours Ã— Rate) + Allowances
         ///   Net   = max(0, Gross - Deductions)
         /// </summary>
         private static PayrollSummaryDto BuildSummary(
             string userId,
             string? displayName,
+            string? mahimaId,
             DateTime from,
             DateTime to,
             decimal totalHours,
-            StaffPayrollSetting? setting)
+            StaffPayrollSetting? setting,
+            decimal previousArrears = 0m,
+            decimal paidAmount = 0m)
         {
             var hourlyRate  = setting?.HourlyRate ?? 0m;
             var fixedAmount = setting?.MonthlyFixedAmount ?? 0m;
@@ -143,11 +226,15 @@ namespace Mahima.Api.Controllers
             var hoursAmount = totalHours * hourlyRate;
             var gross       = fixedAmount + hoursAmount + allowances;
             var net         = Math.Max(0m, gross - deductions);
+            var payable     = Math.Max(0m, net + previousArrears);
+            var paid        = Math.Max(0m, paidAmount);
+            var balance     = Math.Max(0m, payable - paid);
 
             return new PayrollSummaryDto
             {
                 UserId       = userId,
                 DisplayName  = displayName,
+                MahimaId     = mahimaId,
                 From         = from.Date,
                 To           = to.Date,
                 TotalHours   = totalHours,
@@ -157,7 +244,12 @@ namespace Mahima.Api.Controllers
                 Allowances   = allowances,
                 Deductions   = deductions,
                 GrossAmount  = gross,
-                NetAmount    = net
+                NetAmount    = net,
+                PreviousArrears = previousArrears,
+                PayableAmount = payable,
+                PaidAmount = paid,
+                BalanceAmount = balance,
+                PaymentStatus = PaymentStatus(paid, balance, payable)
             };
         }
 
@@ -175,7 +267,14 @@ namespace Mahima.Api.Controllers
             Allowances   = run.Allowances,
             Deductions   = run.Deductions,
             GrossAmount  = run.GrossAmount,
-            NetAmount    = run.NetAmount
+            NetAmount    = run.NetAmount,
+            PreviousArrears = run.PreviousArrears,
+            PayableAmount = run.PayableAmount > 0m ? run.PayableAmount : run.NetAmount + run.PreviousArrears,
+            PaidAmount = run.PaidAmount,
+            BalanceAmount = run.BalanceAmount,
+            PaymentStatus = string.IsNullOrWhiteSpace(run.PaymentStatus) ? PaymentStatus(run.PaidAmount, run.BalanceAmount, run.PayableAmount) : run.PaymentStatus,
+            PaymentNotes = run.PaymentNotes,
+            PaidAtUtc = run.PaidAtUtc
         };
 
         private string GetLogoPath()
@@ -246,8 +345,9 @@ namespace Mahima.Api.Controllers
             var totalHours = timesheets.Sum(t => t.Hours);
 
             var setting     = await GetPayrollSettingAsync(userId);
-            var displayName = await ResolveDisplayNameAsync(userId);
-            var summary     = BuildSummary(userId, displayName, from, to, totalHours, setting);
+            var identity = await ResolvePayrollIdentityAsync(userId);
+            var previousArrears = await GetPreviousArrearsAsync(userId, from);
+            var summary     = BuildSummary(userId, identity.DisplayName, identity.MahimaId, from, to, totalHours, setting, previousArrears);
 
             AddAudit("Payroll.Summary", "Payroll", userId, new { from, to, summary });
             await _db.SaveChangesAsync();
@@ -259,6 +359,7 @@ namespace Mahima.Api.Controllers
         [HttpGet("~/api/payroll/runs")]
         public async Task<IActionResult> GetRuns([FromQuery] string? userId)
         {
+            await EnsurePayrollPaymentColumnsAsync();
             var query = _db.PayrollRuns.AsQueryable();
             if (!string.IsNullOrWhiteSpace(userId))
                 query = query.Where(r => r.UserId == userId);
@@ -315,12 +416,20 @@ namespace Mahima.Api.Controllers
 
             // Reject silly numbers
             if (dto.TotalHours < 0 || dto.HourlyRate < 0 ||
-                dto.GrossAmount < 0 || dto.NetAmount < 0)
+                dto.GrossAmount < 0 || dto.NetAmount < 0 || dto.PaidAmount < 0)
                 return BadRequest("Amounts cannot be negative.");
+
+            await EnsurePayrollPaymentColumnsAsync();
+            var previousArrears = await GetPreviousArrearsAsync(dto.UserId, dto.From);
+            var payable = Math.Max(0m, dto.NetAmount + previousArrears);
+            var paid = Math.Min(Math.Max(0m, dto.PaidAmount), payable);
+            var balance = Math.Max(0m, payable - paid);
 
             var run = new PayrollRun
             {
+                Id          = Guid.NewGuid(),
                 UserId      = dto.UserId,
+                StaffName   = dto.DisplayName,
                 From        = DateTime.SpecifyKind(dto.From.Date, DateTimeKind.Utc),
                 To          = DateTime.SpecifyKind(dto.To.Date,   DateTimeKind.Utc),
                 TotalHours  = dto.TotalHours,
@@ -329,7 +438,14 @@ namespace Mahima.Api.Controllers
                 Allowances  = dto.Allowances,
                 Deductions  = dto.Deductions,
                 GrossAmount = dto.GrossAmount,
-                NetAmount   = dto.NetAmount
+                NetAmount   = dto.NetAmount,
+                PreviousArrears = previousArrears,
+                PayableAmount = payable,
+                PaidAmount = paid,
+                BalanceAmount = balance,
+                PaymentStatus = PaymentStatus(paid, balance, payable),
+                PaymentNotes = dto.PaymentNotes,
+                PaidAtUtc = paid > 0m ? DateTime.UtcNow : null
             };
 
             _db.PayrollRuns.Add(run);
@@ -341,9 +457,40 @@ namespace Mahima.Api.Controllers
         }
 
         [AllowAnonymous]
+        [HttpPatch("~/api/payroll/runs/{id:guid}/payment")]
+        public async Task<IActionResult> UpdatePayment(Guid id, [FromBody] PayrollPaymentRequest dto)
+        {
+            if (dto == null) return BadRequest("Body is required.");
+            if (dto.PaidAmount < 0) return BadRequest("Paid amount cannot be negative.");
+
+            await EnsurePayrollPaymentColumnsAsync();
+            var run = await _db.PayrollRuns.FindAsync(id);
+            if (run == null) return NotFound();
+
+            var payable = run.PayableAmount > 0m ? run.PayableAmount : run.NetAmount + run.PreviousArrears;
+            var paid = Math.Min(dto.PaidAmount, payable);
+            var balance = Math.Max(0m, payable - paid);
+
+            run.PayableAmount = payable;
+            run.PaidAmount = paid;
+            run.BalanceAmount = balance;
+            run.PaymentStatus = PaymentStatus(paid, balance, payable);
+            run.PaymentNotes = dto.PaymentNotes;
+            run.PaidAtUtc = paid > 0m ? DateTime.UtcNow : null;
+
+            AddAudit("Payroll.Run.Payment", "PayrollRun", run.Id.ToString(),
+                new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount, run.PaymentStatus });
+            await _db.SaveChangesAsync();
+
+            var displayName = await ResolveDisplayNameAsync(run.UserId);
+            return Ok(ToRunDto(run, displayName));
+        }
+
+        [AllowAnonymous]
         [HttpDelete("~/api/payroll/runs/{id:guid}")]
         public async Task<IActionResult> DeleteRun(Guid id)
         {
+            await EnsurePayrollPaymentColumnsAsync();
             var run = await _db.PayrollRuns.FindAsync(id);
             if (run == null) return NotFound();
 
@@ -358,15 +505,17 @@ namespace Mahima.Api.Controllers
         [HttpGet("~/api/payroll/runs/{id:guid}/slip")]
         public async Task<IActionResult> GetRunSlip(Guid id)
         {
+            await EnsurePayrollPaymentColumnsAsync();
             var run = await _db.PayrollRuns.FindAsync(id);
             if (run == null) return NotFound();
 
-            var displayName = await ResolveDisplayNameAsync(run.UserId);
+            var identity = await ResolvePayrollIdentityAsync(run.UserId);
 
             var summary = new PayrollSummaryDto
             {
                 UserId       = run.UserId,
-                DisplayName  = displayName,
+                DisplayName  = identity.DisplayName,
+                MahimaId     = identity.MahimaId,
                 From         = run.From,
                 To           = run.To,
                 TotalHours   = run.TotalHours,
@@ -376,7 +525,14 @@ namespace Mahima.Api.Controllers
                 Allowances   = run.Allowances,
                 Deductions   = run.Deductions,
                 GrossAmount  = run.GrossAmount,
-                NetAmount    = run.NetAmount
+                NetAmount    = run.NetAmount,
+                PreviousArrears = run.PreviousArrears,
+                PayableAmount = run.PayableAmount > 0m ? run.PayableAmount : run.NetAmount + run.PreviousArrears,
+                PaidAmount = run.PaidAmount,
+                BalanceAmount = run.BalanceAmount,
+                PaymentStatus = string.IsNullOrWhiteSpace(run.PaymentStatus) ? PaymentStatus(run.PaidAmount, run.BalanceAmount, run.PayableAmount) : run.PaymentStatus,
+                PaymentNotes = run.PaymentNotes,
+                PaidAtUtc = run.PaidAtUtc
             };
 
             var pdfBytes = GenerateSalarySlipPdf(summary, GetLogoPath());
@@ -405,9 +561,10 @@ namespace Mahima.Api.Controllers
                                    .ToListAsync();
             var totalHours  = timesheets.Sum(t => t.Hours);
             var setting     = await GetPayrollSettingAsync(userId);
-            var displayName = await ResolveDisplayNameAsync(userId);
+            var identity = await ResolvePayrollIdentityAsync(userId);
 
-            var summary  = BuildSummary(userId, displayName, from, to, totalHours, setting);
+            var previousArrears = await GetPreviousArrearsAsync(userId, from);
+            var summary  = BuildSummary(userId, identity.DisplayName, identity.MahimaId, from, to, totalHours, setting, previousArrears);
             var pdfBytes = GenerateSalarySlipPdf(summary, GetLogoPath());
             var fileName = SafeFileName($"SalarySlip_{summary.DisplayName ?? summary.UserId}_{summary.From:yyyyMM}.pdf");
 
@@ -424,82 +581,112 @@ namespace Mahima.Api.Controllers
         }
 
         // ---------- PDF GENERATOR ----------------------------------------
-        // Minimal QuestPDF usage. Only basic Text in a Column. No images,
-        // no backgrounds, no borders, no tables, no rows. If even THIS
-        // doesn't open, the problem is outside QuestPDF (build not
-        // redeployed, content-type wrong, exception before bytes return,
-        // etc.). The try/catch returns a tiny "error" PDF so we always
-        // produce valid bytes.
         private static byte[] GenerateSalarySlipPdf(PayrollSummaryDto s, string logoPath)
         {
-            QuestPDF.Settings.License = LicenseType.Community;
-
             var inr = CultureInfo.GetCultureInfo("en-IN");
             string Money(decimal v) => $"{RUPEE} {v.ToString("N2", inr)}";
 
-            try
+            var lines = new List<string>
             {
-                return Document.Create(doc =>
-                {
-                    doc.Page(page =>
-                    {
-                        page.Size(PageSizes.A4);
-                        page.Margin(40);
-                        page.DefaultTextStyle(t => t.FontSize(11));
+                "========================================",
+                "        MAHIMA MINISTRY LOGO",
+                "        MAHIMA MINISTRY",
+                "========================================",
+                "Salary Slip",
+                $"Period: {s.From:dd MMM yyyy} to {s.To:dd MMM yyyy}",
+                "",
+                "Employee",
+                $"Name: {s.DisplayName ?? s.UserId}",
+                $"Mahima ID: {s.MahimaId ?? s.UserId}",
+                "",
+                "Earnings",
+                $"Fixed monthly: {Money(s.FixedAmount)}",
+                $"Daily compensation: {Money(s.HourlyAmount)} ({s.TotalHours:N0} days x {Money(s.HourlyRate)})",
+                $"Allowances: {Money(s.Allowances)}",
+                $"Gross: {Money(s.GrossAmount)}",
+                "",
+                "Deductions",
+                $"Fines + advances: {Money(s.Deductions)}",
+                "",
+                $"NET PAY: {Money(s.NetAmount)}",
+                "",
+                "Payment",
+                $"Previous arrears: {Money(s.PreviousArrears)}",
+                $"Payable this run: {Money(s.PayableAmount)}",
+                $"Paid amount: {Money(s.PaidAmount)}",
+                $"Balance carried: {Money(s.BalanceAmount)} ({s.PaymentStatus})",
+                $"In words: {NumberToWordsIndian((long)Math.Round(s.PayableAmount, 0))} rupees only",
+                "",
+                "This is a system-generated payslip.",
+                $"Generated on {DateTime.UtcNow:dd MMM yyyy HH:mm} UTC"
+            };
 
-                        page.Content().Column(col =>
-                        {
-                            col.Spacing(8);
+            return GeneratePlainTextPdf(lines);
+        }
 
-                            col.Item().Text("Mahima Ministry").FontSize(20).Bold();
-                            col.Item().Text("Salary Slip").FontSize(13).SemiBold();
-                            col.Item().Text($"Period: {s.From:dd MMM yyyy} to {s.To:dd MMM yyyy}");
+        private static byte[] GeneratePlainTextPdf(IReadOnlyList<string> lines)
+        {
+            static string EscapePdf(string value) =>
+                (value ?? string.Empty)
+                    .Replace("\\", "\\\\")
+                    .Replace("(", "\\(")
+                    .Replace(")", "\\)");
 
-                            col.Item().PaddingTop(10).Text("Employee").Bold();
-                            col.Item().Text($"Name: {s.DisplayName ?? s.UserId}");
-                            col.Item().Text($"ID:   {s.UserId}");
+            var content = new StringBuilder();
+            content.AppendLine("BT");
+            content.AppendLine("/F1 11 Tf");
+            content.AppendLine("50 790 Td");
+            content.AppendLine("14 TL");
 
-                            col.Item().PaddingTop(10).Text("Earnings").Bold();
-                            col.Item().Text($"Fixed monthly:        {Money(s.FixedAmount)}");
-                            col.Item().Text($"Daily compensation:   {Money(s.HourlyAmount)} ({s.TotalHours:N0} days x {Money(s.HourlyRate)})");
-                            col.Item().Text($"Allowances:           {Money(s.Allowances)}");
-                            col.Item().Text($"Gross:                {Money(s.GrossAmount)}").Bold();
-
-                            col.Item().PaddingTop(10).Text("Deductions").Bold();
-                            col.Item().Text($"Fines + advances:     {Money(s.Deductions)}");
-
-                            col.Item().PaddingTop(14).Text($"NET PAY: {Money(s.NetAmount)}").FontSize(16).Bold();
-                            col.Item().Text($"In words: {NumberToWordsIndian((long)Math.Round(s.NetAmount, 0))} rupees only");
-
-                            col.Item().PaddingTop(20).Text("This is a system-generated payslip.").FontSize(9);
-                            col.Item().Text($"Generated on {DateTime.UtcNow:dd MMM yyyy HH:mm} UTC").FontSize(9);
-                        });
-                    });
-                }).GeneratePdf();
-            }
-            catch (Exception ex)
+            foreach (var line in lines)
             {
-                return Document.Create(doc =>
-                {
-                    doc.Page(page =>
-                    {
-                        page.Size(PageSizes.A4);
-                        page.Margin(40);
-                        page.Content().Column(col =>
-                        {
-                            col.Item().Text("Salary slip could not be generated").FontSize(16).Bold();
-                            col.Item().PaddingTop(8).Text(ex.GetType().FullName ?? "Exception").Bold();
-                            col.Item().PaddingTop(2).Text(ex.Message ?? "");
-                            col.Item().PaddingTop(20).Text("Stack trace:").Bold().FontSize(9);
-                            col.Item().Text(ex.ToString()).FontSize(7);
-                        });
-                    });
-                }).GeneratePdf();
+                content.Append('(').Append(EscapePdf(line)).AppendLine(") Tj");
+                content.AppendLine("T*");
             }
+
+            content.AppendLine("ET");
+            var contentString = content.ToString();
+            var contentBytes = Encoding.ASCII.GetBytes(contentString);
+
+            var objects = new List<string>
+            {
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                $"<< /Length {contentBytes.Length} >>\nstream\n{contentString}endstream"
+            };
+
+            var pdf = new StringBuilder();
+            var offsets = new List<int> { 0 };
+            pdf.AppendLine("%PDF-1.4");
+            pdf.AppendLine("% Mahima payroll slip");
+
+            for (var i = 0; i < objects.Count; i++)
+            {
+                offsets.Add(Encoding.ASCII.GetByteCount(pdf.ToString()));
+                pdf.Append(i + 1).AppendLine(" 0 obj");
+                pdf.AppendLine(objects[i]);
+                pdf.AppendLine("endobj");
+            }
+
+            var xrefOffset = Encoding.ASCII.GetByteCount(pdf.ToString());
+            pdf.AppendLine("xref");
+            pdf.Append("0 ").AppendLine((objects.Count + 1).ToString(CultureInfo.InvariantCulture));
+            pdf.AppendLine("0000000000 65535 f ");
+            for (var i = 1; i < offsets.Count; i++)
+                pdf.AppendLine($"{offsets[i]:0000000000} 00000 n ");
+            pdf.AppendLine("trailer");
+            pdf.AppendLine($"<< /Size {objects.Count + 1} /Root 1 0 R >>");
+            pdf.AppendLine("startxref");
+            pdf.AppendLine(xrefOffset.ToString(CultureInfo.InvariantCulture));
+            pdf.AppendLine("%%EOF");
+
+            return Encoding.ASCII.GetBytes(pdf.ToString());
         }
 
         // -----------------------------------------------------------------
-        //  Indian numbering "amount in words" — handles up to crores.
+        //  Indian numbering "amount in words" â€” handles up to crores.
         //  Returns capitalized phrase, e.g. "Twelve thousand three hundred".
         // -----------------------------------------------------------------
         private static string NumberToWordsIndian(long n)
@@ -555,6 +742,7 @@ namespace Mahima.Api.Controllers
     {
         public string UserId { get; set; } = default!;
         public string? DisplayName { get; set; }
+        public string? MahimaId { get; set; }
         public DateTime From { get; set; }
         public DateTime To { get; set; }
         public decimal TotalHours { get; set; }
@@ -565,6 +753,13 @@ namespace Mahima.Api.Controllers
         public decimal Deductions { get; set; }
         public decimal GrossAmount { get; set; }
         public decimal NetAmount { get; set; }
+        public decimal PreviousArrears { get; set; }
+        public decimal PayableAmount { get; set; }
+        public decimal PaidAmount { get; set; }
+        public decimal BalanceAmount { get; set; }
+        public string PaymentStatus { get; set; } = "UNPAID";
+        public string? PaymentNotes { get; set; }
+        public DateTime? PaidAtUtc { get; set; }
     }
 
     public class PayrollRunRequest
@@ -581,6 +776,19 @@ namespace Mahima.Api.Controllers
         public decimal Deductions { get; set; }
         public decimal GrossAmount { get; set; }
         public decimal NetAmount { get; set; }
+        public decimal PreviousArrears { get; set; }
+        public decimal PayableAmount { get; set; }
+        public decimal PaidAmount { get; set; }
+        public decimal BalanceAmount { get; set; }
+        public string PaymentStatus { get; set; } = "UNPAID";
+        public string? PaymentNotes { get; set; }
+        public DateTime? PaidAtUtc { get; set; }
+    }
+
+    public class PayrollPaymentRequest
+    {
+        public decimal PaidAmount { get; set; }
+        public string? PaymentNotes { get; set; }
     }
 
     public class PayrollRunDto : PayrollRunRequest

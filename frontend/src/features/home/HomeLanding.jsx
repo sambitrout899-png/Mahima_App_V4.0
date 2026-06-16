@@ -41,19 +41,11 @@ import { getToken, logout as authLogout } from "../auth/authService";
 import mahimaLogo from "../../assets/mahima-logo.png";
 
 const galleryImages = [
-  "/images/prayer.jpg",
-  "/images/welcome.jpg",
-  "/images/worship.jpg",
-  "/images/Mahima-Word.png",
-  "/images/1000236883.jpg",
-  "/images/1000236884.jpg",
-  "/images/1000236885.jpg",
-  "/images/1000236887.jpg",
+   "/images/1000236887.jpg",
   "/images/1000236888.jpg",
   "/images/1000236889.jpg",
   "/images/1000236890.jpg",
-  "/images/1000236891.jpg",
-];
+  "/images/1000236891.jpg",];
 
 const verses = [
   '"Come to Me, all you who labor and are heavy laden, and I will give you rest." — Matthew 11:28',
@@ -122,6 +114,7 @@ export default function HomeLanding() {
       <GlobalStyles />
 
       {!appMode && <TopNav onDonate={() => setShowDonate(true)} />}
+      {appMode && <AppMobileNav />}
 
       <div className={`mx-auto w-full max-w-[1280px] px-4 sm:px-6 ${appMode ? "pb-8 pt-2" : "pb-32 sm:pb-12"}`}>
         <Hero onDonate={() => setShowDonate(true)} />
@@ -147,6 +140,66 @@ function Background() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(180,83,9,.18),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(159,18,57,.14),transparent_60%),linear-gradient(180deg,#f7f1e3,#fbf6ea_60%,#f3ecd7)] dark:bg-[radial-gradient(ellipse_at_top,rgba(180,83,9,.16),transparent_55%),radial-gradient(ellipse_at_bottom_right,rgba(159,18,57,.16),transparent_60%),linear-gradient(180deg,#0b0807,#120c0a_60%,#0b0807)]" />
       <div className="absolute inset-0 opacity-[0.07] mix-blend-multiply [background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%222%22 stitchTiles=%22stitch%22/><feColorMatrix values=%220 0 0 0 0.4 0 0 0 0 0.25 0 0 0 0 0.1 0 0 0 0 0.6 0%22/></filter><rect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%220.55%22/></svg>')] dark:opacity-[0.10] dark:mix-blend-overlay" />
     </div>
+  );
+}
+
+/* ========================================================================
+   APP MOBILE NAV — shown only inside the Capacitor Android app
+   Provides Login / Go to App button since the desktop TopNav is hidden.
+   ===================================================================== */
+function AppMobileNav() {
+  const navigate = useNavigate();
+  const [loggedIn, setLoggedIn] = useState(() => hasToken());
+
+  useEffect(() => {
+    const sync = () => setLoggedIn(hasToken());
+    window.addEventListener("auth:change", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("auth:change", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  return (
+    <header
+      className="sticky top-0 z-40 w-full flex items-center justify-between px-4 py-3"
+      style={{
+        background: "rgba(11,8,7,0.82)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        paddingTop: "calc(0.75rem + env(safe-area-inset-top))",
+      }}
+    >
+      {/* Brand */}
+      <div className="flex items-center gap-2">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-stone-100">
+          <img src={mahimaLogo} alt="Mahima" className="h-6 w-6 object-contain" />
+        </span>
+        <span className="font-serif text-sm font-black tracking-tight text-stone-50">
+          Mahima Ministry
+        </span>
+      </div>
+
+      {/* Login / Open App */}
+      {loggedIn ? (
+        <button
+          type="button"
+          onClick={() => navigate("/home", { replace: true })}
+          className="flex items-center gap-1.5 rounded-full bg-amber-600 px-4 py-2 text-sm font-bold text-white active:opacity-80"
+        >
+          Open App <ArrowRight className="h-4 w-4" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigate("/login")}
+          className="flex items-center gap-1.5 rounded-full bg-stone-50 px-4 py-2 text-sm font-bold text-stone-900 active:opacity-80"
+        >
+          Login <ArrowRight className="h-4 w-4" />
+        </button>
+      )}
+    </header>
   );
 }
 
@@ -339,7 +392,7 @@ function Hero({ onDonate }) {
         <h1 className="mt-5 font-serif text-[2.85rem] font-black leading-[0.94] tracking-[-0.03em] text-amber-50 sm:text-7xl lg:text-[6.5rem]">
           Worship.<br />
           <span className="italic text-amber-200">Heal.</span><br />
-          Send.
+          Saved.
         </h1>
 
         <p className="mt-5 max-w-xl text-base leading-7 text-stone-200/85 sm:text-lg sm:leading-8">
@@ -819,7 +872,7 @@ function DonateModal({ onClose }) {
           <p className="mt-1 text-[12.5px] uppercase tracking-[0.22em] text-amber-100/80">Scan to give via UPI</p>
         </div>
         <div className="p-6">
-          <img src="/assets/upi-qr.jpg" alt="UPI QR Code" className="mx-auto rounded-2xl shadow-lg" loading="lazy" />
+          <img src="/assets/upi-qr.png" alt="UPI QR Code for 7009927715@hdfc" className="mx-auto rounded-2xl shadow-lg" loading="lazy" />
           <p className="mt-5 font-serif text-[12.5px] italic text-stone-600 dark:text-stone-300">
             {'"Each one must give as he has decided in his heart." — 2 Corinthians 9:7'}
           </p>

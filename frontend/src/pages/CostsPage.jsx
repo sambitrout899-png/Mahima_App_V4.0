@@ -21,9 +21,11 @@ import {
   BookOpen,
   Layers,
   BarChart3,
+  FileSpreadsheet,
   Plus,
   Printer,
   Download,
+  Upload,
   Loader2,
   X,
   Search,
@@ -124,6 +126,10 @@ const csvCell = (value) => {
 const downloadCsv = (filename, rows) => {
   const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  downloadBlob(filename, blob);
+};
+
+const downloadBlob = (filename, blob) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -293,6 +299,9 @@ export default function CostsPage() {
   const [accountModal, setAccountModal] = useState(false);
   const [openingModal, setOpeningModal] = useState(null); // { accountId, accountName }
   const ledgerAutoPickRef = useRef(false);
+  const importFileRef = useRef(null);
+  const [importMode, setImportMode] = useState("upsert");
+  const [importing, setImporting] = useState(false);
 
   /* ---------------- API ---------------- */
   const fetchAccountsAndBalances = useCallback(async () => {
@@ -838,6 +847,59 @@ export default function CostsPage() {
     }
   };
 
+  const downloadImportTemplate = async () => {
+    try {
+      const res = await axios.get(accountingUrl("/import-template"), authConfig({ responseType: "blob" }));
+      downloadBlob("mahima_accounting_import_template.csv", new Blob([res.data], { type: "text/csv;charset=utf-8" }));
+    } catch (e) {
+      toastError(errMsg(e, "Failed to download accounting import template."));
+    }
+  };
+
+  const downloadJournalExport = async () => {
+    const { from, to } = periodParams;
+    try {
+      const res = await axios.get(
+        accountingUrl(`/export?fromDate=${encodeURIComponent(from)}&toDate=${encodeURIComponent(to)}`),
+        authConfig({ responseType: "blob" })
+      );
+      downloadBlob(`mahima_accounting_journal_${periodSlug}.csv`, new Blob([res.data], { type: "text/csv;charset=utf-8" }));
+      toastSuccess("Journal export downloaded.");
+    } catch (e) {
+      toastError(errMsg(e, "Failed to download accounting export."));
+    }
+  };
+
+  const importAccountingCsv = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("mode", importMode);
+
+      const res = await axios.post(accountingUrl("/import"), form, authConfig());
+      const data = res.data || {};
+      toastSuccess(
+        `Import complete. Inserted ${data.inserted || 0}, updated ${data.updated || 0}, deleted ${data.deleted || 0}, skipped ${data.skipped || 0}.`,
+        6500
+      );
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        toastInfo(data.errors.slice(0, 2).join(" | "), 9000);
+      }
+      await fetchAccountsAndBalances();
+      if (selectedAccount) await loadLedger(selectedAccount);
+      if (view === "reports") await loadPnl();
+    } catch (e) {
+      toastError(errMsg(e, "Failed to import accounting CSV."));
+    } finally {
+      setImporting(false);
+      if (event.target) event.target.value = "";
+    }
+  };
+
   /* ---------------- Render ---------------- */
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-amber-50/40 px-3 sm:px-6 py-4 sm:py-6">
@@ -932,6 +994,50 @@ export default function CostsPage() {
             <Download className="w-4 h-4" />
           </button>
         </div>
+      </section>
+
+      <section className="mb-4 rounded-2xl bg-white border border-slate-200 shadow-sm p-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          Import / Export
+        </span>
+        <select
+          value={importMode}
+          onChange={(e) => setImportMode(e.target.value)}
+          className="input-sm min-w-[130px]"
+          title="CSV import mode"
+        >
+          <option value="upsert">Upsert</option>
+          <option value="insert">Insert</option>
+          <option value="update">Update</option>
+          <option value="delete">Delete</option>
+        </select>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={importAccountingCsv}
+        />
+        <button onClick={downloadImportTemplate} className="btn-secondary">
+          <Download className="w-4 h-4" />
+          Template
+        </button>
+        <button onClick={downloadJournalExport} className="btn-secondary">
+          <Download className="w-4 h-4" />
+          Export Journal
+        </button>
+        <button
+          onClick={() => importFileRef.current?.click()}
+          disabled={importing}
+          className="btn-primary"
+        >
+          {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          Import CSV
+        </button>
+        <p className="text-xs font-semibold text-slate-500">
+          Template supports insert, update, upsert, and delete journal vouchers.
+        </p>
       </section>
 
       {/* Tabs */}

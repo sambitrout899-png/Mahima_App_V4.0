@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
@@ -57,11 +57,11 @@ public class AuthController : ControllerBase
                 HttpContext.RequestAborted);
 
             await _chatHub.Clients.All.SendAsync("ReceiveMessage", sent, HttpContext.RequestAborted);
-            _logger.LogInformation("AI Pastor welcome sent for registered user {UserId}", userId);
+            _logger.LogInformation("AI Counseller welcome sent for registered user {UserId}", userId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI Pastor welcome could not be sent for registered user {UserId}", userId);
+            _logger.LogWarning(ex, "AI Counseller welcome could not be sent for registered user {UserId}", userId);
         }
     }
 
@@ -192,7 +192,7 @@ LIMIT 1;", conn);
     }
 
     // ============================
-    // 🔥 GET CURRENT USER (FIXED)
+    // ?? GET CURRENT USER (FIXED)
     // ============================
     [Authorize]
     [HttpGet("me")]
@@ -248,7 +248,10 @@ LIMIT 1;";
 
             await rdr.CloseAsync();
 
-            var pages = await LoadPermissions(conn, role);
+            var roles = await LoadEffectiveRoles(conn, userId, role);
+            var pages = await LoadPermissions(conn, roles);
+            await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userId);
+            var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userId);
 
             return Ok(new
             {
@@ -259,7 +262,10 @@ LIMIT 1;";
                 email,
                 phone,
                 role,
-                pages
+                roles,
+                pages,
+                positions,
+                primaryPosition = positions.FirstOrDefault()
             });
         }
         catch (Exception ex)
@@ -379,7 +385,10 @@ RETURNING id;";
 
             var id = await insertCmd.ExecuteScalarAsync();
             var userId = Guid.Parse(id?.ToString() ?? Guid.Empty.ToString());
-            var pages = await LoadPermissions(conn, memberRoleName);
+            var roles = new List<string> { memberRoleName };
+            var pages = await LoadPermissions(conn, roles);
+            await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userId);
+            var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userId);
             var token = _jwtService.GenerateToken(userId, username, string.IsNullOrWhiteSpace(display) ? username : display, memberRoleName);
             await SendNewUserWelcomeAsync(userId, string.IsNullOrWhiteSpace(display) ? username : display);
 
@@ -394,7 +403,10 @@ RETURNING id;";
                     email,
                     phone,
                     role = memberRoleName,
-                    pages
+                    roles,
+                    pages,
+                    positions,
+                    primaryPosition = positions.FirstOrDefault()
                 }
             });
         }
@@ -467,22 +479,8 @@ LIMIT 1;
             return Unauthorized(new { message = "Invalid credentials" });
         }
 
-        //var result = _pwHasher.VerifyHashedPassword(null, storedHash, dto.Password);
-		//var result = _pwHasher.VerifyHashedPassword(username, storedHash, dto.Password);
-        //var result = _pwHasher.VerifyHashedPassword(null, storedHash, dto.Password);
-		
 		var result = _pwHasher.VerifyHashedPassword(null, storedHash, dto.Password);
 
-		// 🔥 DEBUG LOG (ADD THIS)
-		_logger.LogWarning("LOGIN DEBUG → User: {User}", username);
-		_logger.LogWarning("LOGIN DEBUG → Hash: {Hash}", storedHash);
-		_logger.LogWarning("LOGIN DEBUG → Password length: {Len}", dto.Password?.Length ?? 0);
-		_logger.LogWarning("LOGIN DEBUG → Result: {Result}", result);
-		_logger.LogWarning("LOGIN INPUT → '{Input}' LENGTH={Len}", input, input?.Length);
-		_logger.LogWarning("LOGIN DEBUG → Result: {Result}", result);
-		
-		
-		//if (result != PasswordVerificationResult.Success)
         if (result != PasswordVerificationResult.Success && result != PasswordVerificationResult.SuccessRehashNeeded)
 		{
             _logger.LogWarning("Login failed: invalid password for {User}", dto.UsernameOrEmail);
@@ -504,7 +502,10 @@ LIMIT 1;
         }
 
 	var token = _jwtService.GenerateToken(userGuid, username, display, role);
-        var pages = await LoadPermissions(conn, role);
+        var roles = await LoadEffectiveRoles(conn, userGuid, role);
+        var pages = await LoadPermissions(conn, roles);
+        await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userGuid);
+        var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userGuid);
 
         return Ok(new
         {
@@ -517,7 +518,10 @@ LIMIT 1;
                 email,
                 phone,
                 role,
-                pages
+                roles,
+                pages,
+                positions,
+                primaryPosition = positions.FirstOrDefault()
             }
         });
     }
@@ -534,20 +538,60 @@ LIMIT 1;
 }
 
     // ============================
-    // 🔥 PERMISSION LOADER
+    // ?? PERMISSION LOADER
     // ============================
-    private async Task<List<string>> LoadPermissions(NpgsqlConnection conn, string? role)
+    private async Task<List<string>> LoadEffectiveRoles(NpgsqlConnection conn, Guid userId, string? fallbackRole)
+    {
+        var roles = new List<string>();
+        await EnsureUserRoleAssignmentsTableAsync(conn);
+        await using (var cmd = new NpgsqlCommand(@"
+SELECT DISTINCT r.name
+FROM public.user_roles ur
+JOIN public.roles r ON r.id = ur.role_id
+WHERE ur.user_id = @user_id
+ORDER BY r.name;", conn))
+        {
+            cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                var value = rdr.IsDBNull(0) ? "" : rdr.GetString(0);
+                if (!string.IsNullOrWhiteSpace(value)) roles.Add(value);
+            }
+        }
+
+        if (!roles.Any() && !string.IsNullOrWhiteSpace(fallbackRole)) roles.Add(fallbackRole);
+        return roles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static async Task EnsureUserRoleAssignmentsTableAsync(NpgsqlConnection conn)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    role_id integer NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+    is_primary boolean NOT NULL DEFAULT false,
+    assigned_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, role_id)
+);
+CREATE INDEX IF NOT EXISTS ix_user_roles_user ON public.user_roles(user_id);", conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task<List<string>> LoadPermissions(NpgsqlConnection conn, IEnumerable<string?> roles)
     {
         var pages = new List<string>();
+        var roleList = roles.Select(r => (r ?? "").Trim()).Where(r => r.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (roleList.Length == 0) return pages;
 
         var permSql = @"
-SELECT rp.page_key
+SELECT DISTINCT UPPER(rp.page_key)
 FROM role_permissions rp
 JOIN roles r ON r.id = rp.role_id
-WHERE LOWER(r.name) = LOWER(@role);";
+WHERE LOWER(r.name) = ANY(@roles);";
 
         await using var permCmd = new NpgsqlCommand(permSql, conn);
-        permCmd.Parameters.AddWithValue("role", role ?? "");
+        permCmd.Parameters.AddWithValue("roles", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text, roleList.Select(r => r.ToLowerInvariant()).ToArray());
 
         await using var permRdr = await permCmd.ExecuteReaderAsync();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -625,7 +669,7 @@ LIMIT 1;";
             if (userId == Guid.Empty || string.IsNullOrWhiteSpace(email))
                 return Ok(generic);
 
-            // Generate a high-entropy token (32 bytes ≈ 256 bits) and store
+            // Generate a high-entropy token (32 bytes ˜ 256 bits) and store
             // only its SHA-256 hash. Link in the email carries the plaintext.
             var rawToken = GenerateUrlSafeToken(32);
             var tokenHash = Sha256Hex(rawToken);
@@ -867,3 +911,5 @@ If you didn't request this, you can safely ignore this email.
 — Mahima Ministries";
     }
 }
+
+

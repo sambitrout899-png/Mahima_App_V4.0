@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch } from "../../utils/fetch-auth-shim";
+import { useLanguage } from "../../i18n/LanguageContext";
 
 const emptyAddForm = {
   userId: "",
@@ -194,6 +195,7 @@ function ActionButton({
 }
 
 export default function MembersPage() {
+  const { t } = useLanguage();
   const { teamId } = useParams();
   const navigate = useNavigate();
 
@@ -1072,25 +1074,25 @@ export default function MembersPage() {
 
       <div className="mm-header">
         <div>
-          <h2 className="mm-title">Team Members - Team {teamId}</h2>
-          <div className="mm-subtitle">Manage members, roles, and the team leader.</div>
+          <h2 className="mm-title">{t("page.members.title")} - {teamId}</h2>
+          <div className="mm-subtitle">{t("page.members.subtitle")}</div>
         </div>
 
         <div className="mm-toolbar">
-          <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate(-1)} variant="neutral" />
-          <IconButton icon={RefreshCw} label="Refresh members" onClick={loadMembers} loading={loading} variant="soft" />
-          <IconButton icon={UserPlus} label="Add member" onClick={() => setShowAdd(true)} variant="primary" />
+          <IconButton icon={ArrowLeft} label={t("page.members.back")} onClick={() => navigate(-1)} variant="neutral" />
+          <IconButton icon={RefreshCw} label={t("page.members.refreshMembers")} onClick={loadMembers} loading={loading} variant="soft" />
+          <IconButton icon={UserPlus} label={t("page.members.addMember")} onClick={() => setShowAdd(true)} variant="primary" />
         </div>
       </div>
 
       <div className="mm-stats">
         <div className="mm-stat">
           <Users size={18} />
-          Members: {members.length}
+          {t("page.members.members")}: {members.length}
         </div>
         <div className="mm-stat">
           <Crown size={18} />
-          Leader: {leader ? displayNameOf(leader) : "-"}
+          {t("page.members.leader")}: <span data-no-ui-translate>{leader ? displayNameOf(leader) : "-"}</span>
         </div>
       </div>
 
@@ -1103,9 +1105,9 @@ export default function MembersPage() {
 
       <div className="mm-grid">
         {loading ? (
-          <div className="mm-empty">Loading members...</div>
+          <div className="mm-empty">{t("page.members.loadingMembers")}</div>
         ) : members.length === 0 ? (
-          <div className="mm-empty">No members yet. Add a member to begin.</div>
+          <div className="mm-empty">{t("page.members.noMembers")}</div>
         ) : (
           members.map((member) => {
             const id = userIdOf(member);
@@ -1120,19 +1122,19 @@ export default function MembersPage() {
                   <div className="mm-avatar">{initialsOf(name)}</div>
 
                   <div>
-                    <div className="mm-name" title={name}>
+                    <div className="mm-name" title={name} data-no-ui-translate>
                       {name}
                     </div>
 
                     <div className="mm-meta">
-                      <span className="mm-badge">{String(roleOf(member)).toUpperCase()}</span>
+                      <span className="mm-badge" data-no-ui-translate>{String(roleOf(member)).toUpperCase()}</span>
                       {memberLeader && (
                         <span className="mm-badge mm-leader">
                           <Crown size={14} />
-                          Leader
+                          {t("page.members.leader")}
                         </span>
                       )}
-                      <span className="mm-badge">Joined: {joinedOf(member)}</span>
+                      <span className="mm-badge">{t("page.members.joined")}: <span data-no-ui-translate>{joinedOf(member)}</span></span>
                     </div>
                   </div>
                 </div>
@@ -1140,7 +1142,7 @@ export default function MembersPage() {
                 <div className="mm-card-actions">
                   <IconButton
                     icon={Pencil}
-                    label="Edit role"
+                    label={t("page.members.editRole")}
                     onClick={() => editRole(member)}
                     disabled={Boolean(busyUserId)}
                     variant="neutral"
@@ -1148,7 +1150,7 @@ export default function MembersPage() {
 
                   <IconButton
                     icon={ShieldCheck}
-                    label={memberLeader ? "Unset leader" : "Make leader"}
+                    label={memberLeader ? t("page.members.unsetLeader") : t("page.members.setLeader")}
                     onClick={() => toggleLeader(member)}
                     loading={busy}
                     disabled={Boolean(busyUserId && busyUserId !== id)}
@@ -1157,7 +1159,7 @@ export default function MembersPage() {
 
                   <IconButton
                     icon={Trash2}
-                    label="Remove member"
+                    label={t("page.members.removeMember")}
                     onClick={() => removeMember(member)}
                     loading={busy}
                     disabled={Boolean(busyUserId && busyUserId !== id)}
@@ -1174,8 +1176,8 @@ export default function MembersPage() {
         <div className="mm-modal-backdrop" role="dialog" aria-modal="true">
           <div className="mm-modal">
             <div className="mm-modal-header">
-              <h3 className="mm-modal-title">Add Member</h3>
-              <IconButton icon={X} label="Close" onClick={closeAddModal} disabled={saving} size="sm" />
+              <h3 className="mm-modal-title">{t("page.members.addMember")}</h3>
+              <IconButton icon={X} label={t("common.close")} onClick={closeAddModal} disabled={saving} size="sm" />
             </div>
 
             <div className="mm-modal-body">
@@ -1188,22 +1190,22 @@ export default function MembersPage() {
 
               <div className="mm-form-grid">
                 <div className="mm-field">
-                  <label>Selected user</label>
+                  <label>{t("page.members.selectedUser")}</label>
                   <input
                     className="mm-input"
                     value={form.userLabel}
                     readOnly
-                    placeholder="Choose a user below"
+                    placeholder={t("page.members.chooseUserBelow")}
                   />
                 </div>
 
                 <div className="mm-field">
-                  <label>Role</label>
+                  <label>{t("common.role")}</label>
                   <input
                     className="mm-input"
                     value={form.role}
                     onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value }))}
-                    placeholder="Optional role"
+                    placeholder={t("page.members.optionalRole")}
                   />
                 </div>
               </div>
@@ -1214,7 +1216,7 @@ export default function MembersPage() {
                   checked={form.markLeader}
                   onChange={(e) => setForm((prev) => ({ ...prev, markLeader: e.target.checked }))}
                 />
-                Mark as leader
+                {t("page.members.markLeader")}
               </label>
 
               <div className="mm-search-wrap">
@@ -1223,15 +1225,15 @@ export default function MembersPage() {
                   className="mm-input"
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
-                  placeholder="Search users by name, email, or username"
+                  placeholder={t("page.members.searchUsers")}
                 />
               </div>
 
               <div className="mm-user-list">
                 {usersLoading ? (
-                  <div className="mm-empty">Loading users...</div>
+                  <div className="mm-empty">{t("page.members.loadingUsers")}</div>
                 ) : filteredUsers.length === 0 ? (
-                  <div className="mm-empty">No users found.</div>
+                  <div className="mm-empty">{t("page.members.noUsers")}</div>
                 ) : (
                   filteredUsers.map((user) => {
                     const id = userIdOf(user);
@@ -1246,10 +1248,10 @@ export default function MembersPage() {
                         <div className="mm-left">
                           <div className="mm-avatar">{initialsOf(name)}</div>
                           <div>
-                            <div className="mm-name">{name}</div>
-                            {contact && <div className="mm-sub">{contact}</div>}
+                            <div className="mm-name" data-no-ui-translate>{name}</div>
+                            {contact && <div className="mm-sub" data-no-ui-translate>{contact}</div>}
                             <div className="mm-meta">
-                              <span className="mm-badge">
+                              <span className="mm-badge" data-no-ui-translate>
                                 {String(user.role ?? user.Role ?? "user").toUpperCase()}
                               </span>
                               <span className="mm-badge">
@@ -1266,7 +1268,7 @@ export default function MembersPage() {
                         <div className="mm-card-actions">
                           <IconButton
                             icon={Plus}
-                            label="Use user"
+                            label={t("page.members.useUser")}
                             onClick={() => chooseUser(user)}
                             disabled={saving}
                             variant="neutral"
@@ -1274,7 +1276,7 @@ export default function MembersPage() {
 
                           <IconButton
                             icon={UserPlus}
-                            label={alreadyMember ? "Already in team" : "Add user"}
+                            label={alreadyMember ? t("page.members.alreadyInTeam") : t("page.members.addUser")}
                             onClick={() => addMember(id)}
                             loading={busy}
                             disabled={alreadyMember || saving}
@@ -1283,7 +1285,7 @@ export default function MembersPage() {
 
                           <IconButton
                             icon={RefreshCw}
-                            label="Refresh teams"
+                            label={t("page.members.refreshTeams")}
                             onClick={() => fetchUserTeamsAndUpdate(id)}
                             disabled={saving}
                             variant="soft"
@@ -1298,11 +1300,11 @@ export default function MembersPage() {
 
             <div className="mm-modal-footer">
               <ActionButton icon={X} onClick={closeAddModal} disabled={saving} variant="secondary">
-                Cancel
+                {t("common.cancel")}
               </ActionButton>
 
               <ActionButton icon={UserPlus} onClick={() => addMember()} loading={saving}>
-                Add Member
+                {t("page.members.addMember")}
               </ActionButton>
             </div>
           </div>

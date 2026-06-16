@@ -184,6 +184,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/publish/appsettings.json
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/publish/Mahima.Api.v3.clean.deps.json
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/publish/Mahima.Api.v3.clean.runtimeconfig.json
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/services/Ai/scripture_pack.json
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/LatoFont/Lato-Black.ttf
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/LatoFont/Lato-BlackItalic.ttf
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/LatoFont/Lato-Bold.ttf
@@ -209,6 +210,9 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mahima.Api.v3.clean.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Mahima.Api.v3.clean.pdb
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/BouncyCastle.Cryptography.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Google.Apis.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Google.Apis.Auth.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Google.Apis.Core.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Humanizer.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.barcodes.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/itext.bouncy-castle-connector.dll
@@ -260,6 +264,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.Composition.TypedParts.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.IdentityModel.Tokens.Jwt.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.IO.Pipelines.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.Management.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.Text.Encodings.Web.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/System.Text.Json.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/Twilio.dll
@@ -337,6 +342,7 @@
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/runtimes/win-x86/native/libwinpthread-1.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/runtimes/win-x86/native/qpdf.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/runtimes/win-x86/native/zlib1.dll
+/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/runtimes/win/lib/net7.0/System.Management.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/bin/Debug/net8.0/runtimes/browser/lib/net8.0/System.Text.Encodings.Web.dll
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/Debug/net8.0/Mahima.Api.v3.clean.csproj.AssemblyReference.cache
 /root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/Debug/net8.0/Mahima.Api.v3.clean.GeneratedMSBuildEditorConfig.editorconfig

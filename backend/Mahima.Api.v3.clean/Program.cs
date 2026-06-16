@@ -1,4 +1,4 @@
-using Mahima.Api.v3.clean.Data;
+﻿using Mahima.Api.v3.clean.Data;
 using System;
 using System.IO;
 using System.Security.Claims;
@@ -25,6 +25,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+
+// Npgsql 6.0+ enforces strict DateTime Kind matching.
+// This switch restores the pre-6.0 behaviour so that both
+// 'timestamp without time zone' and 'timestamp with time zone' columns
+// accept DateTime values regardless of Kind, matching how the app was built.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,8 +60,11 @@ builder.Services
 var connStr = builder.Configuration.GetConnectionString("DefaultConnection")
               ?? throw new InvalidOperationException("Missing Default connection string.");
 
-builder.Services.AddDbContext<MahimaDbContext>(opt =>
-    opt.UseNpgsql(connStr, npgsql => npgsql.EnableRetryOnFailure(3)));
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuditSaveChangesInterceptor>();
+builder.Services.AddDbContext<MahimaDbContext>((sp, opt) =>
+    opt.UseNpgsql(connStr, npgsql => npgsql.EnableRetryOnFailure(3))
+       .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
 
 // -------------------------------------------------------
 // JSON / Controllers
@@ -146,14 +155,23 @@ builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<IMobilePushNotificationService, MobilePushNotificationService>();
 builder.Services.AddScoped<IBaptismCertificateService, BaptismCertificateService>();
 builder.Services.AddScoped<IMarriageService, MarriageService>();
 builder.Services.AddScoped<ICounsellingService, CounsellingService>();
 builder.Services.AddScoped<AccountingService>();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient("PastorBot");
+// AI Counseller — provider-agnostic LLM layer. The concrete provider is selected by
+// the PastorBot:* configuration block and can be a self-hosted model (Ollama,
+// vLLM) or any OpenAI-compatible endpoint — no OpenAI dependency required.
+builder.Services.AddSingleton<Mahima.Api.v3.clean.Services.Ai.IScriptureService,
+                               Mahima.Api.v3.clean.Services.Ai.ScriptureService>();
+builder.Services.AddScoped<Mahima.Api.v3.clean.Services.Ai.ILlmProvider,
+                            Mahima.Api.v3.clean.Services.Ai.OpenAiCompatibleLlmProvider>();
 builder.Services.AddScoped<IPastorBotService, PastorBotService>();
 builder.Services.AddHostedService<MinistryChatAutomationService>();
+builder.Services.AddHostedService<PrayerIntelligenceMonitorService>();
 
 
 // -------------------------------------------------------
@@ -187,6 +205,7 @@ app.UseRouting();
 app.UseCors(CorsPolicy);
 
 app.UseAuthentication();
+app.UseMiddleware<AuditTrailMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

@@ -55,7 +55,6 @@ import {
 
 import { getToken as authGetToken } from "../auth/authService";
 import {
-  canAccessPage as permCanAccessPage,
   getCurrentUser as permGetCurrentUser,
 } from "../auth/permissionService";
 
@@ -96,7 +95,6 @@ function getCurrentUserFallback() {
 }
 const getToken = authGetToken || getTokenFallback;
 const getCurrentUser = permGetCurrentUser || getCurrentUserFallback;
-const canAccessPage = permCanAccessPage || (() => false);
 
 const API_BASE =
   (typeof window !== "undefined" && window.__API_BASE__) ||
@@ -119,6 +117,12 @@ api.interceptors.request.use((config) => {
  *  Constants & helpers
  * ====================================================================== */
 const STATUSES = ["Present", "Absent", "Leave", "Half-day", "WFH"];
+const ASSIGNABLE_ROLE_NAMES = new Set(["admin", "administrator", "finance", "staff", "volunteer", "volunteers"]);
+const ROLE_ID_ALIASES = {
+  "1": "admin",
+  "10": "volunteer",
+  "11": "staff",
+};
 
 const STATUS_META = {
   present:  { label: "Present",  dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: CheckCircle2, value: 1 },
@@ -194,6 +198,36 @@ function isPayrollEnabledUser(u) {
     u?.isPayrollEnabled ??
     u?.IsPayrollEnabled
   );
+}
+
+function roleName(role) {
+  const value = String(
+    typeof role === "string"
+      ? role
+      : role?.name || role?.roleName || role?.RoleName || role?.role || role?.Role || role?.id || ""
+  ).trim().toLowerCase();
+  return ROLE_ID_ALIASES[value] || value;
+}
+
+function userRoles(user) {
+  if (!user) return [];
+  const direct = [
+    user.role,
+    user.Role,
+    user.roleName,
+    user.RoleName,
+    user.role_name,
+    user.roleId,
+    user.RoleId,
+  ];
+  const nested = Array.isArray(user.roles) ? user.roles : [];
+  return [...direct, ...nested].map(roleName).filter(Boolean);
+}
+
+function hasAssignableTimesheetRole(user) {
+  const roles = userRoles(user);
+  if (roles.length === 0) return false;
+  return roles.some((role) => ASSIGNABLE_ROLE_NAMES.has(role));
 }
 
 function buildWeekDates(anchor) {
@@ -276,6 +310,8 @@ function Modal({ open, onClose, title, children, footer, size = "md" }) {
  *  Main page
  * ====================================================================== */
 export default function TimesheetPage() {
+  const [user, setUser] = useState(() => getCurrentUserFallback());
+
   /* ---- core data ---- */
   const [staff, setStaff] = useState([]);
   const [timesheets, setTimesheets] = useState([]);
@@ -307,23 +343,30 @@ export default function TimesheetPage() {
   const toast = useToasts();
 
   /* ---- permissions ---- */
-  const user = getCurrentUser();
-  const currentUserId = user?.id || user?.userId || user?._id || user?.userID || "";
-  const currentUserName =
-    user?.displayName || user?.name || user?.fullName || user?.email || user?.username || "Me";
+  useEffect(() => {
+    let mounted = true;
+    Promise.resolve(getCurrentUser())
+      .then((resolved) => {
+        if (mounted && resolved) setUser(resolved);
+      })
+      .catch(() => {
+        const fallback = getCurrentUserFallback();
+        if (mounted && fallback) setUser(fallback);
+      });
+    return () => { mounted = false; };
+  }, []);
 
-  const singleRole = (user?.role || user?.Role || "").toString().toLowerCase();
-  const rolesArray = Array.isArray(user?.roles)
-    ? user.roles.map((r) => (typeof r === "string" ? r : r?.name || "").toLowerCase())
-    : [];
-  const allRoles = [singleRole, ...rolesArray].filter(Boolean);
-  const isAdminRole = allRoles.includes("admin");
+  const currentUserId = user?.id || user?.Id || user?.userId || user?.UserId || user?._id || user?.userID || "";
+  const currentUserName =
+    user?.displayName || user?.DisplayName || user?.name || user?.Name || user?.fullName || user?.FullName || user?.email || user?.Email || user?.username || user?.UserName || "Me";
+
+  const allRoles = userRoles(user);
+  const isAdminRole = allRoles.includes("admin") || allRoles.includes("administrator");
+  const isFinanceRole = allRoles.includes("finance");
   const isStaffRoleSelf = allRoles.includes("staff");
-  const hasAdminDashboardPerm = canAccessPage ? !!canAccessPage("AdminDashboard") : false;
-  const isAdmin = isAdminRole || hasAdminDashboardPerm;
+  const isAdmin = isAdminRole || isFinanceRole;
   const roleAllows = isAdmin || isStaffRoleSelf;
-  const permAllows = canAccessPage ? !!canAccessPage("Timesheets") : false;
-  const canSee = !!user && (roleAllows || permAllows);
+  const canSee = !!user && roleAllows;
 
   /* ---- lock non-admins to themselves ---- */
   useEffect(() => {
@@ -344,10 +387,8 @@ export default function TimesheetPage() {
           let lastError = null;
 
           try {
-            const res = await api.get("/users", { params: { payrollEnabled: true, page: 1, limit: 5000 } });
-            const rows = arrayFrom(res.data);
-            const payrollRows = rows.filter(isPayrollEnabledUser);
-            list = payrollRows.length ? payrollRows : rows;
+            const res = await api.get("/users", { params: { page: 1, limit: 5000 } });
+            list = arrayFrom(res.data).filter(hasAssignableTimesheetRole);
           } catch (err) {
             lastError = err;
           }
@@ -355,9 +396,7 @@ export default function TimesheetPage() {
           if (list.length === 0) {
             try {
               const res = await api.get("/chats/contacts", { params: { page: 1, limit: 1000 } });
-              const rows = arrayFrom(res.data);
-              const payrollRows = rows.filter(isPayrollEnabledUser);
-              list = payrollRows.length ? payrollRows : rows;
+              list = arrayFrom(res.data).filter(hasAssignableTimesheetRole);
             } catch (err) {
               lastError = err;
             }
@@ -444,7 +483,7 @@ export default function TimesheetPage() {
   }, [staff, currentUserId, currentUserName]);
 
   const selectableStaff = useMemo(
-    () => staff.filter(isPayrollEnabledUser),
+    () => staff,
     [staff]
   );
 
@@ -578,6 +617,10 @@ export default function TimesheetPage() {
   }
 
   async function saveTimesheet() {
+    if (!isAdmin && sheetDraft.userId && sheetDraft.userId !== currentUserId) {
+      toast.push("You can only update your own timesheet.", "error");
+      return;
+    }
     if (!sheetDraft.userId)          { toast.push("Pick a staff member.", "error"); return; }
     if (!Number(sheetDraft.hours))   { toast.push("Hours must be greater than zero.", "error"); return; }
     if (Number(sheetDraft.hours) > 24){ toast.push("Hours can't exceed 24 in a day.", "error"); return; }
@@ -601,6 +644,10 @@ export default function TimesheetPage() {
   }
 
   async function saveAttendance() {
+    if (!isAdmin && attDraft.userId && attDraft.userId !== currentUserId) {
+      toast.push("You can only update your own attendance.", "error");
+      return;
+    }
     if (!attDraft.userId) { toast.push("Pick a staff member.", "error"); return; }
     setSaving(true);
     try {
@@ -693,7 +740,8 @@ export default function TimesheetPage() {
           </div>
           <h1 className="text-lg font-semibold text-slate-900">Access restricted</h1>
           <p className="text-sm text-slate-500">
-            Only users with the <span className="font-semibold">Admin</span> or{" "}
+            Only users with the <span className="font-semibold">Admin</span>,{" "}
+            <span className="font-semibold">Finance</span>, or{" "}
             <span className="font-semibold">Staff</span> role can view this page.
           </p>
         </div>

@@ -1,15 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
-import { CloudSun, ExternalLink, MapPin, Newspaper, Radio, RefreshCw, Sparkles, Zap } from "lucide-react";
+﻿import { useEffect, useMemo, useState } from "react";
+import { CloudSun, ExternalLink, MapPin, Newspaper, Quote, Radio, RefreshCw, ShieldAlert, Sparkles, Zap } from "lucide-react";
 import { apiFetch } from "../utils/fetch-auth-shim";
 
-const CACHE_KEY = "mahima_today_update_v1";
+const CACHE_KEY = "mahima_today_update_v2";
 const CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const FAITH_QUOTES = [
+  { by: "Billy Graham", text: "My home is in Heaven. I'm just traveling through this world." },
+  { by: "Billy Graham", text: "Courage is contagious." },
+  { by: "Corrie ten Boom", text: "Never be afraid to trust an unknown future to a known God." },
+  { by: "C. S. Lewis", text: "There are far, far better things ahead than any we leave behind." },
+  { by: "Augustine", text: "Pray as though everything depended on God." },
+];
+
+function hasLiveUpdateData(data) {
+  return Boolean(
+    data?.location?.label ||
+      data?.location?.timezone ||
+      data?.weather ||
+      data?.christianUpdate?.summary ||
+      data?.christianUpdate?.articles?.length ||
+      data?.israelWatch?.length
+  );
+}
+
 
 function getCachedUpdate() {
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
     if (!cached?.savedAt || Date.now() - Number(cached.savedAt) > CACHE_MAX_AGE_MS) return null;
-    return cached.data || null;
+    return hasLiveUpdateData(cached.data) ? cached.data : null;
   } catch {
     return null;
   }
@@ -17,7 +37,7 @@ function getCachedUpdate() {
 
 function setCachedUpdate(data) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+    if (hasLiveUpdateData(data)) localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
   } catch {}
 }
 
@@ -123,7 +143,8 @@ export default function TodayUpdateCorner() {
   const temp = roundValue(weather?.temperatureC);
   const feelsLike = roundValue(weather?.feelsLikeC);
   const articles = Array.isArray(data?.christianUpdate?.articles) ? data.christianUpdate.articles : [];
-  const topArticle = articles.find((article) => articleUrl(article));
+  const israelWatch = Array.isArray(data?.israelWatch) ? data.israelWatch : [];
+  const topArticle = articles.find((article) => articleUrl(article)) || israelWatch.find((article) => articleUrl(article));
 
   const tickerItems = useMemo(() => {
     const items = [];
@@ -149,6 +170,18 @@ export default function TodayUpdateCorner() {
       label: loading && !data ? "Preparing today's Christian update..." : summary || "Christian update: keep watch for ministry news, prayer needs, and local church announcements today",
     });
 
+    israelWatch.slice(0, 3).forEach((article, index) => {
+      const title = articleTitle(article);
+      if (!title) return;
+      const source = articleSource(article);
+      items.push({
+        key: `israel-watch-${index}`,
+        tone: "israel",
+        label: `Israel watch: ${title}${source ? ` - ${source}` : ""}. Discern carefully; no dates or claims are implied.`,
+        url: articleUrl(article),
+      });
+    });
+
     articles.slice(0, 6).forEach((article, index) => {
       const title = articleTitle(article);
       if (!title) return;
@@ -161,6 +194,14 @@ export default function TodayUpdateCorner() {
       });
     });
 
+    FAITH_QUOTES.forEach((quote, index) => {
+      items.push({
+        key: `quote-${index}`,
+        tone: "quote",
+        label: `${quote.by}: "${quote.text}"`,
+      });
+    });
+
     if (error) {
       items.push({
         key: "error",
@@ -170,7 +211,7 @@ export default function TodayUpdateCorner() {
     }
 
     return items.filter((item) => item.label);
-  }, [articles, data, error, feelsLike, loading, location, temp, weather]);
+  }, [articles, data, error, feelsLike, israelWatch, loading, location, temp, weather]);
 
   const marqueeItems = tickerItems.length ? [...tickerItems, ...tickerItems] : [];
 
@@ -186,7 +227,7 @@ export default function TodayUpdateCorner() {
         <div className="today-ribbon__viewport">
           <div className="today-ribbon__track">
             {marqueeItems.map((item, index) => {
-              const Icon = item.tone === "weather" ? CloudSun : item.tone === "news" ? Newspaper : item.tone === "alert" ? Zap : Sparkles;
+              const Icon = item.tone === "weather" ? CloudSun : item.tone === "news" ? Newspaper : item.tone === "israel" ? ShieldAlert : item.tone === "quote" ? Quote : item.tone === "alert" ? Zap : Sparkles;
               const content = (
                 <>
                   <span className={`today-ribbon__icon today-ribbon__icon--${item.tone}`}>

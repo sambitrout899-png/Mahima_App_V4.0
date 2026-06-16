@@ -39,26 +39,35 @@ namespace Mahima.Api.Controllers
 
         private string? GetActorIdString() => GetActorId()?.ToString();
 
-        private bool IsAdmin()
+        private bool HasAnyRole(params string[] roles)
         {
-            // Standard ASP.NET role check
-            if (User.IsInRole("Admin") || User.IsInRole("Administrator"))
+            var allowed = roles
+                .Select(r => r.Trim().ToLowerInvariant())
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .ToHashSet();
+
+            if (allowed.Count == 0)
+                return false;
+
+            if (roles.Any(role => User.IsInRole(role)))
                 return true;
 
-            // Extra safety: look at role claims manually
             var roleClaims = User.FindAll(ClaimTypes.Role)
-                                 .Select(c => c.Value?.ToLowerInvariant())
-                                 .Where(v => !string.IsNullOrWhiteSpace(v))
-                                 .ToList();
+                .Concat(User.FindAll("role"))
+                .Select(c => c.Value?.Trim().ToLowerInvariant())
+                .Where(v => !string.IsNullOrWhiteSpace(v));
 
-            if (roleClaims.Contains("admin") || roleClaims.Contains("administrator"))
-                return true;
+            return roleClaims.Any(role => allowed.Contains(role!));
+        }
 
-            var simpleRole = User.FindFirst("role")?.Value?.ToLowerInvariant();
-            if (simpleRole == "admin" || simpleRole == "administrator")
-                return true;
+        private bool CanManageOthers() => HasAnyRole("admin", "administrator", "finance");
 
-            return false;
+        private bool IsActor(string? userId)
+        {
+            var actorId = GetActorIdString();
+            return !string.IsNullOrWhiteSpace(actorId)
+                && !string.IsNullOrWhiteSpace(userId)
+                && string.Equals(actorId, userId, StringComparison.OrdinalIgnoreCase);
         }
 
         private void AddAudit(string action, string entityType, string entityId, object? details)
@@ -84,17 +93,16 @@ namespace Mahima.Api.Controllers
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to)
         {
-            var isAdmin = IsAdmin();
+            var canManageOthers = CanManageOthers();
             var actorId = GetActorIdString();
 
-            // Staff can only ever see their own records
-            if (!isAdmin)
+            // Only Admin and Finance can see records for other staff.
+            if (!canManageOthers)
             {
                 if (string.IsNullOrWhiteSpace(actorId))
                     return Forbid();
 
-                // If user tries to request some other user, forbid
-                if (!string.IsNullOrWhiteSpace(userId) && userId != actorId)
+                if (!string.IsNullOrWhiteSpace(userId) && !string.Equals(userId, actorId, StringComparison.OrdinalIgnoreCase))
                     return Forbid();
 
                 userId = actorId;
@@ -129,20 +137,22 @@ namespace Mahima.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Post([FromBody] Timesheet model)
         {
-            var isAdmin = IsAdmin();
+            var canManageOthers = CanManageOthers();
             var actorId = GetActorIdString();
 
-            if (!isAdmin)
-            {
-                // Staff cannot assign to other users; always force their own id
-                if (string.IsNullOrWhiteSpace(actorId))
-                    return Forbid();
-
+            if (string.IsNullOrWhiteSpace(model.UserId))
                 model.UserId = actorId;
-            }
 
             if (string.IsNullOrWhiteSpace(model.UserId))
                 return BadRequest("UserId is required.");
+
+            if (!canManageOthers)
+            {
+                if (string.IsNullOrWhiteSpace(actorId))
+                    return Forbid();
+                if (!IsActor(model.UserId))
+                    return Forbid();
+            }
 
             model.Date = DateTime.SpecifyKind(model.Date, DateTimeKind.Unspecified);
 
@@ -169,15 +179,10 @@ namespace Mahima.Api.Controllers
             var existing = await _db.Timesheets.FindAsync(id);
             if (existing == null) return NotFound();
 
-            var isAdmin = IsAdmin();
-            var actorId = GetActorIdString();
+            var canManageOthers = CanManageOthers();
 
-            // Staff can only edit their own entries
-            if (!isAdmin)
-            {
-                if (string.IsNullOrWhiteSpace(actorId) || existing.UserId != actorId)
-                    return Forbid();
-            }
+            if (!canManageOthers && !IsActor(existing.UserId))
+                return Forbid();
 
             var before = new
             {
@@ -193,8 +198,7 @@ namespace Mahima.Api.Controllers
             existing.Task = model.Task;
             existing.Notes = model.Notes;
 
-            // Admin is allowed to re-assign to another user if desired
-            if (isAdmin && !string.IsNullOrWhiteSpace(model.UserId))
+            if (canManageOthers && !string.IsNullOrWhiteSpace(model.UserId))
             {
                 existing.UserId = model.UserId;
             }
@@ -228,15 +232,8 @@ namespace Mahima.Api.Controllers
             var existing = await _db.Timesheets.FindAsync(id);
             if (existing == null) return NotFound();
 
-            var isAdmin = IsAdmin();
-            var actorId = GetActorIdString();
-
-            // Staff can only delete their own entries
-            if (!isAdmin)
-            {
-                if (string.IsNullOrWhiteSpace(actorId) || existing.UserId != actorId)
-                    return Forbid();
-            }
+            if (!CanManageOthers() && !IsActor(existing.UserId))
+                return Forbid();
 
             var snapshot = new
             {

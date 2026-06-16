@@ -334,6 +334,19 @@ namespace Mahima.Api.v3.clean.Controllers
             return NoContent();
         }
 
+        // DELETE /api/baptisms/{id} (admin only)
+        [HttpDelete("{id:int}")]
+        [Authorize(Roles = "ADMIN,Admin,admin")]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var entity = await _db.BaptismRequests.FindAsync(id);
+            if (entity == null) return NotFound();
+
+            _db.BaptismRequests.Remove(entity);
+            await _db.SaveChangesAsync();
+            return NoContent();
+        }
+
         // GET /api/baptisms/{id}/certificate  (serve PDF by streaming the file)
         [HttpGet("{id:int}/certificate")]
         [AllowAnonymous]

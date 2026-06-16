@@ -1,6 +1,7 @@
 // src/api.js
 
 import { apiFetchJson } from "./utils/fetch-auth-shim";
+import { activePositionHeaderValue } from "./utils/positionContext";
 
 /* ---------------- API BASE ---------------- */
 function buildApiBase() {
@@ -93,6 +94,8 @@ function bodyFor(data, headers) {
 function request(method, url, data, options = {}) {
   const { params, headers: optionHeaders, ...rest } = options || {};
   const headers = headersWithDefaults(optionHeaders);
+  const activePositionId = activePositionHeaderValue();
+  if (activePositionId && !headers["X-Mahima-Position-Id"]) headers["X-Mahima-Position-Id"] = activePositionId;
   const init = {
     ...rest,
     method,
@@ -139,3 +142,4 @@ export function setAuthToken(token) {
     console.warn("Token storage failed:", e);
   }
 }
+

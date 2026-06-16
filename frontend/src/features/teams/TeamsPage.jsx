@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CheckCircle2,
   Loader2,
+  MessageSquarePlus,
   Pencil,
   Plus,
   RefreshCw,
@@ -120,6 +122,9 @@ export default function TeamsPage() {
   const [isOpen, setIsOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
   const [form, setForm] = useState(emptyForm);
+
+  // Group chat creation state: { [teamId]: "creating" | "done" | "error" }
+  const [chatStatus, setChatStatus] = useState({});
 
   const navigate = useNavigate();
   const isMembersPage = useMatch("/home/teams/:teamId/members");
@@ -300,6 +305,60 @@ export default function TeamsPage() {
       setSaving(false);
     }
   };
+
+  // ── Auto-create Jai Masih group chat for a team ──────────────────────────
+  const createTeamGroupChat = useCallback(async (team) => {
+    const id = getTeamId(team);
+    const name = getTeamName(team);
+    if (!id) return;
+
+    setChatStatus((prev) => ({ ...prev, [id]: "creating" }));
+    try {
+      // 1. Fetch all team members
+      const membersRes = await apiFetch(`/teams/${encodeURIComponent(id)}/members`);
+      const members = getArray(membersRes);
+
+      const memberIds = members
+        .map((m) => {
+          const user = m?.user ?? m?.User ?? m;
+          return (
+            user?.id ?? user?.userId ?? user?.Id ?? user?.UserId ??
+            m?.userId ?? m?.UserId ?? m?.id ?? m?.Id ?? null
+          );
+        })
+        .filter(Boolean)
+        .map(String);
+
+      if (memberIds.length === 0) {
+        setChatStatus((prev) => ({ ...prev, [id]: "error" }));
+        alert(`No members found in "${name}". Add members first.`);
+        return;
+      }
+
+      // 2. Create the group chat
+      const chatRes = await apiFetch("/chats", {
+        method: "POST",
+        body: JSON.stringify({ isGroup: true, name, memberIds }),
+      });
+      const chat = chatRes?.id ?? chatRes?.Id ? chatRes : chatRes?.data ?? chatRes;
+      const chatId = chat?.id ?? chat?.Id;
+
+      if (!chatId) throw new Error("Chat created but no ID returned");
+
+      // 3. Send welcome message
+      const welcome = `🙏 Jai Masih Ji! Welcome to the *${name}* group chat. This is your dedicated space to coordinate, share updates, and pray together. God bless! ✝️`;
+      await apiFetch(`/chats/${chatId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text: welcome }),
+      }).catch(() => {}); // non-fatal if message fails
+
+      setChatStatus((prev) => ({ ...prev, [id]: "done" }));
+    } catch (err) {
+      console.error("[TeamsPage] createTeamGroupChat failed", err);
+      setChatStatus((prev) => ({ ...prev, [id]: "error" }));
+      alert(`Failed to create group chat for "${name}": ${err?.message || "Unknown error"}`);
+    }
+  }, []);
 
   const filteredTeams = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -496,7 +555,7 @@ export default function TeamsPage() {
 
         .team-card-actions {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
           width: 100%;
         }
@@ -562,6 +621,18 @@ export default function TeamsPage() {
           border-color: #f3c3c3;
         }
 
+        .team-icon-btn-chat {
+          background: #f0fdf4;
+          color: #166534;
+          border-color: #bbf7d0;
+        }
+
+        .team-icon-btn-chat-done {
+          background: #d1fae5;
+          color: #065f46;
+          border-color: #6ee7b7;
+        }
+
         .team-icon-btn:hover:not(:disabled) {
           transform: translateY(-1px);
           box-shadow: 0 10px 22px rgba(80, 60, 28, 0.14);
@@ -580,6 +651,14 @@ export default function TeamsPage() {
           background: #a83232;
           color: #fff;
           border-color: #a83232;
+        }
+
+        .team-icon-btn-chat:hover:not(:disabled) {
+          background: #dcfce7;
+        }
+
+        .team-icon-btn-chat-done:hover:not(:disabled) {
+          background: #a7f3d0;
         }
 
         .team-icon-btn:disabled,
@@ -830,6 +909,7 @@ export default function TeamsPage() {
             const description = getTeamDescription(team);
             const isDeleting = deletingId === id;
             const count = memberCounts[id] ?? getInlineMemberCount(team);
+            const chatState = chatStatus[id]; // undefined | "creating" | "done" | "error"
 
             return (
               <article className="team-card" key={id}>
@@ -851,6 +931,16 @@ export default function TeamsPage() {
                             : "Members unknown"
                           : `${count} member${count === 1 ? "" : "s"}`}
                       </span>
+                      {chatState === "done" && (
+                        <span className="team-badge" style={{ background: "#d1fae5", color: "#065f46", borderColor: "#6ee7b7" }}>
+                          <CheckCircle2 size={13} /> Group chat created
+                        </span>
+                      )}
+                      {chatState === "error" && (
+                        <span className="team-badge" style={{ background: "#fff5f5", color: "#a83232", borderColor: "#f3c3c3" }}>
+                          <AlertCircle size={13} /> Chat creation failed
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -868,6 +958,15 @@ export default function TeamsPage() {
                     label="Edit team"
                     onClick={() => openEditModal(team)}
                     variant="neutral"
+                  />
+
+                  <IconButton
+                    icon={chatState === "done" ? CheckCircle2 : MessageSquarePlus}
+                    label={chatState === "done" ? "Group chat created ✓" : chatState === "creating" ? "Creating chat…" : "Create Jai Masih group chat"}
+                    onClick={() => chatState !== "done" && createTeamGroupChat(team)}
+                    loading={chatState === "creating"}
+                    disabled={chatState === "creating" || chatState === "done"}
+                    variant={chatState === "done" ? "chat-done" : "chat"}
                   />
 
                   <IconButton

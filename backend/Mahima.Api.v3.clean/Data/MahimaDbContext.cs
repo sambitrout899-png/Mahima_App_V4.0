@@ -656,6 +656,39 @@ modelBuilder.Entity<MarriageApplication>(eb =>
                   .HasColumnName("net_amount")
                   .HasColumnType("numeric(18,2)");
 
+                eb.Property(r => r.PreviousArrears)
+                  .HasColumnName("previous_arrears")
+                  .HasColumnType("numeric(18,2)")
+                  .HasDefaultValue(0m);
+
+                eb.Property(r => r.PayableAmount)
+                  .HasColumnName("payable_amount")
+                  .HasColumnType("numeric(18,2)")
+                  .HasDefaultValue(0m);
+
+                eb.Property(r => r.PaidAmount)
+                  .HasColumnName("paid_amount")
+                  .HasColumnType("numeric(18,2)")
+                  .HasDefaultValue(0m);
+
+                eb.Property(r => r.BalanceAmount)
+                  .HasColumnName("balance_amount")
+                  .HasColumnType("numeric(18,2)")
+                  .HasDefaultValue(0m);
+
+                eb.Property(r => r.PaymentStatus)
+                  .HasColumnName("payment_status")
+                  .HasMaxLength(32)
+                  .HasDefaultValue("UNPAID");
+
+                eb.Property(r => r.PaymentNotes)
+                  .HasColumnName("payment_notes")
+                  .IsRequired(false);
+
+                eb.Property(r => r.PaidAtUtc)
+                  .HasColumnName("paid_at_utc")
+                  .IsRequired(false);
+
                 eb.Property(r => r.RunAt)
                   .HasColumnName("run_at");
 
@@ -1074,5 +1107,4 @@ modelBuilder.Entity<MarriageApplication>(eb =>
         }
     }
 }
-
 

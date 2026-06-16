@@ -1,4 +1,4 @@
-using Mahima.Api.v3.clean.Data;
+﻿using Mahima.Api.v3.clean.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -74,10 +74,15 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private bool CurrentUserIsAdmin()
         {
-            if (User.IsInRole("admin") || User.IsInRole("Admin")) return true;
+            if (User.IsInRole("admin") || User.IsInRole("Admin") || User.IsInRole("ADMIN") || User.IsInRole("administrator") || User.IsInRole("Administrator")) return true;
             return User.Claims.Any(c =>
-                (c.Type == ClaimTypes.Role || c.Type.Equals("role", StringComparison.OrdinalIgnoreCase)) &&
-                string.Equals(c.Value, "admin", StringComparison.OrdinalIgnoreCase));
+            {
+                if (c.Type != ClaimTypes.Role && !c.Type.Equals("role", StringComparison.OrdinalIgnoreCase)) return false;
+                var value = (c.Value ?? string.Empty).Trim();
+                return value.Equals("admin", StringComparison.OrdinalIgnoreCase) ||
+                       value.Equals("administrator", StringComparison.OrdinalIgnoreCase) ||
+                       value.Equals("1", StringComparison.OrdinalIgnoreCase);
+            });
         }
 
         private static async Task EnsureRoutineTablesAsync(NpgsqlConnection conn)
@@ -208,8 +213,10 @@ VALUES
             if (!CurrentUserIsAdmin())
                 return Forbid();
 
-            var day = (date ?? DateTime.UtcNow).Date;
+            var day = DateTime.SpecifyKind((date ?? DateTime.UtcNow).Date, DateTimeKind.Utc);
             var nextDay = day.AddDays(1);
+            var attendanceDay = DateTime.SpecifyKind(day, DateTimeKind.Unspecified);
+            var attendanceNextDay = attendanceDay.AddDays(1);
             var now = DateTime.UtcNow;
 
             await using var conn = new NpgsqlConnection(ConnectionString);
@@ -263,7 +270,7 @@ VALUES
 
             var attendanceRows = await _db.AttendanceRecords
                 .AsNoTracking()
-                .Where(a => a.Date >= day && a.Date < nextDay)
+                .Where(a => a.Date >= attendanceDay && a.Date < attendanceNextDay)
                 .ToListAsync(HttpContext.RequestAborted);
 
             var attendanceKeys = new HashSet<string>(
@@ -341,28 +348,7 @@ VALUES
                 .Take(1000)
                 .ToListAsync(HttpContext.RequestAborted);
 
-            var messages = await _db.Messages
-                .AsNoTracking()
-                .Include(m => m.Sender)
-                .Where(m => m.CreatedAt >= day && m.CreatedAt < nextDay)
-                .OrderByDescending(m => m.CreatedAt)
-                .Take(1000)
-                .ToListAsync(HttpContext.RequestAborted);
-
-            var flaggedMessages = messages
-                .Where(m => ContainsAny(m.Content, UnsafeChatTerms))
-                .Select(m => new
-                {
-                    messageId = m.Id,
-                    chatId = m.ChatId,
-                    userId = m.SenderId,
-                    userName = m.Sender?.DisplayName ?? m.Sender?.Username,
-                    reason = "Potential abusive or unsafe language",
-                    preview = (m.Content ?? "").Length > 180 ? (m.Content ?? "")[..180] + "..." : m.Content,
-                    m.CreatedAt
-                })
-                .Take(50)
-                .ToList();
+            var flaggedMessages = Array.Empty<object>().ToList();
 
             var attachments = await _db.Attachments
                 .AsNoTracking()
@@ -497,7 +483,7 @@ VALUES
                     flaggedUploads,
                     dataManipulationFlags,
                     totalFlags = flaggedMessages.Count + flaggedUploads.Count + dataManipulationFlags.Count,
-                    moderationNote = "Upload moderation uses filename/content-type heuristics. Add an image moderation service for full visual pornography detection."
+                    moderationNote = "Private chat text is not exposed in this report. Upload moderation uses filename/content-type heuristics. Add an image moderation service for full visual pornography detection."
                 },
                 blockedUsers
             };
@@ -673,3 +659,4 @@ LIMIT 100;", conn);
             DateTime CreatedAtUtc);
     }
 }
+

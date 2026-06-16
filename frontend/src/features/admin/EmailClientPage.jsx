@@ -3,6 +3,7 @@ import {
   Archive,
   CheckCircle2,
   Clock,
+  Download,
   Edit3,
   Filter,
   Inbox,
@@ -23,7 +24,7 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { apiFetch } from "../../utils/fetch-auth-shim";
+import { apiFetch, apiFetchBlob } from "../../utils/fetch-auth-shim";
 
 const emptySettings = {
   smtpHost: "",
@@ -77,6 +78,7 @@ export default function EmailClientPage() {
   const [sending, setSending] = useState(false);
   const [loadingMailbox, setLoadingMailbox] = useState(false);
   const [reading, setReading] = useState(false);
+  const [downloadingAttachment, setDownloadingAttachment] = useState("");
 
   const filteredMessages = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -187,11 +189,7 @@ export default function EmailClientPage() {
     setSaving(true);
     setMessage("");
     try {
-      const saved = await apiFetch("/email-client/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
+      const saved = await persistSettings();
       setSettings({ ...emptySettings, ...(saved || settings) });
       notify("success", "Email connectivity saved.");
       await loadFolders();
@@ -203,10 +201,20 @@ export default function EmailClientPage() {
     }
   }
 
+  async function persistSettings() {
+    return apiFetch("/email-client/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+  }
+
   async function testEmail() {
     setTesting(true);
     setMessage("");
     try {
+      const saved = await persistSettings();
+      setSettings({ ...emptySettings, ...(saved || settings) });
       await apiFetch("/email-client/test", { method: "POST", timeoutMs: 35000 });
       notify("success", "SMTP test completed.");
     } catch (err) {
@@ -243,6 +251,35 @@ export default function EmailClientPage() {
       notify("error", err?.message || "Email send failed.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function downloadReceivedAttachment(attachment) {
+    if (!selectedMail?.uid || attachment?.index == null) return;
+
+    const downloadKey = `${selectedMail.uid}:${attachment.index}`;
+    setDownloadingAttachment(downloadKey);
+    setMessage("");
+
+    try {
+      const result = await apiFetchBlob(
+        `/email-client/message/${encodeURIComponent(selectedMail.uid)}/attachments/${attachment.index}?folder=${encodeURIComponent(activeFolder)}`,
+        { timeoutMs: 120000 }
+      );
+
+      const blobUrl = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = result.fileName || attachment.fileName || `attachment-${attachment.index + 1}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+      notify("success", `Downloaded ${link.download}.`);
+    } catch (err) {
+      notify("error", err?.message || "Could not download attachment.");
+    } finally {
+      setDownloadingAttachment("");
     }
   }
 
@@ -407,6 +444,8 @@ export default function EmailClientPage() {
               loading={reading}
               onReply={() => startReply()}
               onCompose={() => setShowCompose(true)}
+              onDownloadAttachment={downloadReceivedAttachment}
+              downloadingAttachment={downloadingAttachment}
             />
           </div>
         </section>
@@ -428,6 +467,11 @@ export default function EmailClientPage() {
 }
 
 function SettingsPanel({ settings, update, saving, testing, loading, onSave, onTest, onClose }) {
+  const smtpPortWarning =
+    String(settings.smtpHost || "").trim().toLowerCase() === "smtp.hostinger.com" && Number(settings.smtpPort) === 456
+      ? "Hostinger SMTP uses port 465 for SSL/TLS or port 587 for STARTTLS. Port 456 will be rejected."
+      : "";
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -450,6 +494,11 @@ function SettingsPanel({ settings, update, saving, testing, loading, onSave, onT
         <Field label="IMAP host" value={settings.imapHost} onChange={(v) => update("imapHost", v)} />
         <Field label="IMAP port" type="number" value={settings.imapPort} onChange={(v) => update("imapPort", Number(v || 0))} />
       </div>
+      {smtpPortWarning && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          {smtpPortWarning}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -573,7 +622,7 @@ function ComposePanel({ compose, setCompose, sending, showCcBcc, setShowCcBcc, o
   );
 }
 
-function ReadingPane({ mail, loading, onReply, onCompose }) {
+function ReadingPane({ mail, loading, onReply, onCompose, onDownloadAttachment, downloadingAttachment }) {
   if (loading) {
     return (
       <section className="flex min-h-[620px] items-center justify-center gap-2 bg-white text-sm font-semibold text-slate-500">
@@ -640,10 +689,23 @@ function ReadingPane({ mail, loading, onReply, onCompose }) {
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Attachments</p>
           <div className="flex flex-wrap gap-2">
             {mail.attachments.map((attachment) => (
-              <span key={attachment.index} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+              <button
+                key={attachment.index}
+                type="button"
+                onClick={() => onDownloadAttachment?.(attachment)}
+                disabled={downloadingAttachment === `${mail.uid}:${attachment.index}`}
+                className="inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-wait disabled:opacity-60"
+                title={`Download ${attachment.fileName}`}
+              >
                 <Paperclip className="h-3.5 w-3.5" />
-                {attachment.fileName}
-              </span>
+                <span className="max-w-[220px] truncate">{attachment.fileName}</span>
+                {attachment.size ? <span className="text-slate-400">{formatBytes(attachment.size)}</span> : null}
+                {downloadingAttachment === `${mail.uid}:${attachment.index}` ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+              </button>
             ))}
           </div>
         </div>

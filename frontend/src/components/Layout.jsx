@@ -52,6 +52,8 @@ import {
   Loader2,
   Save,
   UserCircle,
+  BarChart3,
+  GitBranch,
 } from "lucide-react";
 import { logout as authLogout } from "../features/auth/authService";
 import mahimaLogo from "../assets/mahima-logo.png";
@@ -65,7 +67,9 @@ import CallOverlay from "./CallOverlay";
 import useChatCall from "../hooks/useChatCall";
 import { requestNotificationPermission, unlockAudio, preloadVoices, notifyIncomingMessage } from "../utils/chatNotifications";
 import { registerMobilePushNotifications } from "../utils/mobilePushNotifications";
+import { ensurePushTokenRegistered, flushPendingFcmToken, runNotificationSelfTest } from "../utils/initNativeApp";
 import { useLanguage } from "../i18n/LanguageContext";
+import { assignedPositions, getActivePosition, resetActivePosition, scopeLabel, setActivePosition } from "../utils/positionContext";
 
 /* ======================================================================== */
 /*  Navigation                                                               */
@@ -81,7 +85,7 @@ const NAV_GROUPS = [
     label: "General",
     items: [
       { key: "DASHBOARD",       label: "Home",            to: "/home",                icon: Home },
-      { key: "PASTOR",          label: "AI Pastor",       to: "/home/pastor",         icon: Bot },
+      { key: "PASTOR",          label: "AI Counseller",       to: "/home/pastor",         icon: Bot },
       { key: "README",          permissionKey: "PASTOR",  label: "ReadMe",           to: "/home/readme",         icon: Camera },
       { key: "APP_DOWNLOADS",   label: "App Downloads",   to: "/home/app-downloads",  icon: Download },
       { key: "SERMONS",         label: "Sermons",         to: "/home/sermons",        icon: Headphones },
@@ -96,6 +100,7 @@ const NAV_GROUPS = [
       { key: "TEAMS", label: "Teams", to: "/home/teams", icon: Layers },
       { key: "ROLES", label: "Roles", to: "/home/roles", icon: Shield },
       { key: "PAGES", label: "Pages", to: "/home/pages", icon: BookOpen },
+      { key: "POSITIONS", label: "Positions", to: "/home/positions", icon: GitBranch },
     ],
   },
   {
@@ -124,6 +129,8 @@ const NAV_GROUPS = [
       { key: "EMAIL_CLIENT", label: "Email Client", to: "/home/admin/email", icon: Mail },
       { key: "GOOGLE_DRIVE", label: "Google Drive", to: "/home/admin/google-drive", icon: Cloud },
       { key: "SERVER_FILES", label: "Server Files", to: "/home/admin/server-files", icon: FolderOpen },
+      { key: "REPORTS", label: "Reports", to: "/home/admin/reports", icon: BarChart3 },
+      { key: "AUDIT_TRAIL", label: "Audit Trail", to: "/home/admin/audit-trail", icon: FileText },
     ],
   },
 ];
@@ -142,6 +149,7 @@ const NAV_LABEL_KEYS = {
   TEAMS: "nav.teams",
   ROLES: "nav.roles",
   PAGES: "nav.pages",
+  POSITIONS: "nav.positions",
   ATTENDANCE: "nav.attendance",
   PAYROLL: "nav.payroll",
   COSTS: "nav.costs",
@@ -155,6 +163,8 @@ const NAV_LABEL_KEYS = {
   EMAIL_CLIENT: "nav.emailClient",
   GOOGLE_DRIVE: "nav.googleDrive",
   SERVER_FILES: "nav.serverFiles",
+  REPORTS: "nav.reports",
+  AUDIT_TRAIL: "nav.auditTrail",
 };
 
 const GROUP_LABEL_KEYS = {
@@ -166,7 +176,9 @@ const GROUP_LABEL_KEYS = {
 };
 
 function navLabel(item, t) {
-  return t(NAV_LABEL_KEYS[item?.key] || item?.label || "");
+  const key = NAV_LABEL_KEYS[item?.key] || item?.label || "";
+  const translated = t(key);
+  return translated === key ? (item?.label || key) : translated;
 }
 
 // Default keys per role when the user has no `pages` claim of their own.
@@ -266,12 +278,36 @@ export default function Layout() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileUploading, setProfileUploading] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
+  const [notificationTesting, setNotificationTesting] = useState(false);
+  const [activePosition, setActivePositionState] = useState(() => getActivePosition());
   const userMenuRef = useRef(null);
   const chatToken = getToken();
   const chatConnection = useChatConnection(chatToken);
 
   useEffect(() => {
-    registerMobilePushNotifications(user);
+    let cancelled = false;
+    const timers = [];
+
+    const syncPush = async () => {
+      if (cancelled) return;
+      try {
+        await ensurePushTokenRegistered();
+        await registerMobilePushNotifications(user);
+        await flushPendingFcmToken();
+      } catch (err) {
+        console.warn("[layout] mobile push sync failed", err);
+      }
+    };
+
+    syncPush();
+    [2500, 7000, 15000, 30000].forEach((delayMs) => {
+      timers.push(window.setTimeout(syncPush, delayMs));
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
   }, [user?.id, user?.Id, user?.userId]);
 
   useEffect(() => {
@@ -396,16 +432,18 @@ export default function Layout() {
       if (cancelled || !finalUser) return;
 
       setUser(finalUser);
+      const defaultPosition = resetActivePosition(finalUser);
+      setActivePositionState(defaultPosition || getActivePosition(finalUser));
 
-      const role = String(finalUser.role || "").toLowerCase();
+      const roles = [finalUser.role, ...(Array.isArray(finalUser.roles) ? finalUser.roles : [])]
+        .map((r) => (typeof r === "string" ? r : r?.name || r?.roleName || r?.role))
+        .filter(Boolean)
+        .map((r) => String(r).toLowerCase());
       const userPages = (Array.isArray(finalUser.pages) ? finalUser.pages : [])
         .map((p) => String(p).toUpperCase());
-
-      const keys = role === "admin"
-        ? ROLE_DEFAULT_KEYS.admin
-        : userPages.length > 0
-          ? userPages
-          : (ROLE_DEFAULT_KEYS[role] || []);
+      const isAdmin = roles.includes("admin");
+      const fallbackKeys = roles.flatMap((r) => ROLE_DEFAULT_KEYS[r] || []);
+      const keys = isAdmin ? ROLE_DEFAULT_KEYS.admin : userPages.length > 0 ? userPages : fallbackKeys;
       setAllowedKeys(new Set(keys));
     })();
     return () => { cancelled = true; };
@@ -540,9 +578,46 @@ export default function Layout() {
     }
   }
 
+  function onPositionChange(event) {
+    const next = assignedPositions(user).find((p) => String(p.id) === String(event.target.value));
+    if (!next) return;
+    const stored = setActivePosition(next);
+    setActivePositionState(next);
+    window.dispatchEvent(new CustomEvent("mahima:data-scope-changed", { detail: stored || next }));
+  }
+
 function onLogout() {
     authLogout();
     navigate("/login", { replace: true });
+  }
+
+  async function testMobileNotifications() {
+    setNotificationTesting(true);
+    try {
+      const result = await runNotificationSelfTest();
+      const localText = result?.local?.ok ? "Local tray: OK" : `Local tray: ${result?.local?.message || "failed"}`;
+      const pushText = result?.push?.ok ? "Firebase push: requested" : `Firebase push: ${result?.push?.message || "failed"}`;
+      const d = result?.diagnostics || {};
+      const backend = d.backendStatus || {};
+      const backendBody = typeof backend.body === "string" ? backend.body : JSON.stringify(backend.body || {});
+      window.alert([
+        localText,
+        pushText,
+        `Native: ${d.native ? "yes" : "no"} / ${d.capacitorPlatform || "unknown"}`,
+        `Plugins: push=${d.hasPushPlugin ? "yes" : "no"}, local=${d.hasLocalPlugin ? "yes" : "no"}, firebase-token=${d.hasNativeTokenPlugin ? "yes" : "no"}, native-tray=${d.hasNativeTrayPlugin ? "yes" : "no"}`,
+        `Auth token: ${d.authTokenPresent ? "yes" : "no"}`,
+        `FCM token: ${d.localFcmToken || "none"}`,
+        d.nativeTokenError ? `Native token error: ${d.nativeTokenError}` : "",
+        d.nativeTrayError ? `Native tray error: ${d.nativeTrayError}` : "",
+        d.nativeTrayShownAt ? `Native tray shown at: ${d.nativeTrayShownAt}` : "",
+        `Token saved at: ${d.tokenSavedAt || "not yet"}`,
+        `Backend status: ${backend.status || 0} ${backendBody}`,
+      ].filter(Boolean).join("\n"));
+    } catch (err) {
+      window.alert(err?.message || "Notification test failed.");
+    } finally {
+      setNotificationTesting(false);
+    }
   }
 
   // Filter nav groups: keep group only if at least one allowed item.
@@ -596,6 +671,15 @@ const visibleGroups = NAV_GROUPS
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase())
     .join("") || "U";
+  const userPositions = assignedPositions(user);
+  const currentPosition = activePosition || getActivePosition(user);
+  const activePositionId = String(currentPosition?.id || "");
+  const activePositionRecord = userPositions.find((position) => String(position?.id || "") === activePositionId) || currentPosition;
+  const activePositionName = activePositionRecord?.name || "No position assigned";
+  const activePositionScope = activePositionRecord ? scopeLabel(activePositionRecord.visibilityScope) : "No data scope";
+  const activePositionIsPrimary = Boolean(activePositionRecord?.isPrimary);
+  const activePositionKind = activePositionRecord ? (activePositionIsPrimary ? "Primary" : "Secondary") : "Not assigned";
+  const canSwitchPositions = userPositions.length > 1;
 
   return (
     <div className="mahima-app-shell min-h-screen flex">
@@ -622,7 +706,7 @@ const visibleGroups = NAV_GROUPS
         </Link>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           {visibleGroups.map((g) => (
             <div key={g.label} className="mb-3">
               {!collapsed && (
@@ -653,12 +737,14 @@ const visibleGroups = NAV_GROUPS
 
       {/* ============== MOBILE DRAWER ============== */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true">
+        <div className="md:hidden fixed inset-0 z-[140]" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 bg-white shadow-xl flex flex-col">
+          <aside
+            className="absolute inset-y-0 left-0 flex w-[min(19rem,calc(100vw-1.5rem))] max-w-[92vw] flex-col bg-white shadow-xl"
+            style={mobileAppMode ? { paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" } : undefined}
+          >
             <div
-              className="h-14 flex items-center justify-between px-4 border-b border-slate-100"
-              style={mobileAppMode ? { height: "calc(3.5rem + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" } : undefined}
+              className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 px-4"
             >
               <Link to="/home" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
                 <img
@@ -679,7 +765,7 @@ const visibleGroups = NAV_GROUPS
                 <X className="w-5 h-5 text-slate-600" />
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto py-3 px-2">
+            <nav className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-2 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3">
               {visibleGroups.map((g) => (
                 <div key={g.label} className="mb-3">
                   <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
@@ -736,6 +822,30 @@ const visibleGroups = NAV_GROUPS
           <div className="mahima-topbar-spacer flex-1" />
 
           <div className="mahima-topbar-actions">
+            {userPositions.length > 0 && (
+              <label
+                className={`mahima-position-picker ${canSwitchPositions ? "mahima-position-picker-switchable" : ""}`}
+                title={canSwitchPositions ? "Switch active data visibility position" : "Your active data visibility position"}
+                data-no-auto-translate
+              >
+                <GitBranch className="h-4 w-4 text-emerald-700" />
+                <span className="mahima-position-copy">
+                  <span className="mahima-position-eyebrow">{activePositionKind} position</span>
+                  {canSwitchPositions ? (
+                    <select value={activePositionId} onChange={onPositionChange} aria-label="Active position">
+                      {userPositions.map((position) => (
+                        <option key={position.id} value={position.id}>
+                          {position.name} - {position.isPrimary ? "Primary" : "Secondary"} - {scopeLabel(position.visibilityScope)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="mahima-position-readonly">{activePositionName}</span>
+                  )}
+                </span>
+                <span className="mahima-position-scope">{activePositionScope}</span>
+              </label>
+            )}
             <label className="mahima-language-picker" title={t("layout.language")} data-no-auto-translate>
               <Languages className="h-4 w-4 text-emerald-700" />
               <select
@@ -751,7 +861,7 @@ const visibleGroups = NAV_GROUPS
               </select>
             </label>
 
-            {/* AI Pastor shortcut */}
+            {/* AI Counseller shortcut */}
             {canUsePastor && (
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent("ai-pastor:open"))}
@@ -837,6 +947,16 @@ const visibleGroups = NAV_GROUPS
                       {role}
                     </div>
                   )}
+                  {activePositionRecord && (
+                    <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-2">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Current data position</div>
+                      <div className="mt-0.5 text-sm font-bold text-slate-900 truncate">{activePositionName}</div>
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                        <span className="rounded-full bg-white px-2 py-0.5 text-emerald-800 ring-1 ring-emerald-100">{activePositionKind}</span>
+                        <span className="rounded-full bg-white px-2 py-0.5 text-slate-600 ring-1 ring-slate-100">{activePositionScope}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => {
@@ -849,6 +969,17 @@ const visibleGroups = NAV_GROUPS
                   <UserCircle className="w-4 h-4" />
                   {t("layout.profile")}
                 </button>
+                {mobileAppMode && (
+                  <button
+                    onClick={testMobileNotifications}
+                    disabled={notificationTesting}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    role="menuitem"
+                  >
+                    {notificationTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                    Test notifications
+                  </button>
+                )}
                 <button
                   onClick={onLogout}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
@@ -1025,3 +1156,5 @@ function SidebarLink({ item, collapsed, label }) {
     </li>
   );
 }
+
+

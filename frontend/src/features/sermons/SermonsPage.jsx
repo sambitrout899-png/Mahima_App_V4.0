@@ -45,6 +45,9 @@ import {
   Sparkles,
   ChevronDown,
   Copy,
+  Download,
+  CreditCard,
+  UploadCloud,
 } from "lucide-react";
 
 /* ======================================================================== */
@@ -295,6 +298,56 @@ const errMsg = (err, fallback = "Something went wrong.") => {
   return err?.message || fallback;
 };
 
+const authToken = () =>
+  localStorage.getItem("mahima_token") ||
+  localStorage.getItem("token") ||
+  localStorage.getItem("authToken") ||
+  "";
+
+const authHeaders = () => {
+  const token = authToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const formatBytes = (bytes) => {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = n;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+};
+
+const formatMoney = (amount, currency = "INR") => {
+  const value = Number(amount || 0);
+  if (!value) return "Free";
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: currency || "INR",
+      maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+    }).format(value);
+  } catch {
+    return `${currency || "INR"} ${value.toFixed(2)}`;
+  }
+};
+
+function loadRazorpayCheckout() {
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 const arrayFrom = (data) => {
   const candidates = [
     data,
@@ -430,10 +483,10 @@ export default function SermonsPage() {
   }, [items, activeTab, query, sortBy, showBookmarksOnly, isBookmarked]);
 
   const featured = useMemo(() => {
-    // Pick newest item that has a YouTube link, on the active tab
+    // Pick newest item with playable YouTube media or a local file on the active tab.
     return visibleItems.find((r) => {
       const yt = r.youtubeUrl ?? r.YoutubeUrl ?? r.youtube ?? r.YouTubeURL;
-      return !!extractYouTubeId(yt);
+      return !!extractYouTubeId(yt) || Boolean(r.hasDigitalFile ?? r.HasDigitalFile);
     });
   }, [visibleItems]);
 
@@ -454,28 +507,49 @@ export default function SermonsPage() {
   const handleSave = async (form) => {
     if (!requireAdmin()) return;
     if (!form.title?.trim()) { toastError("Title is required."); return; }
-    if (!form.youtube?.trim()) { toastError("YouTube URL or ID is required."); return; }
+    const resourceType = (form.type || "sermon").toLowerCase();
+    const alreadyHasLocalFile = Boolean(form.hasDigitalFile || targetHasDigitalFile(form));
+    if (resourceType === "sermon" && !form.youtube?.trim() && !form.digitalFile && !alreadyHasLocalFile) {
+      toastError("Add a YouTube URL or upload a local sermon file.");
+      return;
+    }
 
     const ytId = extractYouTubeId(form.youtube);
+    const isFree = resourceType === "sermon" ? true : !!form.isFree;
+    const priceAmount = isFree ? 0 : Math.max(0, Number(form.priceAmount || 0));
 
     // Backend SermonDto: Title, Speaker, Date, YoutubeUrl, Description, Type, ...
     const payload = {
       Title: form.title.trim(),
       Speaker: form.speaker?.trim() || null,
-      Type: (form.type || "sermon").toLowerCase(),
+      Type: resourceType,
       Date: form.date ? new Date(form.date).toISOString() : null,
-      YoutubeUrl: ytId ? watchUrlFromId(ytId) : form.youtube.trim(),
+      YoutubeUrl: form.youtube?.trim() ? (ytId ? watchUrlFromId(ytId) : form.youtube.trim()) : null,
       Description: form.description?.trim() || null,
+      IsFree: isFree,
+      PriceAmount: priceAmount,
+      Currency: form.currency || "INR",
     };
 
     const isEdit = !!form.id;
 
     try {
+      let savedId = form.id;
       if (isEdit) {
         // PUT /api/sermons/{id} — id MUST be in URL
-        await axios.put(`/api/sermons/${form.id}`, payload);
+        const res = await axios.put(`/api/sermons/${form.id}`, payload);
+        savedId = res?.data?.id ?? res?.data?.Id ?? form.id;
       } else {
-        await axios.post(`/api/sermons`, payload);
+        const res = await axios.post(`/api/sermons`, payload);
+        savedId = res?.data?.id ?? res?.data?.Id;
+      }
+
+      if (form.digitalFile && savedId) {
+        const data = new FormData();
+        data.append("file", form.digitalFile);
+        await axios.post(`/api/sermons/${savedId}/digital-file`, data, {
+          headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
+        });
       }
       toastSuccess(isEdit ? "Updated." : "Added.");
       setShowAddModal(false);
@@ -484,6 +558,86 @@ export default function SermonsPage() {
     } catch (err) {
       console.error("Save failed:", err?.response ?? err);
       toastError("Save failed: " + errMsg(err));
+    }
+  };
+
+  const downloadResource = async (record) => {
+    const id = record.id ?? record.Id;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/sermons/${id}/download`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => `Download failed (${res.status})`));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = record.digitalFileName || record.title || "mahima-resource";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toastError(err?.message || "Download failed.");
+    }
+  };
+
+  const handleResourceAccess = async (record) => {
+    const id = record.id ?? record.Id;
+    if (!id) return;
+    const isFree = record.isFree ?? record.IsFree ?? true;
+    const price = Number(record.priceAmount ?? record.PriceAmount ?? 0);
+    if (isFree || price <= 0) {
+      await downloadResource(record);
+      return;
+    }
+
+    try {
+      const loaded = await loadRazorpayCheckout();
+      if (!loaded || !window.Razorpay) {
+        toastError("Could not load Razorpay checkout.");
+        return;
+      }
+      const orderRes = await fetch(`/api/sermons/${id}/razorpay-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+      });
+      if (!orderRes.ok) throw new Error(await orderRes.text().catch(() => "Could not start payment."));
+      const order = await orderRes.json();
+      const user = tryParseJSON(localStorage.getItem("currentUser") || localStorage.getItem("mahima_user") || "{}") || {};
+
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency || "INR",
+        name: "Mahima Ministry",
+        description: order.name || record.title || "Digital resource",
+        order_id: order.orderId,
+        prefill: {
+          name: user.displayName || user.name || "",
+          email: user.email || "",
+          contact: user.phone || "",
+        },
+        handler: async (response) => {
+          const verifyRes = await fetch(`/api/sermons/${id}/razorpay-verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({
+              RazorpayOrderId: response.razorpay_order_id,
+              RazorpayPaymentId: response.razorpay_payment_id,
+              RazorpaySignature: response.razorpay_signature,
+            }),
+          });
+          if (!verifyRes.ok) throw new Error(await verifyRes.text().catch(() => "Payment verification failed."));
+          toastSuccess("Payment received. Download starting.");
+          await downloadResource(record);
+        },
+        theme: { color: "#d97706" },
+      });
+      checkout.open();
+    } catch (err) {
+      toastError(err?.message || "Payment failed.");
     }
   };
 
@@ -553,6 +707,11 @@ export default function SermonsPage() {
       window.prompt("Copy this link:", url);
     }
   };
+
+
+function targetHasDigitalFile(form) {
+  return Boolean(form?.hasDigitalFile);
+}
 
   const tabMeta = TABS.find((t) => t.key === activeTab) || TABS[0];
 
@@ -649,6 +808,7 @@ export default function SermonsPage() {
           isBookmarked={isBookmarked(featured.id ?? featured.Id)}
           onToggleBookmark={() => toggleBookmark(featured.id ?? featured.Id)}
           onShare={() => copyShareLink(featured)}
+          onAccess={() => handleResourceAccess(featured)}
         />
       )}
 
@@ -718,6 +878,7 @@ export default function SermonsPage() {
               onToggleBookmark={() => toggleBookmark(rec.id ?? rec.Id)}
               onOpenDetail={() => setDetailTarget(rec)}
               onShare={() => copyShareLink(rec)}
+              onAccess={() => handleResourceAccess(rec)}
               onEdit={() => { setEditTarget(rec); setShowAddModal(true); }}
               onDelete={() => handleDelete(rec)}
               canManage={isAdminUser && adminMode}
@@ -743,6 +904,7 @@ export default function SermonsPage() {
           isBookmarked={isBookmarked(detailTarget.id ?? detailTarget.Id)}
           onToggleBookmark={() => toggleBookmark(detailTarget.id ?? detailTarget.Id)}
           onShare={() => copyShareLink(detailTarget)}
+          onAccess={() => handleResourceAccess(detailTarget)}
         />
       )}
 
@@ -761,10 +923,12 @@ export default function SermonsPage() {
 /*  Featured card                                                            */
 /* ======================================================================== */
 
-function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare }) {
+function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare, onAccess }) {
   const yt = record.youtubeUrl ?? record.YoutubeUrl ?? record.youtube ?? record.YouTubeURL;
   const id = extractYouTubeId(yt);
   const thumb = thumbnailUrlFromId(id, "maxresdefault") || thumbnailUrlFromId(id);
+  const hasDigitalFile = Boolean(record.hasDigitalFile ?? record.HasDigitalFile);
+  const digitalSize = record.digitalSizeBytes ?? record.DigitalSizeBytes;
   const title = record.title ?? record.name ?? "Untitled";
   const speaker = record.speaker ?? record.preacher ?? record.author ?? "";
   const date = record.date ?? record.publishedAt ?? "";
@@ -775,7 +939,7 @@ function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare 
         {thumb ? (
           <img src={thumb} alt={title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform" />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-white/70">No preview</div>
+          <div className="absolute inset-0 flex items-center justify-center text-white/70">{hasDigitalFile ? "Local file available" : "No preview"}</div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <div className="absolute left-4 top-4">
@@ -799,9 +963,15 @@ function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare 
           <p className="mt-3 text-sm text-slate-600 line-clamp-3">{record.description}</p>
         )}
         <div className="mt-auto pt-4 flex flex-wrap gap-2">
-          <button onClick={onPlay} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold px-3 py-2 hover:bg-slate-800">
-            <Play className="w-3.5 h-3.5" /> Play
-          </button>
+          {id ? (
+            <button onClick={onPlay} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold px-3 py-2 hover:bg-slate-800">
+              <Play className="w-3.5 h-3.5" /> Play
+            </button>
+          ) : hasDigitalFile ? (
+            <button onClick={onAccess} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold px-3 py-2 hover:bg-slate-800">
+              <Download className="w-3.5 h-3.5" /> Open local file{digitalSize ? ` (${formatBytes(digitalSize)})` : ""}
+            </button>
+          ) : null}
           <button onClick={onToggleBookmark} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
             {isBookmarked ? <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" /> : <Bookmark className="w-3.5 h-3.5" />}
             {isBookmarked ? "Bookmarked" : "Bookmark"}
@@ -821,7 +991,7 @@ function FeaturedCard({ record, onPlay, isBookmarked, onToggleBookmark, onShare 
 
 function ResourceCard({
   record, hoverPlayingId, setHoverPlayingId, isBookmarked, onToggleBookmark,
-  onOpenDetail, onShare, onEdit, onDelete, canManage,
+  onOpenDetail, onShare, onAccess, onEdit, onDelete, canManage,
 }) {
   const id = record.id ?? record.Id;
   const title = record.title ?? record.name ?? "Untitled";
@@ -835,6 +1005,11 @@ function ResourceCard({
   const isPlaying = String(hoverPlayingId) === String(id);
   const tabMeta = TABS.find((t) => t.key === type) || TABS[0];
   const Icon = tabMeta.icon;
+  const hasDigitalFile = Boolean(record.hasDigitalFile ?? record.HasDigitalFile);
+  const isFree = record.isFree ?? record.IsFree ?? true;
+  const priceAmount = Number(record.priceAmount ?? record.PriceAmount ?? 0);
+  const currency = record.currency ?? record.Currency ?? "INR";
+  const digitalSize = record.digitalSizeBytes ?? record.DigitalSizeBytes;
 
   return (
     <article className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg transition overflow-hidden flex flex-col">
@@ -859,7 +1034,7 @@ function ResourceCard({
         ) : thumb ? (
           <img src={thumb} alt={title} className="absolute inset-0 w-full h-full object-cover" draggable={false} />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs">No preview</div>
+          <div className="absolute inset-0 flex items-center justify-center px-3 text-center text-white/60 text-xs">{hasDigitalFile ? "Local file" : "No preview"}</div>
         )}
 
         {!isPlaying && (
@@ -894,9 +1069,33 @@ function ResourceCard({
           {speaker && <span className="inline-flex items-center gap-1"><UserIcon className="w-3 h-3" />{speaker}</span>}
           {date && <span className="inline-flex items-center gap-1"><CalendarIcon className="w-3 h-3" />{new Date(date).toLocaleDateString()}</span>}
         </div>
+        {hasDigitalFile && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+              isFree || priceAmount <= 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+            }`}>
+              {type === "sermon" ? "Local file" : isFree || priceAmount <= 0 ? "Free" : formatMoney(priceAmount, currency)}
+            </span>
+            {hasDigitalFile && digitalSize ? (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                {formatBytes(digitalSize)}
+              </span>
+            ) : null}
+          </div>
+        )}
 
         <div className="mt-auto pt-3 flex items-center justify-between gap-1">
           <div className="flex gap-1">
+            {hasDigitalFile && (
+              <button
+                onClick={onAccess}
+                title={isFree || priceAmount <= 0 ? "Download" : "Pay and download"}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 text-[11px] font-bold text-amber-800 hover:bg-amber-100"
+              >
+                {isFree || priceAmount <= 0 ? <Download className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
+                {type === "sermon" ? "Open" : isFree || priceAmount <= 0 ? "Download" : "Pay"}
+              </button>
+            )}
             <button
               onClick={onShare}
               title="Share"
@@ -945,13 +1144,18 @@ function ResourceCard({
 /*  Detail modal — full embedded player                                      */
 /* ======================================================================== */
 
-function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare }) {
+function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare, onAccess }) {
   const title = record.title ?? record.name ?? "Untitled";
   const speaker = record.speaker ?? record.preacher ?? record.author ?? "";
   const date = record.date ?? record.publishedAt ?? "";
   const yt = record.youtubeUrl ?? record.YoutubeUrl ?? record.youtube ?? record.YouTubeURL;
   const id = extractYouTubeId(yt);
   const watchUrl = watchUrlFromId(id);
+  const hasDigitalFile = Boolean(record.hasDigitalFile ?? record.HasDigitalFile);
+  const isFree = record.isFree ?? record.IsFree ?? true;
+  const priceAmount = Number(record.priceAmount ?? record.PriceAmount ?? 0);
+  const currency = record.currency ?? record.Currency ?? "INR";
+  const digitalSize = record.digitalSizeBytes ?? record.DigitalSizeBytes;
 
   // Close on Esc
   useEffect(() => {
@@ -982,7 +1186,7 @@ function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare 
               frameBorder="0"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/60 text-sm">No video available</div>
+            <div className="w-full h-full flex items-center justify-center text-white/60 text-sm">{hasDigitalFile ? "Local file available" : "No video available"}</div>
           )}
         </div>
 
@@ -997,6 +1201,13 @@ function DetailModal({ record, onClose, isBookmarked, onToggleBookmark, onShare 
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
+            {hasDigitalFile && (
+              <button onClick={onAccess} className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 text-white text-xs font-semibold px-3 py-2 hover:bg-amber-600">
+                {isFree || priceAmount <= 0 ? <Download className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
+                {isFree || priceAmount <= 0 ? "Open local file" : `Pay ${formatMoney(priceAmount, currency)}`}
+                {digitalSize ? <span className="opacity-80">({formatBytes(digitalSize)})</span> : null}
+              </button>
+            )}
             <button onClick={onToggleBookmark} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium px-3 py-2 hover:bg-slate-50">
               {isBookmarked ? <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" /> : <Bookmark className="w-3.5 h-3.5" />}
               {isBookmarked ? "Bookmarked" : "Bookmark"}
@@ -1033,6 +1244,11 @@ function ResourceFormModal({ target, defaultType, onCancel, onSave }) {
         date: (target.date || target.publishedAt || "").slice(0, 10),
         youtube: target.youtube ?? target.youtubeUrl ?? target.YoutubeUrl ?? "",
         description: target.description ?? "",
+        isFree: target.isFree ?? target.IsFree ?? true,
+        priceAmount: target.priceAmount ?? target.PriceAmount ?? 0,
+        currency: target.currency ?? target.Currency ?? "INR",
+        digitalFile: null,
+        hasDigitalFile: Boolean(target.hasDigitalFile ?? target.HasDigitalFile),
       };
     }
     return {
@@ -1043,12 +1259,25 @@ function ResourceFormModal({ target, defaultType, onCancel, onSave }) {
       date: "",
       youtube: "",
       description: "",
+      isFree: true,
+      priceAmount: 0,
+      currency: "INR",
+      digitalFile: null,
+      hasDigitalFile: false,
     };
   });
   const [saving, setSaving] = useState(false);
 
   const ytId = extractYouTubeId(form.youtube);
   const previewUrl = ytId ? embedUrlFromId(ytId, { autoplay: false, mute: true, controls: 1 }) : null;
+  const isSermon = form.type === "sermon";
+  const uploadLabel = isSermon ? "Local sermon file" : "Digital print";
+  const uploadHelp = isSermon
+    ? "Upload sermon audio/video locally under Server Files. YouTube can still be used as an optional external link."
+    : "Upload a PDF, EPUB, Word, text, MOBI, or ZIP file for member download.";
+  const uploadAccept = isSermon
+    ? ".mp3,.wav,.m4a,.aac,.ogg,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.zip,audio/*,video/*,application/pdf"
+    : ".pdf,.epub,.mobi,.doc,.docx,.txt,.zip,application/pdf,application/epub+zip";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1107,12 +1336,11 @@ function ResourceFormModal({ target, defaultType, onCancel, onSave }) {
             </Field>
           </div>
 
-          <Field label="YouTube URL or 11-character ID *">
+          <Field label={form.type === "sermon" ? "YouTube URL or 11-character ID (optional if uploading local file)" : "URL or YouTube ID (optional)"}>
             <input
               value={form.youtube}
               onChange={(e) => setForm({ ...form, youtube: e.target.value })}
-              placeholder="https://youtu.be/VIDEO_ID  or  VIDEO_ID"
-              required
+              placeholder={form.type === "sermon" ? "https://youtu.be/VIDEO_ID  or  VIDEO_ID" : "External article/book link, YouTube ID, or leave blank"}
               className="input font-mono text-xs"
             />
             {form.youtube && !ytId && (
@@ -1121,6 +1349,60 @@ function ResourceFormModal({ target, defaultType, onCancel, onSave }) {
               </span>
             )}
           </Field>
+
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">{uploadLabel}</div>
+                  <div className="text-[11px] text-slate-500">{uploadHelp}</div>
+                </div>
+                {form.hasDigitalFile ? (
+                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
+Existing file attached
+                  </span>
+                ) : null}
+              </div>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                <UploadCloud className="h-4 w-4" />
+                {form.digitalFile ? form.digitalFile.name : isSermon ? "Choose local sermon file" : "Choose digital print file"}
+                <input
+                  type="file"
+                  className="hidden"
+                  accept={uploadAccept}
+                  onChange={(e) => setForm({ ...form, digitalFile: e.target.files?.[0] || null })}
+                />
+              </label>
+
+              {!isSermon && (
+              <div className="grid gap-2 sm:grid-cols-[1fr_120px_90px]">
+                <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={!!form.isFree}
+                    onChange={(e) => setForm({ ...form, isFree: e.target.checked, priceAmount: e.target.checked ? 0 : form.priceAmount })}
+                  />
+                  Mark as free
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  disabled={!!form.isFree}
+                  value={form.priceAmount}
+                  onChange={(e) => setForm({ ...form, priceAmount: e.target.value })}
+                  className="input"
+                  placeholder="Price"
+                />
+                <input
+                  value={form.currency}
+                  onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+                  disabled={!!form.isFree}
+                  className="input"
+                  placeholder="INR"
+                />
+              </div>
+              )}
+            </div>
 
           <Field label="Description (optional)">
             <textarea

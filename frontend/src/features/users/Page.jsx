@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import api, { API_BASE } from "../../api";
+import { useLanguage } from "../../i18n/LanguageContext";
 
 const DEFAULT_LIMIT = 10;
 const SEARCH_DATASET_LIMIT = 5000;
@@ -148,6 +149,7 @@ function defaultForm() {
     emergencyContactPhone: "",
     isPastor: false,
     payrollEnabled: false,
+    primaryPosition: "",
   };
 }
 
@@ -203,6 +205,11 @@ const initialsOf = (name) =>
     .slice(0, 2)
     .toUpperCase();
 
+function scopeLabelForPosition(value) {
+  if (/church/i.test(String(value))) return "Church Level";
+  if (/team/i.test(String(value))) return "My Teams";
+  return "My";
+}
 function roleLabelOf(user, roles) {
   if (user?.RoleName) return user.RoleName;
   if (user?.roleName) return user.roleName;
@@ -520,6 +527,7 @@ function ActionButton({
 }
 
 export default function UsersPageCathedralAdvanced() {
+  const { t } = useLanguage();
   const [users, setUsers] = useState([]);
   const [allUsers, setAllUsers] = useState(null);
   const [searchUsers, setSearchUsers] = useState(null);
@@ -550,6 +558,7 @@ export default function UsersPageCathedralAdvanced() {
   const [form, setForm] = useState(defaultForm());
   const [photoUploading, setPhotoUploading] = useState(false);
   const [roles, setRoles] = useState([]);
+  const [positionAssignments, setPositionAssignments] = useState([]);
 
   const [broadcastType, setBroadcastType] = useState("Welcome");
   const [broadcastMessage, setBroadcastMessage] = useState("");
@@ -558,6 +567,30 @@ export default function UsersPageCathedralAdvanced() {
   const [sendResults, setSendResults] = useState(null);
   const [modalSearch, setModalSearch] = useState("");
 
+
+  const primaryPositionByUser = useMemo(() => {
+    const map = new Map();
+    positionAssignments.forEach((row) => {
+      const userId = String(row.userId || row.UserId || "");
+      if (!userId) return;
+      const current = map.get(userId) || [];
+      current.push(row);
+      map.set(userId, current);
+    });
+    const primaryMap = new Map();
+    map.forEach((rows, userId) => {
+      const primary = rows.find((row) => Boolean(row.isPrimary ?? row.IsPrimary)) || rows[0];
+      if (!primary) return;
+      const name = primary.positionName || primary.PositionName || "Position";
+      const scope = primary.visibilityScope || primary.VisibilityScope || "My";
+      primaryMap.set(userId, `${name} (${scopeLabelForPosition(scope)})`);
+    });
+    return primaryMap;
+  }, [positionAssignments]);
+
+  function primaryPositionOfUser(user) {
+    return primaryPositionByUser.get(String(userIdOf(user))) || "Not assigned";
+  }
   const activeFilterMode = hasActiveFilters(filters);
   const powerSearchActive = Boolean(debouncedSearch || activeFilterMode);
 
@@ -676,6 +709,16 @@ export default function UsersPageCathedralAdvanced() {
       setRolesLoading(false);
     }
   }, []);
+  const fetchPositionAssignments = useCallback(async () => {
+    try {
+      const resp = await api.get("/positions/assignments");
+      const { items } = normalizeResponse(resp);
+      setPositionAssignments(items);
+    } catch (err) {
+      console.warn("fetchPositionAssignments error:", err);
+      setPositionAssignments([]);
+    }
+  }, []);
 
   useEffect(() => {
     fetchUsers(1, DEFAULT_LIMIT);
@@ -684,6 +727,9 @@ export default function UsersPageCathedralAdvanced() {
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
+  useEffect(() => {
+    fetchPositionAssignments();
+  }, [fetchPositionAssignments]);
 
   useEffect(() => {
     setClientPage(1);
@@ -823,6 +869,7 @@ export default function UsersPageCathedralAdvanced() {
       emergencyContactPhone: user.emergencyContactPhone ?? user.EmergencyContactPhone ?? "",
       isPastor: Boolean(user.isPastor ?? user.IsPastor),
       payrollEnabled: Boolean(user.payrollEnabled ?? user.PayrollEnabled ?? user.isPayrollEnabled ?? user.IsPayrollEnabled),
+      primaryPosition: primaryPositionOfUser(user),
     });
 
     setModalMessage("");
@@ -927,6 +974,7 @@ export default function UsersPageCathedralAdvanced() {
       setShowModal(false);
       setSearchUsers(null);
       setAllUsers(null);
+      fetchPositionAssignments();
       setClientPage(1);
       await fetchUsers(form.id ? meta.page : 1, meta.limit);
       if (powerSearchActive) await fetchSearchDataset(true);
@@ -1807,20 +1855,20 @@ export default function UsersPageCathedralAdvanced() {
       <div className="users-shell">
         <div className="users-header">
           <div>
-            <h1 className="users-title">Users</h1>
-            <div className="users-subtitle">Manage members, contact details, roles, and ministry messages.</div>
+            <h1 className="users-title">{t("page.users.title")}</h1>
+            <div className="users-subtitle">{t("page.users.subtitle")}</div>
           </div>
 
           <div className="users-header-actions">
             <div className="users-broadcast-grid">
-              <IconButton icon={Bell} label="Welcome broadcast" onClick={() => openBroadcast("Welcome")} variant="primary" />
-              <IconButton icon={BookOpen} label="Daily Word broadcast" onClick={() => openBroadcast("Daily Word")} variant="soft" />
-              <IconButton icon={CalendarCheck} label="Meeting broadcast" onClick={() => openBroadcast("Meeting Attend")} variant="neutral" />
+              <IconButton icon={Bell} label={t("page.users.welcomeBroadcast")} onClick={() => openBroadcast("Welcome")} variant="primary" />
+              <IconButton icon={BookOpen} label={t("page.users.dailyWordBroadcast")} onClick={() => openBroadcast("Daily Word")} variant="soft" />
+              <IconButton icon={CalendarCheck} label={t("page.users.meetingBroadcast")} onClick={() => openBroadcast("Meeting Attend")} variant="neutral" />
             </div>
 
             <div className="users-add-top">
               <ActionButton icon={UserPlus} onClick={openAdd}>
-                Add User
+                {t("common.addUser")}
               </ActionButton>
             </div>
           </div>
@@ -1834,21 +1882,21 @@ export default function UsersPageCathedralAdvanced() {
                 className="users-input users-search-input"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search name, email, phone, role, code..."
-                aria-label="Search users"
+                placeholder={t("page.users.searchPlaceholder")}
+                aria-label={t("page.users.searchPlaceholder")}
               />
             </div>
 
             <IconButton
               icon={SlidersHorizontal}
-              label="Search filters"
+              label={t("page.users.searchFilters")}
               onClick={() => setFiltersOpen(true)}
               variant={activeFilterMode ? "primary" : "neutral"}
             />
 
             <IconButton
               icon={RefreshCw}
-              label="Refresh users"
+              label={t("common.refresh")}
               onClick={refreshCurrentView}
               loading={loading || searchDatasetLoading}
               variant="soft"
@@ -1873,7 +1921,7 @@ export default function UsersPageCathedralAdvanced() {
                 </span>
               ))}
               <button className="users-chip" type="button" onClick={resetSearch}>
-                Clear
+                {t("common.clear")}
               </button>
             </div>
           )}
@@ -1913,7 +1961,7 @@ export default function UsersPageCathedralAdvanced() {
             ))}
           </div>
         ) : visibleUsers.length === 0 ? (
-          <div className="users-empty">No users found.</div>
+          <div className="users-empty">{t("page.users.noUsersFound")}</div>
         ) : (
           <div className="users-list" role="list">
             {visibleUsers.map((user) => {
@@ -1923,6 +1971,7 @@ export default function UsersPageCathedralAdvanced() {
               const email = emailOf(user);
               const phone = phoneOf(user);
               const roleLabel = roleLabelOf(user, roles);
+              const primaryPosition = primaryPositionOfUser(user);
               const photoUrl = resolveMediaUrl(profilePhotoUrlOf(user));
               const deleting = deletingId === id;
 
@@ -1938,28 +1987,29 @@ export default function UsersPageCathedralAdvanced() {
                     </div>
 
                     <div style={{ minWidth: 0 }}>
-                      <div className="user-name" title={name}>
+                      <div className="user-name" title={name} data-no-ui-translate>
                         <HighlightText text={name} query={debouncedSearch} />
                       </div>
-                      <div className="user-meta">
+                      <div className="user-meta" data-no-ui-translate>
                         <HighlightText text={username || "No username"} query={debouncedSearch} />
                         {email ? " - " : ""}
                         {email ? <HighlightText text={email} query={debouncedSearch} /> : ""}
                       </div>
 
                       <div className="user-badges">
-                        <span className="user-badge">
+                        <span className="user-badge" data-no-ui-translate>
                           <HighlightText text={String(roleLabel || "member").toUpperCase()} query={debouncedSearch} />
                         </span>
                         {phone && (
-                          <span className="user-badge">
+                          <span className="user-badge" data-no-ui-translate>
                             <Phone size={14} />
                             <HighlightText text={phone} query={debouncedSearch} />
                           </span>
                         )}
-                        <span className="user-badge">Joined: {formatFriendlyDate(user.joinDate)}</span>
+                        <span className="user-badge">{t("page.users.joined")}: <span data-no-ui-translate>{formatFriendlyDate(user.joinDate)}</span></span>
+                        <span className="user-badge">{t("page.users.primaryPosition")}: <span data-no-ui-translate>{primaryPosition}</span></span>
                         {userCodeOf(user) && (
-                          <span className="user-badge">
+                          <span className="user-badge" data-no-ui-translate>
                             <IdCard size={14} />
                             <HighlightText text={userCodeOf(user)} query={debouncedSearch} />
                           </span>
@@ -1969,10 +2019,10 @@ export default function UsersPageCathedralAdvanced() {
                   </div>
 
                   <div className="user-actions">
-                    <IconButton icon={Edit3} label="Edit user" onClick={() => openEdit(user)} variant="neutral" />
+                    <IconButton icon={Edit3} label={t("page.users.editUser")} onClick={() => openEdit(user)} variant="neutral" />
                     <IconButton
                       icon={Trash2}
-                      label="Delete user"
+                      label={t("common.delete")}
                       onClick={() => confirmDelete(id)}
                       loading={deleting}
                       disabled={Boolean(deletingId && deletingId !== id)}
@@ -1987,7 +2037,7 @@ export default function UsersPageCathedralAdvanced() {
 
         <div className="users-pagination">
           <div className="users-page-count">
-            Showing {visibleUsers.length === 0 ? 0 : `${start}-${end}`} of {totalVisible}
+            {t("common.showing")} {visibleUsers.length === 0 ? 0 : `${start}-${end}`} {t("common.of")} {totalVisible}
           </div>
 
           <ActionButton
@@ -2002,7 +2052,7 @@ export default function UsersPageCathedralAdvanced() {
             disabled={currentPage <= 1 || listLoading}
             variant="secondary"
           >
-            Prev
+            {t("common.prev")}
           </ActionButton>
 
           <ActionButton
@@ -2017,7 +2067,7 @@ export default function UsersPageCathedralAdvanced() {
             disabled={end >= totalVisible || listLoading}
             variant="secondary"
           >
-            Next
+            {t("common.next")}
           </ActionButton>
         </div>
       </div>
@@ -2033,16 +2083,16 @@ export default function UsersPageCathedralAdvanced() {
         >
           <div className="users-modal" style={{ maxWidth: 720 }}>
             <div className="users-modal-header">
-              <h2 className="users-modal-title">Search Filters</h2>
-              <IconButton icon={X} label="Close filters" onClick={() => setFiltersOpen(false)} variant="neutral" />
+              <h2 className="users-modal-title">{t("page.users.searchFilters")}</h2>
+              <IconButton icon={X} label={t("common.close")} onClick={() => setFiltersOpen(false)} variant="neutral" />
             </div>
 
             <div className="users-modal-body">
               <div className="users-filter-grid">
                 <div className="users-field">
-                  <label>Role</label>
+                  <label>{t("form.role")}</label>
                   <select className="users-select" value={filters.role} onChange={(event) => updateFilter("role", event.target.value)}>
-                    <option value="">Any role</option>
+                    <option value="">{t("filter.anyRole")}</option>
                     {roles.map((role) => (
                       <option key={role.id ?? role.Id ?? role.name} value={String(role.id ?? role.Id)}>
                         {role.name ?? role.Name}
@@ -2052,76 +2102,76 @@ export default function UsersPageCathedralAdvanced() {
                 </div>
 
                 <div className="users-field">
-                  <label>Contact</label>
+                  <label>{t("filter.contact")}</label>
                   <select className="users-select" value={filters.contact} onChange={(event) => updateFilter("contact", event.target.value)}>
-                    <option value="any">Any contact</option>
-                    <option value="email">Has email</option>
-                    <option value="phone">Has phone</option>
-                    <option value="missing-email">Missing email</option>
-                    <option value="missing-phone">Missing phone</option>
+                    <option value="any">{t("filter.anyContact")}</option>
+                    <option value="email">{t("filter.hasEmail")}</option>
+                    <option value="phone">{t("filter.hasPhone")}</option>
+                    <option value="missing-email">{t("filter.missingEmail")}</option>
+                    <option value="missing-phone">{t("filter.missingPhone")}</option>
                   </select>
                 </div>
 
                 <div className="users-field">
-                  <label>Sex</label>
+                  <label>{t("form.sex")}</label>
                   <select className="users-select" value={filters.sex} onChange={(event) => updateFilter("sex", event.target.value)}>
-                    <option value="">Any</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
+                    <option value="">{t("common.any")}</option>
+                    <option value="Male">{t("filter.male")}</option>
+                    <option value="Female">{t("filter.female")}</option>
                   </select>
                 </div>
 
                 <div className="users-field">
-                  <label>Mahima ID</label>
+                  <label>{t("form.mahimaId")}</label>
                   <select className="users-select" value={filters.hasCode} onChange={(event) => updateFilter("hasCode", event.target.value)}>
-                    <option value="any">Any</option>
-                    <option value="yes">Has ID</option>
-                    <option value="no">Missing ID</option>
+                    <option value="any">{t("common.any")}</option>
+                    <option value="yes">{t("filter.hasId")}</option>
+                    <option value="no">{t("filter.missingId")}</option>
                   </select>
                 </div>
 
                 {[
-                  ["pastor", "Pastor"],
-                  ["baptized", "Baptized"],
-                  ["bornAgain", "Born Again"],
-                  ["believer", "Believer"],
+                  ["pastor", t("filter.pastor")],
+                  ["baptized", t("filter.baptized")],
+                  ["bornAgain", t("filter.bornAgain")],
+                  ["believer", t("filter.believer")],
                 ].map(([key, label]) => (
                   <div className="users-field" key={key}>
                     <label>{label}</label>
                     <select className="users-select" value={filters[key]} onChange={(event) => updateFilter(key, event.target.value)}>
-                      <option value="any">Any</option>
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
+                      <option value="any">{t("common.any")}</option>
+                      <option value="yes">{t("common.yes")}</option>
+                      <option value="no">{t("common.no")}</option>
                     </select>
                   </div>
                 ))}
 
                 <div className="users-field">
-                  <label>Joined From</label>
+                  <label>{t("filter.joinedFrom")}</label>
                   <input className="users-input" type="date" value={filters.joinedFrom} onChange={(event) => updateFilter("joinedFrom", event.target.value)} />
                 </div>
 
                 <div className="users-field">
-                  <label>Joined To</label>
+                  <label>{t("filter.joinedTo")}</label>
                   <input className="users-input" type="date" value={filters.joinedTo} onChange={(event) => updateFilter("joinedTo", event.target.value)} />
                 </div>
 
                 <div className="users-field">
-                  <label>Sort By</label>
+                  <label>{t("filter.sortBy")}</label>
                   <select className="users-select" value={filters.sortBy} onChange={(event) => updateFilter("sortBy", event.target.value)}>
-                    <option value="relevance">Relevance</option>
-                    <option value="name">Name</option>
-                    <option value="username">Username</option>
-                    <option value="role">Role</option>
-                    <option value="joined">Join date</option>
+                    <option value="relevance">{t("common.relevance")}</option>
+                    <option value="name">{t("common.name")}</option>
+                    <option value="username">{t("form.username")}</option>
+                    <option value="role">{t("common.role")}</option>
+                    <option value="joined">{t("common.joinDate")}</option>
                   </select>
                 </div>
 
                 <div className="users-field">
-                  <label>Sort Direction</label>
+                  <label>{t("filter.sortDir")}</label>
                   <select className="users-select" value={filters.sortDir} onChange={(event) => updateFilter("sortDir", event.target.value)}>
-                    <option value="asc">Ascending</option>
-                    <option value="desc">Descending</option>
+                    <option value="asc">{t("common.ascending")}</option>
+                    <option value="desc">{t("common.descending")}</option>
                   </select>
                 </div>
               </div>
@@ -2129,10 +2179,10 @@ export default function UsersPageCathedralAdvanced() {
 
             <div className="users-modal-footer">
               <ActionButton icon={X} onClick={resetSearch} variant="secondary">
-                Clear
+                {t("common.clear")}
               </ActionButton>
               <ActionButton icon={Check} onClick={() => setFiltersOpen(false)}>
-                Done
+                {t("common.done")}
               </ActionButton>
             </div>
           </div>
@@ -2150,8 +2200,8 @@ export default function UsersPageCathedralAdvanced() {
         >
           <form className="users-modal" onSubmit={saveUser}>
             <div className="users-modal-header">
-              <h2 className="users-modal-title">{form.id ? "Edit User" : "Add User"}</h2>
-              <IconButton icon={X} label="Close" onClick={() => setShowModal(false)} disabled={saving} variant="neutral" />
+              <h2 className="users-modal-title">{form.id ? t("page.users.editUser") : t("common.addUser")}</h2>
+              <IconButton icon={X} label={t("common.close")} onClick={() => setShowModal(false)} disabled={saving} variant="neutral" />
             </div>
 
             <div className="users-modal-body">
@@ -2164,11 +2214,11 @@ export default function UsersPageCathedralAdvanced() {
                   )}
                 </div>
                 <div className="user-photo-actions">
-                  <div className="users-section-label" style={{ margin: 0 }}>User Photo</div>
+                  <div className="users-section-label" style={{ margin: 0 }}>{t("page.users.userPhoto")}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     <label className="users-button users-button-soft" style={{ cursor: photoUploading ? "wait" : "pointer" }}>
                       <Camera size={15} />
-                      {photoUploading ? "Uploading..." : "Upload photo"}
+                      {photoUploading ? t("page.users.uploading") : t("page.users.uploadPhoto")}
                       <input
                         type="file"
                         accept="image/*"
@@ -2179,7 +2229,7 @@ export default function UsersPageCathedralAdvanced() {
                     </label>
                     {form.profilePhotoUrl && (
                       <button type="button" className="users-button users-button-ghost" onClick={() => setField("profilePhotoUrl", "")} disabled={photoUploading || saving}>
-                        Remove
+                        {t("page.users.remove")}
                       </button>
                     )}
                   </div>
@@ -2188,23 +2238,23 @@ export default function UsersPageCathedralAdvanced() {
 
               <div className="users-form-grid">
                 <div className="users-field">
-                  <label>Display Name</label>
+                  <label>{t("form.displayName")}</label>
                   <input className="users-input" value={form.displayName} onChange={(event) => setField("displayName", event.target.value)} />
                 </div>
 
                 <div className="users-field">
-                  <label>Username</label>
+                  <label>{t("form.username")}</label>
                   <input className="users-input" value={form.username} onChange={(event) => setField("username", event.target.value)} />
                 </div>
 
                 <div className="users-field">
-                  <label>Password</label>
+                  <label>{t("form.password")}</label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 48px", gap: 10 }}>
                     <input
                       className="users-input"
                       value={form.password}
                       onChange={(event) => setField("password", event.target.value)}
-                      placeholder={form.id ? "Leave blank to keep current" : "Required"}
+                      placeholder={form.id ? t("form.keepCurrentPassword") : t("form.passwordRequired")}
                     />
                     <IconButton
                       icon={KeyRound}
@@ -2223,7 +2273,7 @@ export default function UsersPageCathedralAdvanced() {
                 </div>
 
                 <div className="users-field">
-                  <label>Role</label>
+                  <label>{t("form.role")}</label>
                   <select className="users-select" value={form.role} onChange={(event) => setField("role", event.target.value)}>
                     {roles.length > 0 ? (
                       roles.map((role) => (
@@ -2232,18 +2282,24 @@ export default function UsersPageCathedralAdvanced() {
                         </option>
                       ))
                     ) : (
-                      <option value="">No roles loaded</option>
+                      <option value="">{t("common.noData")}</option>
                     )}
                   </select>
                 </div>
+                {form.id && (
+                  <div className="users-field">
+                    <label>{t("form.primaryPosition")}</label>
+                    <input className="users-input" value={form.primaryPosition || t("form.notAssigned")} readOnly />
+                  </div>
+                )}
 
                 <div className="users-field">
-                  <label>Email</label>
+                  <label>{t("form.email")}</label>
                   <input className="users-input" value={form.email} onChange={(event) => setField("email", event.target.value)} />
                 </div>
 
                 <div className="users-field">
-                  <label>Phone</label>
+                  <label>{t("form.phone")}</label>
                   <input
                     className="users-input"
                     value={form.phone}
@@ -2255,7 +2311,7 @@ export default function UsersPageCathedralAdvanced() {
                 </div>
 
                 <div className="users-field">
-                  <label>Join Date</label>
+                  <label>{t("form.joinDate")}</label>
                   <input
                     className="users-input"
                     type="datetime-local"
@@ -2266,12 +2322,12 @@ export default function UsersPageCathedralAdvanced() {
 
                 {form.id && (
                   <div className="users-field">
-                    <label>Mahima ID</label>
+                    <label>{t("form.mahimaId")}</label>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 48px", gap: 10 }}>
                       <input className="users-input" value={form.UserCode || ""} readOnly />
                       <IconButton
                         icon={Copy}
-                        label="Copy Mahima ID"
+                        label={t("page.users.copyId")}
                         onClick={() => navigator.clipboard?.writeText(String(form.UserCode || ""))}
                         variant="soft"
                       />
@@ -2281,77 +2337,77 @@ export default function UsersPageCathedralAdvanced() {
               </div>
 
               <div className="users-section">
-                <div className="users-section-label">Profile Details</div>
+                <div className="users-section-label">{t("page.users.profileDetails")}</div>
 
                 <div className="users-form-grid">
                   <div className="users-field">
-                    <label>Birthday</label>
+                    <label>{t("form.birthday")}</label>
                     <input className="users-input" type="date" value={form.birthday} onChange={(event) => setField("birthday", event.target.value)} />
                   </div>
 
                   <div className="users-field">
-                    <label>Marital Status</label>
+                    <label>{t("form.maritalStatus")}</label>
                     <select className="users-select" value={form.maritalStatus} onChange={(event) => setField("maritalStatus", event.target.value)}>
-                      <option value="">Select</option>
-                      <option value="Single">Single</option>
-                      <option value="Married">Married</option>
-                      <option value="Divorced">Divorced</option>
-                      <option value="Widowed">Widowed</option>
+                      <option value="">{t("common.select")}</option>
+                      <option value="Single">{t("filter.single")}</option>
+                      <option value="Married">{t("filter.married")}</option>
+                      <option value="Divorced">{t("filter.divorced")}</option>
+                      <option value="Widowed">{t("filter.widowed")}</option>
                     </select>
                   </div>
 
                   <div className="users-field">
-                    <label>Sex</label>
+                    <label>{t("form.sex")}</label>
                     <select className="users-select" value={form.sex} onChange={(event) => setField("sex", event.target.value)}>
-                      <option value="">Select</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
+                      <option value="">{t("common.select")}</option>
+                      <option value="Male">{t("filter.male")}</option>
+                      <option value="Female">{t("filter.female")}</option>
                     </select>
                   </div>
 
                   <div className="users-field">
-                    <label>Age</label>
+                    <label>{t("form.age")}</label>
                     <input className="users-input" type="number" min="0" value={form.age} onChange={(event) => setField("age", event.target.value)} />
                   </div>
 
                   <div className="users-field">
-                    <label>Aadhar Number</label>
+                    <label>{t("form.aadharNumber")}</label>
                     <input className="users-input" value={form.aadharNumber} maxLength={12} onChange={(event) => setField("aadharNumber", event.target.value)} />
                   </div>
 
                   <div className="users-field">
-                    <label>Emergency Phone</label>
+                    <label>{t("form.emergencyPhone")}</label>
                     <input className="users-input" value={form.emergencyContactPhone} onChange={(event) => setField("emergencyContactPhone", event.target.value)} />
                   </div>
 
                   <div className="users-field">
-                    <label>Baptism Date</label>
+                    <label>{t("form.baptismDate")}</label>
                     <input className="users-input" type="date" value={form.baptismDate} onChange={(event) => setField("baptismDate", event.target.value)} />
                   </div>
 
                   <div className="users-field">
-                    <label>Baptism Place</label>
+                    <label>{t("form.baptismPlace")}</label>
                     <input className="users-input" value={form.baptismPlace} onChange={(event) => setField("baptismPlace", event.target.value)} />
                   </div>
 
                   <div className="users-field users-field-full">
-                    <label>Home Address</label>
+                    <label>{t("form.homeAddress")}</label>
                     <textarea className="users-textarea" value={form.homeAddress} onChange={(event) => setField("homeAddress", event.target.value)} />
                   </div>
 
                   <div className="users-field users-field-full">
-                    <label>Current Address</label>
+                    <label>{t("form.currentAddress")}</label>
                     <textarea className="users-textarea" value={form.currentAddress} onChange={(event) => setField("currentAddress", event.target.value)} />
                   </div>
                 </div>
 
                 <div className="users-check-grid">
                   {[
-                    ["isBaptized", "Is Baptized"],
-                    ["isBornAgain", "Is Born Again"],
-                    ["isBeliever", "Is Believer"],
-                    ["isPastor", "Is Pastor"],
-                    ["payrollEnabled", "Payroll Enabled"],
+                    ["isBaptized", t("form.isBaptized")],
+                    ["isBornAgain", t("form.isBornAgain")],
+                    ["isBeliever", t("form.isBeliever")],
+                    ["isPastor", t("form.isPastor")],
+                    ["payrollEnabled", t("form.payrollEnabled")],
                   ].map(([key, label]) => (
                     <label className="users-check" key={key}>
                       <input type="checkbox" checked={Boolean(form[key])} onChange={(event) => setField(key, event.target.checked)} />
@@ -2380,16 +2436,16 @@ export default function UsersPageCathedralAdvanced() {
             <div className="users-modal-footer">
               {form.id ? (
                 <ActionButton icon={KeyRound} onClick={resetPasswordForFormUser} loading={resetting} variant="secondary">
-                  Reset
+                  {t("common.reset")}
                 </ActionButton>
               ) : (
                 <ActionButton icon={X} onClick={() => setShowModal(false)} disabled={saving} variant="secondary">
-                  Cancel
+                  {t("common.cancel")}
                 </ActionButton>
               )}
 
               <ActionButton icon={Save} type="submit" loading={saving}>
-                Save
+                {t("common.save")}
               </ActionButton>
             </div>
           </form>
@@ -2408,11 +2464,11 @@ export default function UsersPageCathedralAdvanced() {
           <div className="users-modal">
             <div className="users-modal-header">
               <h2 className="users-modal-title">{broadcastType}</h2>
-              <IconButton icon={X} label="Close" onClick={() => setBroadcastOpen(false)} disabled={sending} variant="neutral" />
+              <IconButton icon={X} label={t("common.close")} onClick={() => setBroadcastOpen(false)} disabled={sending} variant="neutral" />
             </div>
 
             <div className="users-modal-body">
-              <div className="users-section-label">Message</div>
+              <div className="users-section-label">{t("page.users.message")}</div>
               <textarea
                 className="users-textarea"
                 value={broadcastMessage}
@@ -2421,7 +2477,7 @@ export default function UsersPageCathedralAdvanced() {
               />
 
               <div className="users-section">
-                <div className="users-section-label">Channels</div>
+                <div className="users-section-label">{t("page.users.channels")}</div>
                 <div className="channel-grid">
                   {[
                     ["email", "Email", Mail],
@@ -2447,7 +2503,7 @@ export default function UsersPageCathedralAdvanced() {
               </div>
 
               <div className="users-section">
-                <div className="users-section-label">Recipients: {selectedIds.size} selected</div>
+                <div className="users-section-label">{t("page.users.recipients")}: {selectedIds.size} selected</div>
 
                 <div className="users-search-wrap">
                   <Search size={18} />
@@ -2455,24 +2511,24 @@ export default function UsersPageCathedralAdvanced() {
                     className="users-input users-search-input"
                     value={modalSearch}
                     onChange={(event) => setModalSearch(event.target.value)}
-                    placeholder="Filter recipients..."
+                    placeholder={t("page.users.filterRecipients")}
                   />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <ActionButton icon={Users} onClick={selectAllRecipients} variant="secondary">
-                    Select All
+                    {t("page.users.selectAll")}
                   </ActionButton>
                   <ActionButton icon={X} onClick={clearSelection} variant="secondary">
-                    Clear
+                    {t("common.clear")}
                   </ActionButton>
                 </div>
 
                 <div className="recipient-list">
                   {filteredRecipients === null ? (
-                    <div className="users-empty">Loading recipients...</div>
+                    <div className="users-empty">{t("page.users.loadingRecipients")}</div>
                   ) : filteredRecipients.length === 0 ? (
-                    <div className="users-empty">No recipients found.</div>
+                    <div className="users-empty">{t("page.users.noRecipientsFound")}</div>
                   ) : (
                     filteredRecipients.map((user) => {
                       const id = userIdOf(user);
@@ -2514,10 +2570,10 @@ export default function UsersPageCathedralAdvanced() {
 
             <div className="users-modal-footer">
               <ActionButton icon={X} onClick={() => setBroadcastOpen(false)} disabled={sending} variant="secondary">
-                Cancel
+                {t("common.cancel")}
               </ActionButton>
               <ActionButton icon={Bell} onClick={sendBroadcast} loading={sending}>
-                Send
+                {t("common.send")}
               </ActionButton>
             </div>
           </div>
@@ -2526,3 +2582,6 @@ export default function UsersPageCathedralAdvanced() {
     </div>
   );
 }
+
+
+

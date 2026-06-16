@@ -72,6 +72,20 @@ function senderNameFromMessage(msg) {
   return msg?.senderName || msg?.SenderName || msg?.fromName || msg?.FromName || msg?.sender?.displayName || "Jai Masih";
 }
 
+function latestChatTime(chat) {
+  const raw = chat?.lastMessage?.createdAt
+    ?? chat?.lastMessage?.sentAt
+    ?? chat?.updatedAt
+    ?? chat?.createdAt
+    ?? 0;
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortChatsByLatest(list) {
+  return [...list].sort((a, b) => latestChatTime(b) - latestChatTime(a));
+}
+
 export default function ChatPage() {
   const [chats, setChats] = useState([]);
   const [loadingChats, setLoadingChats] = useState(false);
@@ -126,7 +140,7 @@ export default function ChatPage() {
         throw new Error(await readApiError(res, `Chats request failed (${res.status})`));
       }
       const data = await res.json().catch(() => []);
-      setChats(arrayFrom(data));
+      setChats(sortChatsByLatest(arrayFrom(data)));
       setChatError("");
     } catch (e) {
       console.warn("[ChatPage] loadChats failed", e);
@@ -338,9 +352,11 @@ export default function ChatPage() {
     }
   };
 
-  const onCreate = async ({ userId, usernameOrEmail }) => {
+  const onCreate = async ({ userId, usernameOrEmail, isGroup = false, name = "", memberIds = [] }) => {
     const token = getToken();
-    const payload = userId ? { userId, usernameOrEmail } : { usernameOrEmail };
+    const payload = isGroup
+      ? { isGroup: true, name: String(name || "").trim(), memberIds }
+      : userId ? { userId, usernameOrEmail } : { usernameOrEmail };
     const res = await fetch(`${API_BASE}/chats`, {
       method: "POST",
       headers: {
@@ -355,12 +371,15 @@ export default function ChatPage() {
     }
     const chat = await res.json().catch(() => null);
     if (chat) {
+      const createdChat = chat.updatedAt || chat.createdAt
+        ? chat
+        : { ...chat, updatedAt: new Date().toISOString() };
       setChatError("");
       setChats((prev) => {
-        if (prev.some((c) => String(c.id) === String(chat.id))) return prev;
-        return [chat, ...prev];
+        if (prev.some((c) => String(c.id) === String(createdChat.id))) return prev;
+        return sortChatsByLatest([createdChat, ...prev]);
       });
-      setSelectedChat(chat);
+      setSelectedChat(createdChat);
       setShowListOnMobile(false);
       loadChats();
     }
@@ -399,12 +418,12 @@ export default function ChatPage() {
     <div className="h-full min-h-0 flex flex-col bg-slate-100"
          style={{ height: "calc(100dvh - 3.5rem)" }}>
       {/* Brand bar */}
-      <div className="bg-gradient-to-r from-emerald-700 to-teal-700 text-white px-3 sm:px-4 py-2 flex items-center gap-2 shadow shrink-0">
-        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/15 shrink-0">
+      <div className="bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 text-white px-4 sm:px-5 py-3 flex items-center gap-3 shadow-sm shrink-0">
+        <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white/15 ring-1 ring-white/15 shrink-0">
           <Cross className="w-4 h-4" />
         </span>
         <div className="leading-tight min-w-0">
-          <div className="text-sm sm:text-base font-bold tracking-wide">Jai Masih</div>
+          <div className="text-base sm:text-lg font-black tracking-tight">Jai Masih</div>
           <div className="text-[10px] sm:text-xs text-emerald-100/80 truncate">
             {isConnected ? "Connected" : "Reconnecting..."}
           </div>
@@ -449,7 +468,7 @@ export default function ChatPage() {
         <aside
           className={`${
             showListOnMobile ? "flex" : "hidden"
-          } md:flex w-full md:w-[340px] lg:w-[380px] border-r border-slate-200 bg-white flex-col min-h-0`}
+          } md:flex w-full md:w-[380px] xl:w-[430px] border-r border-slate-200 bg-white flex-col min-h-0 shadow-sm`}
         >
           <ChatList
             chats={chats}
@@ -468,6 +487,7 @@ export default function ChatPage() {
         {/* Conversation pane */}
         <main className={`${showListOnMobile ? "hidden" : "flex"} md:flex flex-1 min-w-0 min-h-0 flex-col`}>
           <ChatWindow
+            key={selectedChat?.id || "empty-chat"}
             chat={selectedChat}
             connection={connection}
             isConnected={isConnected}
@@ -541,5 +561,6 @@ function bumpChatWithMessage(prev, msg, incrementUnread = true) {
   next.splice(idx, 1);
   return [updated, ...next];
 }
+
 
 

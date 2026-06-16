@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
+  Copy,
   Download,
   File,
   FileArchive,
@@ -19,6 +20,7 @@ import {
   Info,
   LayoutList,
   Loader2,
+  MoveRight,
   Pencil,
   RefreshCw,
   Search,
@@ -147,6 +149,7 @@ export default function ServerFilesPage() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState("list");
   const [sortBy, setSortBy] = useState("name");
+  const [sortDir, setSortDir] = useState("asc");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -156,8 +159,10 @@ export default function ServerFilesPage() {
   const [error, setError] = useState("");
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [transferModal, setTransferModal] = useState(null);
   const [folderName, setFolderName] = useState("");
   const [renameName, setRenameName] = useState("");
+  const [transferDestination, setTransferDestination] = useState("");
 
   const selectedEntries = useMemo(
     () => entries.filter((entry) => selectedPaths.has(entry.path)),
@@ -176,23 +181,29 @@ export default function ServerFilesPage() {
 
     return [...filtered].sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      if (sortBy === "modified") return new Date(b.modifiedAtUtc || 0) - new Date(a.modifiedAtUtc || 0);
-      if (sortBy === "size") return Number(b.size || 0) - Number(a.size || 0);
-      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      const direction = sortDir === "desc" ? -1 : 1;
+      if (sortBy === "modified") {
+        return direction * (new Date(a.modifiedAtUtc || 0) - new Date(b.modifiedAtUtc || 0));
+      }
+      if (sortBy === "size") return direction * (Number(a.size || 0) - Number(b.size || 0));
+      return direction * a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
-  }, [entries, query, sortBy]);
+  }, [entries, query, sortBy, sortDir]);
 
-  const selectedFileEntries = selectedEntries.filter((entry) => !entry.isDirectory);
   const singleSelection = selectedEntries.length === 1 ? selectedEntries[0] : null;
   const currentSegments = currentPath ? currentPath.split("/").filter(Boolean) : [];
 
-  async function load(path = currentPath) {
+  async function load(path = currentPath, nextSortBy = sortBy, nextSortDir = sortDir) {
     setLoading(true);
     setError("");
     setMessage("");
 
     try {
-      const queryString = path ? `?path=${encodeURIComponent(path)}` : "";
+      const params = new URLSearchParams();
+      if (path) params.set("path", path);
+      params.set("sortBy", nextSortBy);
+      params.set("direction", nextSortDir);
+      const queryString = params.toString() ? `?${params.toString()}` : "";
       const data = await apiFetch(`/server-files${queryString}`);
       setRoot(data?.root || "");
       setCurrentPath(data?.path || "");
@@ -366,13 +377,48 @@ export default function ServerFilesPage() {
   }
 
   async function downloadSelected() {
-    if (selectedFileEntries.length === 0) {
-      setError("Select one or more files to download. Folder download is not available yet.");
+    if (selectedEntries.length === 0) {
+      setError("Select one or more files or folders to download.");
       return;
     }
 
-    for (const file of selectedFileEntries) {
-      await downloadFile(file);
+    for (const entry of selectedEntries) {
+      await downloadFile(entry);
+    }
+  }
+
+  function openTransfer(kind) {
+    if (selectedEntries.length === 0) return;
+    setTransferDestination(currentPath);
+    setTransferModal(kind);
+  }
+
+  async function transferSelected(event) {
+    event.preventDefault();
+    if (!transferModal || selectedEntries.length === 0) return;
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+
+    try {
+      for (const entry of selectedEntries) {
+        await apiFetch(`/server-files/${transferModal}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourcePath: entry.path,
+            destinationPath: transferDestination.trim(),
+          }),
+        });
+      }
+      setMessage(`${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} ${transferModal === "copy" ? "copied" : "moved"}.`);
+      setTransferModal(null);
+      await load(currentPath);
+    } catch (err) {
+      setError(err?.body || err?.message || `Could not ${transferModal} selected item.`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -525,7 +571,7 @@ export default function ServerFilesPage() {
               <button
                 type="button"
                 onClick={downloadSelected}
-                disabled={selectedFileEntries.length === 0}
+                disabled={selectedEntries.length === 0}
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
               >
                 <Download className="h-4 w-4" />
@@ -584,6 +630,14 @@ export default function ServerFilesPage() {
                 <option value="name">Sort: Name</option>
                 <option value="modified">Sort: Modified</option>
                 <option value="size">Sort: Size</option>
+              </select>
+              <select
+                value={sortDir}
+                onChange={(event) => setSortDir(event.target.value)}
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
+              >
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
               </select>
               <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
                 <button
@@ -684,6 +738,24 @@ export default function ServerFilesPage() {
                   >
                     <Pencil className="h-4 w-4" />
                     Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openTransfer("copy")}
+                    disabled={selectedEntries.length === 0 || busy}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openTransfer("move")}
+                    disabled={selectedEntries.length === 0 || busy}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    <MoveRight className="h-4 w-4" />
+                    Move
                   </button>
                   <button
                     type="button"
@@ -965,6 +1037,34 @@ export default function ServerFilesPage() {
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
               Rename
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {transferModal && (
+        <Modal title={transferModal === "copy" ? "Copy Selected" : "Move Selected"} onClose={() => setTransferModal(null)}>
+          <form onSubmit={transferSelected} className="space-y-4">
+            <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+              {selectedEntries.length} item{selectedEntries.length === 1 ? "" : "s"} selected
+            </div>
+            <label className="block">
+              <span className="text-sm font-black text-slate-700">Destination folder path</span>
+              <input
+                value={transferDestination}
+                onChange={(event) => setTransferDestination(event.target.value)}
+                autoFocus
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                placeholder="Leave blank for root"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={busy}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : transferModal === "copy" ? <Copy className="h-4 w-4" /> : <MoveRight className="h-4 w-4" />}
+              {transferModal === "copy" ? "Copy items" : "Move items"}
             </button>
           </form>
         </Modal>

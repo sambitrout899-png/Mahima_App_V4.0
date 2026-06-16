@@ -181,6 +181,12 @@ export async function login({ usernameOrEmail, password = "" }) {
     localStorage.setItem("token", token);
   } catch {}
 
+  // After login: if FCM token arrived before auth was ready, save it now.
+  try {
+    const { flushPendingFcmToken } = await import("../../utils/initNativeApp");
+    flushPendingFcmToken();
+  } catch { /* ignore on web */ }
+
   return json;
 }
 
@@ -222,6 +228,13 @@ export async function register(payload) {
     if (savedName) setSavedUsername(savedName);
     if (json?.user) setCurrentUser(json.user);
   } catch {}
+
+  // After self-registration the app is already authenticated; save any native
+  // FCM token that arrived before the token was available.
+  try {
+    const { flushPendingFcmToken } = await import("../../utils/initNativeApp");
+    flushPendingFcmToken();
+  } catch { /* ignore on web */ }
 
   return json;
 }

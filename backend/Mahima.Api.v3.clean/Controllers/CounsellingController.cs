@@ -67,5 +67,14 @@ namespace Mahima.Api.v3.clean.Controllers
             await _service.CompleteSessionAsync(sessionId, dto, ct);
             return NoContent();
         }
+
+        // Admin delete existing counselling session/record
+        [HttpDelete("admin/sessions/{sessionId:guid}")]
+        [Authorize(Roles = "ADMIN,Admin,admin")]
+        public async Task<IActionResult> Delete(Guid sessionId, CancellationToken ct)
+        {
+            await _service.DeleteSessionAsync(sessionId, ct);
+            return NoContent();
+        }
     }
 }

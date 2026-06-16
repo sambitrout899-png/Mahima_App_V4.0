@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,11 +23,12 @@ using Microsoft.Extensions.Logging;
 namespace Mahima.Api.v3.clean.Controllers
 {
     [ApiController]
-    [Authorize(Roles = "admin,ADMIN")]
+    [Authorize]
     [Route("api/email-client")]
     public class EmailClientController : ControllerBase
     {
-        private const string SettingsKey = "EmailClientSettings";
+        private const string SettingsKeyPrefix = "EmailClientSettings";
+        private const string EmailClientPageKey = "EMAIL_CLIENT";
         private const string Mask = "********";
         private const long MaxTotalAttachmentBytes = 50L * 1024L * 1024L;
         private readonly MahimaDbContext _db;
@@ -116,9 +118,19 @@ namespace Mahima.Api.v3.clean.Controllers
             public long? Size { get; set; }
         }
 
+        private sealed class EmailAttachmentDownload
+        {
+            public string FileName { get; set; } = "attachment";
+            public string ContentType { get; set; } = "application/octet-stream";
+            public byte[] Bytes { get; set; } = Array.Empty<byte>();
+        }
+
         [HttpGet("settings")]
         public async Task<IActionResult> GetSettings()
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             var settings = await ReadSettingsAsync();
             return Ok(ToClient(settings));
         }
@@ -126,6 +138,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPut("settings")]
         public async Task<IActionResult> SaveSettings([FromBody] EmailClientSettingsDto dto)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             var current = await ReadSettingsAsync();
             var settings = new EmailClientSettingsDto
             {
@@ -148,6 +163,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("test")]
         public async Task<IActionResult> Test(CancellationToken cancellationToken)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             var settings = await ReadSettingsAsync();
             try
             {
@@ -171,12 +189,15 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("send")]
         public async Task<IActionResult> Send([FromBody] SendEmailDto dto, CancellationToken cancellationToken)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             if (dto == null || string.IsNullOrWhiteSpace(dto.To))
                 return BadRequest("Recipient is required.");
             if (string.IsNullOrWhiteSpace(dto.Subject))
                 return BadRequest("Subject is required.");
 
-                var settings = await ReadSettingsAsync();
+            var settings = await ReadSettingsAsync();
             try
             {
                 ValidateSmtp(settings);
@@ -201,6 +222,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [RequestFormLimits(MultipartBodyLengthLimit = MaxTotalAttachmentBytes + (2L * 1024L * 1024L))]
         public async Task<IActionResult> SendWithAttachments([FromForm] SendEmailFormDto dto, CancellationToken cancellationToken)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             if (dto == null || string.IsNullOrWhiteSpace(dto.To))
                 return BadRequest("Recipient is required.");
             if (string.IsNullOrWhiteSpace(dto.Subject))
@@ -233,6 +257,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("folders")]
         public async Task<IActionResult> GetFolders(CancellationToken cancellationToken)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             var settings = await ReadSettingsAsync();
             try
             {
@@ -254,6 +281,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("inbox")]
         public async Task<IActionResult> GetInbox([FromQuery] int take = 25, [FromQuery] int skip = 0, [FromQuery] string folder = "INBOX", CancellationToken cancellationToken = default)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             take = Math.Clamp(take, 1, 500);
             skip = Math.Max(skip, 0);
 
@@ -279,6 +309,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("message/{uid}")]
         public async Task<IActionResult> GetMessage(string uid, [FromQuery] string folder = "INBOX", [FromQuery] bool markRead = false, CancellationToken cancellationToken = default)
         {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
             if (!uint.TryParse(uid, out var uidValue))
                 return BadRequest("Invalid message uid.");
 
@@ -301,9 +334,43 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
+        [HttpGet("message/{uid}/attachments/{index:int}")]
+        public async Task<IActionResult> DownloadAttachment(string uid, int index, [FromQuery] string folder = "INBOX", CancellationToken cancellationToken = default)
+        {
+            var denied = await EnsureEmailClientAccessAsync();
+            if (denied != null) return denied;
+
+            if (!uint.TryParse(uid, out var uidValue))
+                return BadRequest("Invalid message uid.");
+            if (index < 0)
+                return BadRequest("Invalid attachment index.");
+
+            var settings = await ReadSettingsAsync();
+            try
+            {
+                ValidateImap(settings);
+                var attachment = await FetchAttachmentAsync(settings, folder, new UniqueId(uidValue), index, cancellationToken);
+                if (attachment == null)
+                    return NotFound("Attachment not found.");
+
+                return File(attachment.Bytes, attachment.ContentType, attachment.FileName);
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogWarning(ex, "IMAP attachment download timed out for {Uid} attachment {Index}", uid, index);
+                return StatusCode(504, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "IMAP attachment download failed for {Uid} attachment {Index}", uid, index);
+                return BadRequest(ex.Message);
+            }
+        }
+
         private async Task<EmailClientSettingsDto> ReadSettingsAsync()
         {
-            var row = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == SettingsKey);
+            var settingsKey = CurrentUserSettingsKey();
+            var row = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == settingsKey);
             if (row == null || string.IsNullOrWhiteSpace(row.Value))
                 return FromConfiguration();
 
@@ -322,6 +389,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private async Task WriteSettingsAsync(EmailClientSettingsDto settings)
         {
+            var settingsKey = CurrentUserSettingsKey();
             var stored = new EmailClientSettingsDto
             {
                 SmtpHost = settings.SmtpHost,
@@ -337,12 +405,12 @@ namespace Mahima.Api.v3.clean.Controllers
             };
 
             var json = JsonSerializer.Serialize(stored);
-            var row = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == SettingsKey);
+            var row = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == settingsKey);
             if (row == null)
             {
                 _db.MinistryAutomationSettings.Add(new MinistryAutomationSetting
                 {
-                    Key = SettingsKey,
+                    Key = settingsKey,
                     Value = json,
                     UpdatedAtUtc = DateTime.UtcNow
                 });
@@ -354,6 +422,41 @@ namespace Mahima.Api.v3.clean.Controllers
             }
 
             await _db.SaveChangesAsync();
+        }
+
+        private string CurrentUserSettingsKey()
+        {
+            var userId =
+                User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                User.FindFirstValue("sub") ??
+                User.FindFirstValue("nameid") ??
+                User.Identity?.Name;
+
+            if (string.IsNullOrWhiteSpace(userId))
+                throw new UnauthorizedAccessException("Authenticated user id is required for email setup.");
+
+            return $"{SettingsKeyPrefix}:{userId.Trim().ToLowerInvariant()}";
+        }
+
+        private async Task<IActionResult?> EnsureEmailClientAccessAsync()
+        {
+            var roleName = User.FindFirstValue(ClaimTypes.Role);
+            if (string.IsNullOrWhiteSpace(roleName))
+                return Forbid();
+
+            var normalizedRole = roleName.Trim().ToLowerInvariant();
+            var hasAccess = await _db.RolePermissions
+                .Join(_db.Roles,
+                    permission => permission.RoleId,
+                    role => role.Id,
+                    (permission, role) => new { permission.PageKey, RoleName = role.Name })
+                .AnyAsync(row =>
+                    row.PageKey != null &&
+                    row.PageKey.ToUpper() == EmailClientPageKey &&
+                    row.RoleName != null &&
+                    row.RoleName.ToLower() == normalizedRole);
+
+            return hasAccess ? null : Forbid();
         }
 
         private static EmailClientSettingsDto ToClient(EmailClientSettingsDto settings)
@@ -377,6 +480,10 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             if (string.IsNullOrWhiteSpace(settings.SmtpHost))
                 throw new InvalidOperationException("SMTP host is not configured.");
+            if (IsHostingerSmtp(settings.SmtpHost) && settings.SmtpPort == 456)
+                throw new InvalidOperationException("SMTP port 456 is not valid for Hostinger. Use port 465 with SSL/TLS, or port 587 with SSL/TLS for STARTTLS.");
+            if (settings.SmtpPort <= 0)
+                throw new InvalidOperationException("SMTP port is not configured.");
             if (string.IsNullOrWhiteSpace(settings.SmtpUsername) || string.IsNullOrWhiteSpace(settings.SmtpPassword))
                 throw new InvalidOperationException("SMTP username/password are not configured.");
             if (string.IsNullOrWhiteSpace(settings.FromAddress))
@@ -567,6 +674,11 @@ namespace Mahima.Api.v3.clean.Controllers
             return settings.SmtpPort == 465
                 ? SecureSocketOptions.SslOnConnect
                 : SecureSocketOptions.StartTls;
+        }
+
+        private static bool IsHostingerSmtp(string? host)
+        {
+            return string.Equals(host?.Trim(), "smtp.hostinger.com", StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task<object> FetchInboxAsync(EmailClientSettingsDto settings, string folderName, int take, int skip, CancellationToken cancellationToken)
@@ -774,6 +886,58 @@ namespace Mahima.Api.v3.clean.Controllers
                     HtmlBody = message.HtmlBody ?? "",
                     TextBody = message.TextBody ?? "",
                     Attachments = attachments
+                };
+            }
+            finally
+            {
+                if (client.IsConnected)
+                    await client.DisconnectAsync(true, cancellationToken);
+            }
+        }
+
+        private static async Task<EmailAttachmentDownload?> FetchAttachmentAsync(EmailClientSettingsDto settings, string folderName, UniqueId uid, int index, CancellationToken cancellationToken)
+        {
+            using var client = new ImapClient();
+            await ConnectAndAuthenticateImapAsync(client, settings, cancellationToken);
+
+            try
+            {
+                var mailFolder = string.Equals(folderName, "INBOX", StringComparison.OrdinalIgnoreCase)
+                    ? client.Inbox
+                    : await client.GetFolderAsync(folderName, cancellationToken);
+
+                await mailFolder.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
+                var message = await mailFolder.GetMessageAsync(uid, cancellationToken);
+                var attachments = message.Attachments.ToList();
+                if (index >= attachments.Count)
+                    return null;
+
+                var attachment = attachments[index];
+                var fileName = SanitizeAttachmentFileName(attachment.ContentDisposition?.FileName ?? attachment.ContentType?.Name ?? $"attachment-{index + 1}");
+                var contentType = attachment.ContentType?.MimeType ?? "application/octet-stream";
+
+                using var memory = new MemoryStream();
+                if (attachment is MimePart part && part.Content != null)
+                {
+                    part.Content.DecodeTo(memory);
+                }
+                else if (attachment is MessagePart messagePart && messagePart.Message != null)
+                {
+                    messagePart.Message.WriteTo(memory);
+                    if (!fileName.EndsWith(".eml", StringComparison.OrdinalIgnoreCase))
+                        fileName = $"{Path.GetFileNameWithoutExtension(fileName)}.eml";
+                    contentType = "message/rfc822";
+                }
+                else
+                {
+                    attachment.WriteTo(memory);
+                }
+
+                return new EmailAttachmentDownload
+                {
+                    FileName = fileName,
+                    ContentType = contentType,
+                    Bytes = memory.ToArray()
                 };
             }
             finally

@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Data;
 using Mahima.Api.v3.clean.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -274,6 +278,159 @@ public class AccountingController : ControllerBase
         await _db.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    [HttpGet("import-template")]
+    public IActionResult DownloadImportTemplate()
+    {
+        var csv = new StringBuilder();
+        csv.AppendLine("Action,EntryId,Date,Description,DebitAccountId,DebitAmount,CreditAccountId,CreditAmount");
+        csv.AppendLine("insert,,2026-05-28,Sunday offering deposit,1,5000,13,5000");
+        csv.AppendLine("update,1001,2026-05-28,Rent paid,19,25000,2,25000");
+        csv.AppendLine("delete,1002,,,,,");
+
+        return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", "mahima_accounting_import_template.csv");
+    }
+
+    [HttpGet("export")]
+    public async Task<IActionResult> ExportJournalEntries([FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
+    {
+        var query = _db.JournalLines
+            .AsNoTracking()
+            .Include(l => l.Account)
+            .Include(l => l.JournalEntry)
+            .AsQueryable();
+
+        var from = NormalizeQueryDate(fromDate);
+        var to = NormalizeQueryDate(toDate);
+
+        if (from.HasValue)
+            query = query.Where(l => l.JournalEntry.Date >= from.Value);
+
+        if (to.HasValue)
+            query = query.Where(l => l.JournalEntry.Date <= to.Value);
+
+        var lines = await query
+            .OrderBy(l => l.JournalEntry.Date)
+            .ThenBy(l => l.JournalEntryId)
+            .ThenBy(l => l.Id)
+            .ToListAsync();
+
+        var csv = new StringBuilder();
+        csv.AppendLine("EntryId,Date,Description,LineId,AccountId,AccountName,AccountType,Debit,Credit");
+        foreach (var line in lines)
+        {
+            csv.AppendLine(string.Join(",", new[]
+            {
+                CsvCell(line.JournalEntryId),
+                CsvCell(line.JournalEntry.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                CsvCell(line.JournalEntry.Description),
+                CsvCell(line.Id),
+                CsvCell(line.AccountId),
+                CsvCell(line.Account?.Name),
+                CsvCell(line.Account?.Type),
+                CsvCell(Money(line.Debit)),
+                CsvCell(Money(line.Credit))
+            }));
+        }
+
+        return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", "mahima_accounting_journal_export.csv");
+    }
+
+    [HttpPost("import")]
+    [RequestSizeLimit(50L * 1024L * 1024L)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 50L * 1024L * 1024L)]
+    public async Task<IActionResult> ImportJournalEntries([FromForm] IFormFile file, [FromForm] string? mode = "upsert")
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { message = "CSV file is required." });
+
+        var result = new AccountingImportResult();
+        var rows = await ReadCsvAsync(file);
+        var defaultAction = NormalizeImportAction(mode);
+
+        foreach (var row in rows)
+        {
+            result.TotalRows++;
+
+            var actionText = Get(row, "Action");
+            var action = string.IsNullOrWhiteSpace(actionText)
+                ? defaultAction
+                : NormalizeImportAction(actionText);
+
+            try
+            {
+                if (action == "delete")
+                {
+                    var deleteEntryId = ParseLong(Get(row, "EntryId"), "EntryId");
+                    var deleteEntry = await _db.JournalEntries.Include(e => e.Lines).FirstOrDefaultAsync(e => e.Id == deleteEntryId);
+                    if (deleteEntry == null)
+                    {
+                        result.Skipped++;
+                        result.Errors.Add($"Entry {deleteEntryId} not found for delete.");
+                        continue;
+                    }
+
+                    _db.JournalLines.RemoveRange(deleteEntry.Lines);
+                    _db.JournalEntries.Remove(deleteEntry);
+                    result.Deleted++;
+                    continue;
+                }
+
+                var dto = BuildJournalFromImportRow(row);
+                var validation = await ValidateJournalAsync(dto);
+                if (!validation.Ok)
+                {
+                    result.Skipped++;
+                    result.Errors.Add($"Row {result.TotalRows}: {validation.Message}");
+                    continue;
+                }
+
+                var entryIdRaw = Get(row, "EntryId");
+                var hasEntryId = long.TryParse(entryIdRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var entryId) && entryId > 0;
+                var entry = hasEntryId
+                    ? await _db.JournalEntries.Include(e => e.Lines).FirstOrDefaultAsync(e => e.Id == entryId)
+                    : null;
+
+                if ((action == "update" || action == "upsert") && entry != null)
+                {
+                    ApplyJournalImport(entry, dto, validation.Lines);
+                    result.Updated++;
+                    continue;
+                }
+
+                if (action == "update" && entry == null)
+                {
+                    result.Skipped++;
+                    result.Errors.Add($"Row {result.TotalRows}: EntryId {entryIdRaw} was not found for update.");
+                    continue;
+                }
+
+                var created = new JournalEntry
+                {
+                    Date = ToUtc(dto.Date),
+                    Description = (dto.Description ?? string.Empty).Trim(),
+                    CreatedAt = DateTime.UtcNow,
+                    Lines = validation.Lines.Select(line => new JournalLine
+                    {
+                        AccountId = line.AccountId,
+                        Debit = line.Debit,
+                        Credit = line.Credit
+                    }).ToList()
+                };
+
+                _db.JournalEntries.Add(created);
+                result.Inserted++;
+            }
+            catch (Exception ex)
+            {
+                result.Skipped++;
+                result.Errors.Add($"Row {result.TotalRows}: {ex.Message}");
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(result);
     }
 
     [HttpPost("opening-balance")]
@@ -564,6 +721,142 @@ public class AccountingController : ControllerBase
         return File(pdf, "application/pdf", "PNL_Report.pdf");
     }
 
+    private static async Task<List<Dictionary<string, string>>> ReadCsvAsync(IFormFile file)
+    {
+        var rows = new List<Dictionary<string, string>>();
+        await using var stream = file.OpenReadStream();
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+
+        var headerLine = await reader.ReadLineAsync();
+        if (string.IsNullOrWhiteSpace(headerLine))
+            return rows;
+
+        var headers = ParseCsvLine(headerLine).Select(h => h.Trim()).ToList();
+        string? line;
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var values = ParseCsvLine(line);
+            var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < headers.Count; i++)
+                row[headers[i]] = i < values.Count ? values[i].Trim() : string.Empty;
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private static List<string> ParseCsvLine(string line)
+    {
+        var values = new List<string>();
+        var cell = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (ch == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    cell.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (ch == ',' && !inQuotes)
+            {
+                values.Add(cell.ToString());
+                cell.Clear();
+            }
+            else
+            {
+                cell.Append(ch);
+            }
+        }
+
+        values.Add(cell.ToString());
+        return values;
+    }
+
+    private static string CsvCell(object? value)
+    {
+        var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+        return text.Contains(',') || text.Contains('"') || text.Contains('\n')
+            ? $"\"{text.Replace("\"", "\"\"")}\""
+            : text;
+    }
+
+    private static string Get(Dictionary<string, string> row, string key) =>
+        row.TryGetValue(key, out var value) ? value : string.Empty;
+
+    private static string NormalizeImportAction(string? action)
+    {
+        var normalized = (action ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "insert" or "update" or "upsert" or "delete" => normalized,
+            _ => "upsert"
+        };
+    }
+
+    private static long ParseLong(string? value, string field)
+    {
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+            return parsed;
+        throw new InvalidOperationException($"{field} is required.");
+    }
+
+    private static decimal ParseMoney(string? value)
+    {
+        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? Money(parsed)
+            : 0;
+    }
+
+    private static JournalDto BuildJournalFromImportRow(Dictionary<string, string> row)
+    {
+        var dateText = Get(row, "Date");
+        if (!DateTime.TryParse(dateText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var date))
+            throw new InvalidOperationException("Date is required in yyyy-MM-dd format.");
+
+        var debitAccountId = ParseLong(Get(row, "DebitAccountId"), "DebitAccountId");
+        var creditAccountId = ParseLong(Get(row, "CreditAccountId"), "CreditAccountId");
+        var debitAmount = ParseMoney(Get(row, "DebitAmount"));
+        var creditAmount = ParseMoney(Get(row, "CreditAmount"));
+
+        if (debitAmount == 0 && creditAmount > 0) debitAmount = creditAmount;
+        if (creditAmount == 0 && debitAmount > 0) creditAmount = debitAmount;
+
+        return new JournalDto
+        {
+            Date = date,
+            Description = Get(row, "Description"),
+            Lines = new List<JournalLineDto>
+            {
+                new() { AccountId = debitAccountId, Debit = debitAmount, Credit = 0 },
+                new() { AccountId = creditAccountId, Debit = 0, Credit = creditAmount }
+            }
+        };
+    }
+
+    private void ApplyJournalImport(JournalEntry entry, JournalDto dto, IReadOnlyList<NormalizedJournalLine> lines)
+    {
+        entry.Date = ToUtc(dto.Date);
+        entry.Description = (dto.Description ?? string.Empty).Trim();
+        _db.JournalLines.RemoveRange(entry.Lines);
+        entry.Lines = lines.Select(line => new JournalLine
+        {
+            JournalEntryId = entry.Id,
+            AccountId = line.AccountId,
+            Debit = line.Debit,
+            Credit = line.Credit
+        }).ToList();
+    }
+
     private async Task<IReadOnlyList<AccountBalanceRow>> BuildBalancesAsync(DateTime? fromDate, DateTime? toDate)
     {
         var accounts = await _db.Accounts
@@ -802,6 +1095,16 @@ public class AccountingController : ControllerBase
         {
             return new JournalValidationResult { Ok = false, Message = message };
         }
+    }
+
+    private sealed class AccountingImportResult
+    {
+        public int TotalRows { get; set; }
+        public int Inserted { get; set; }
+        public int Updated { get; set; }
+        public int Deleted { get; set; }
+        public int Skipped { get; set; }
+        public List<string> Errors { get; set; } = new();
     }
 
     private sealed class AccountBalanceRow
