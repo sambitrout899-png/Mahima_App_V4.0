@@ -1,4 +1,4 @@
-﻿// src/components/Layout.jsx
+// src/components/Layout.jsx
 //
 // Modern app shell:
 //   - Collapsible sidebar (desktop) with grouped nav + icons
@@ -54,6 +54,7 @@ import {
   UserCircle,
   BarChart3,
   GitBranch,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { logout as authLogout } from "../features/auth/authService";
 import mahimaLogo from "../assets/mahima-logo.png";
@@ -91,6 +92,7 @@ const NAV_GROUPS = [
       { key: "SERMONS",         label: "Sermons",         to: "/home/sermons",        icon: Headphones },
       { key: "PRAYER_REQUESTS", label: "Prayer Requests", to: "/home/prayerrequests", icon: HandHeart },
       { key: "TASKS",           label: "Tasks",           to: "/home/tasks",          icon: ListChecks },
+      { key: "PROJECT_MANAGEMENT", label: "Project Management", to: "/home/project-management", icon: BriefcaseBusiness },
     ],
   },
   {
@@ -145,6 +147,7 @@ const NAV_LABEL_KEYS = {
   SERMONS: "nav.sermons",
   PRAYER_REQUESTS: "nav.prayerRequests",
   TASKS: "nav.tasks",
+  PROJECT_MANAGEMENT: "nav.projectManagement",
   USERS: "nav.users",
   TEAMS: "nav.teams",
   ROLES: "nav.roles",
@@ -185,7 +188,7 @@ function navLabel(item, t) {
 const ROLE_DEFAULT_KEYS = {
   admin: ALL_NAV.map((n) => n.key),
   member: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "PAGES"],
-  staff: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "ATTENDANCE", "PAGES"],
+  staff: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PROJECT_MANAGEMENT", "ATTENDANCE", "PAGES"],
   volunteer: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PAGES"],
   pastor: ["DASHBOARD", "APP_DOWNLOADS", "USERS", "ATTENDANCE", "BAPTISM", "COUNSELLING", "PAYROLL"],
 };

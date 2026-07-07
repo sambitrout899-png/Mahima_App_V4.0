@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -26,14 +27,16 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly MahimaDbContext _db;
         private readonly IHubContext<ChatHub> _hub;
         private readonly IMobilePushNotificationService? _mobilePush;
+        private readonly IPastorBotService _pastorBot;
         private readonly ILogger<ChatsController> _logger;
 
-        public ChatsController(IChatService chatService, MahimaDbContext db, IHubContext<ChatHub> hub, IEnumerable<IMobilePushNotificationService> mobilePushServices, ILogger<ChatsController> logger)
+        public ChatsController(IChatService chatService, MahimaDbContext db, IHubContext<ChatHub> hub, IEnumerable<IMobilePushNotificationService> mobilePushServices, IPastorBotService pastorBot, ILogger<ChatsController> logger)
         {
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _hub = hub ?? throw new ArgumentNullException(nameof(hub));
             _mobilePush = mobilePushServices?.FirstOrDefault();
+            _pastorBot = pastorBot ?? throw new ArgumentNullException(nameof(pastorBot));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -179,42 +182,103 @@ namespace Mahima.Api.v3.clean.Controllers
 
             page = Math.Max(1, page);
             limit = Math.Clamp(limit, 1, 1000);
-
-            var query = _db.Users
-                .AsNoTracking()
-                .Where(u => u.Id != currentUserId);
-
+            var offset = (page - 1) * limit;
             var term = search?.Trim();
-            if (!string.IsNullOrWhiteSpace(term))
+
+            try
             {
-                var pattern = $"%{term}%";
-                query = query.Where(u =>
-                    EF.Functions.ILike(u.DisplayName ?? string.Empty, pattern) ||
-                    EF.Functions.ILike(u.Username ?? string.Empty, pattern) ||
-                    EF.Functions.ILike(u.Email ?? string.Empty, pattern) ||
-                    EF.Functions.ILike(u.Phone ?? string.Empty, pattern) ||
-                    EF.Functions.ILike(u.Role ?? string.Empty, pattern));
-            }
+                var conn = _db.Database.GetDbConnection();
+                if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+                var columns = await GetUsersColumnsAsync(conn);
 
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderBy(u => u.DisplayName ?? u.Username ?? u.Email)
-                .Skip((page - 1) * limit)
-                .Take(limit)
-                .Select(u => new
+                string Expr(params string[] names)
                 {
-                    id = u.Id.ToString(),
-                    username = u.Username,
-                    email = u.Email,
-                    displayName = u.DisplayName,
-                    name = u.DisplayName ?? u.Username ?? u.Email ?? u.Phone,
-                    profilePhotoUrl = u.ProfilePhotoUrl,
-                    phone = u.Phone,
-                    role = u.Role
-                })
-                .ToListAsync();
+                    var column = names.FirstOrDefault(columns.Contains);
+                    return column == null ? "NULL" : $@"u.""{column}""";
+                }
 
-            return Ok(new { items, total, page, limit });
+                var idExpr = Expr("id");
+                var usernameExpr = Expr("username");
+                var emailExpr = Expr("email");
+                var displayNameExpr = Expr("displayname");
+                var phoneExpr = Expr("phone");
+                var roleExpr = Expr("role");
+                var photoExpr = Expr("profilephotourl", "ProfilePhotoUrl");
+                var isDeletedExpr = Expr("isdeleted", "IsDeleted");
+
+                var conditions = new List<string> { $"({idExpr}) <> @currentUserId" };
+                if (isDeletedExpr != "NULL")
+                    conditions.Add($"COALESCE(({isDeletedExpr})::boolean, false) = false");
+                else
+                    conditions.Add($"COALESCE(({usernameExpr})::text, '') NOT ILIKE 'deleted_%'");
+
+                conditions.Add($"COALESCE(({displayNameExpr})::text, '') NOT ILIKE 'Deleted duplicate user%'");
+
+                if (!string.IsNullOrWhiteSpace(term))
+                {
+                    conditions.Add(@"(
+                            COALESCE((" + displayNameExpr + @")::text, '') ILIKE @search
+                         OR COALESCE((" + usernameExpr + @")::text, '') ILIKE @search
+                         OR COALESCE((" + emailExpr + @")::text, '') ILIKE @search
+                         OR COALESCE((" + phoneExpr + @")::text, '') ILIKE @search
+                         OR COALESCE((" + roleExpr + @")::text, '') ILIKE @search)");
+                }
+
+                var sql = $@"
+SELECT COUNT(*) OVER() AS total,
+       ({idExpr})::text AS id,
+       ({usernameExpr})::text AS username,
+       ({emailExpr})::text AS email,
+       ({displayNameExpr})::text AS displayname,
+       ({photoExpr})::text AS profilephotourl,
+       ({phoneExpr})::text AS phone,
+       ({roleExpr})::text AS role
+FROM public.users u
+WHERE {string.Join(" AND ", conditions)}
+ORDER BY COALESCE(({displayNameExpr})::text, ({usernameExpr})::text, ({emailExpr})::text, ({phoneExpr})::text, '') ASC,
+         ({idExpr}) ASC
+LIMIT @limit OFFSET @offset;";
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                AddParam(cmd, "currentUserId", currentUserId);
+                AddParam(cmd, "limit", limit);
+                AddParam(cmd, "offset", offset);
+                if (!string.IsNullOrWhiteSpace(term)) AddParam(cmd, "search", $"%{term}%");
+
+                var items = new List<object>();
+                var total = 0;
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    if (total == 0 && reader["total"] != DBNull.Value)
+                        total = Convert.ToInt32(reader["total"]);
+
+                    string? S(string name) => reader[name] == DBNull.Value ? null : reader[name]?.ToString();
+                    var displayName = S("displayname");
+                    var username = S("username");
+                    var email = S("email");
+                    var phone = S("phone");
+                    items.Add(new
+                    {
+                        id = S("id"),
+                        username,
+                        email,
+                        displayName,
+                        name = displayName ?? username ?? email ?? phone,
+                        profilePhotoUrl = S("profilephotourl"),
+                        phone,
+                        role = S("role")
+                    });
+                }
+
+                return Ok(new { items, total, page, limit });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving chat contacts.");
+                return StatusCode(500, "Error retrieving chat contacts.");
+            }
         }
 
         [HttpPost]
@@ -410,6 +474,31 @@ namespace Mahima.Api.v3.clean.Controllers
             page = Math.Max(page, 1);
 
             var messages = await _chatService.GetMessagesAsync(chatId, page, size);
+            var items = messages.Items.ToList();
+            var outgoingIds = items
+                .Where(m => m.SenderId == userId)
+                .Select(m => m.Id)
+                .ToList();
+
+            if (outgoingIds.Count > 0)
+            {
+                var requiredReaders = Math.Max(0, memberIds.Count - 1);
+                var readRows = await _db.MessageReads
+                    .AsNoTracking()
+                    .Where(r => outgoingIds.Contains(r.MessageId) && r.UserId != userId)
+                    .Select(r => new { r.MessageId, r.UserId })
+                    .ToListAsync();
+                var readCounts = readRows
+                    .GroupBy(r => r.MessageId)
+                    .ToDictionary(g => g.Key, g => g.Select(r => r.UserId).Distinct().Count());
+
+                foreach (var message in items.Where(m => m.SenderId == userId))
+                {
+                    var count = readCounts.TryGetValue(message.Id, out var c) ? c : 0;
+                    message.Status = requiredReaders > 0 && count >= requiredReaders ? "read" : "delivered";
+                }
+            }
+
             return Ok(messages);
         }
 
@@ -498,8 +587,20 @@ namespace Mahima.Api.v3.clean.Controllers
             await NotifyChatMembersAsync(memberIds, "ReceiveMessage", created);
             if (_mobilePush != null)
                 await _mobilePush.NotifyChatMessageAsync(chatId, userId, memberIds, created);
+
+            var pastorMessages = await _pastorBot.TryReplyInChatAsync(chatId, userId, dto.Content, HttpContext.RequestAborted);
+            foreach (var pastorMessage in pastorMessages)
+            {
+                var updatedMemberIds = (await _chatService.GetChatMemberIdsAsync(pastorMessage.ChatId)).Distinct().ToList();
+                await NotifyChatMembersAsync(updatedMemberIds, "ReceiveMessage", pastorMessage);
+                if (_mobilePush != null)
+                    await _mobilePush.NotifyChatMessageAsync(pastorMessage.ChatId, pastorMessage.SenderId, updatedMemberIds, pastorMessage);
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Chat notification or AI Pastor reply failed for chat {ChatId}", chatId);
+        }
 
             return Ok(created);
         }
@@ -671,6 +772,33 @@ public async Task<IActionResult> MarkRead(Guid chatId, [FromBody] MarkReadDto dt
 
     return Ok(new { marked = 1, lastMessageId });
 }
+
+        private static void AddParam(System.Data.Common.DbCommand cmd, string name, object? value)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = name.StartsWith("@") ? name : "@" + name;
+            p.Value = value ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
+        private static async Task<HashSet<string>> GetUsersColumnsAsync(System.Data.Common.DbConnection conn)
+        {
+            var columns = new HashSet<string>(StringComparer.Ordinal);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'users';";
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                if (!reader.IsDBNull(0)) columns.Add(reader.GetString(0));
+            }
+
+            return columns;
+        }
 
     }
 }

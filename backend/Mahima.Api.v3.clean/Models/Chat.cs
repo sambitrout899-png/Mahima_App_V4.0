@@ -20,6 +20,7 @@ namespace Mahima.Api.v3.clean.Models
         public virtual User? Creator { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public string? GroupPhotoUrl { get; set; }
 
         // Navigation collections
         public virtual ICollection<ChatMember> Members { get; set; } = new List<ChatMember>();

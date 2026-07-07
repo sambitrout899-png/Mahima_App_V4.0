@@ -41,6 +41,8 @@ namespace Mahima.Api.v3.clean.Data
         public DbSet<ChatMember> ChatMembers => Set<ChatMember>();
         public DbSet<Message> Messages => Set<Message>();
         public DbSet<MessageRead> MessageReads => Set<MessageRead>();
+        public DbSet<ChatSafetyAlert> ChatSafetyAlerts => Set<ChatSafetyAlert>();
+        public DbSet<ChatSafetyScan> ChatSafetyScans => Set<ChatSafetyScan>();
         public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
         public DbSet<MinistryScheduledMessageRun> MinistryScheduledMessageRuns => Set<MinistryScheduledMessageRun>();
         public DbSet<MinistryAutomationSetting> MinistryAutomationSettings => Set<MinistryAutomationSetting>();
@@ -103,6 +105,38 @@ namespace Mahima.Api.v3.clean.Data
                 eb.Property(s => s.Key).HasColumnName("key");
                 eb.Property(s => s.Value).HasColumnName("value");
                 eb.Property(s => s.UpdatedAtUtc).HasColumnName("updated_at_utc").HasDefaultValueSql("now()");
+            });
+
+            modelBuilder.Entity<ChatSafetyAlert>(eb =>
+            {
+                eb.ToTable("chat_safety_alerts", "public");
+                eb.HasKey(a => a.Id);
+                eb.Property(a => a.Id).HasColumnName("id").ValueGeneratedOnAdd();
+                eb.Property(a => a.MessageId).HasColumnName("message_id");
+                eb.Property(a => a.ChatId).HasColumnName("chat_id");
+                eb.Property(a => a.SenderId).HasColumnName("sender_id");
+                eb.Property(a => a.Category).HasColumnName("category");
+                eb.Property(a => a.Severity).HasColumnName("severity");
+                eb.Property(a => a.AlertLevel).HasColumnName("alert_level");
+                eb.Property(a => a.Confidence).HasColumnName("confidence").HasColumnType("numeric(5,2)");
+                eb.Property(a => a.Summary).HasColumnName("summary");
+                eb.Property(a => a.EvidenceSnippet).HasColumnName("evidence_snippet");
+                eb.Property(a => a.ConversationSnippet).HasColumnName("conversation_snippet");
+                eb.Property(a => a.PastorFollowupSent).HasColumnName("pastor_followup_sent");
+                eb.Property(a => a.IsResolved).HasColumnName("is_resolved");
+                eb.Property(a => a.CreatedAtUtc).HasColumnName("created_at_utc");
+                eb.Property(a => a.ResolvedAtUtc).HasColumnName("resolved_at_utc");
+                eb.HasIndex(a => a.MessageId).IsUnique();
+                eb.HasIndex(a => new { a.IsResolved, a.AlertLevel, a.CreatedAtUtc });
+            });
+
+            modelBuilder.Entity<ChatSafetyScan>(eb =>
+            {
+                eb.ToTable("chat_safety_scans", "public");
+                eb.HasKey(s => s.MessageId);
+                eb.Property(s => s.MessageId).HasColumnName("message_id");
+                eb.Property(s => s.ScannedAtUtc).HasColumnName("scanned_at_utc");
+                eb.Property(s => s.Engine).HasColumnName("engine");
             });
 
             // -------------------------
@@ -483,6 +517,10 @@ modelBuilder.Entity<MarriageApplication>(eb =>
                 eb.ToTable("users", "public");
                 eb.HasKey(u => u.Id);
                 eb.HasIndex(u => u.UserCode).IsUnique();
+                eb.HasIndex(u => u.Phone)
+                  .IsUnique()
+                  .HasDatabaseName("ux_users_phone_not_blank")
+                  .HasFilter("phone IS NOT NULL AND btrim(phone) <> ''");
                 eb.Property(u => u.Id).HasColumnName("id");
                 eb.Property(u => u.UserCode).HasMaxLength(16).ValueGeneratedOnAdd();
                 eb.Property(u => u.Username).HasColumnName("username");
@@ -707,6 +745,7 @@ modelBuilder.Entity<MarriageApplication>(eb =>
                 eb.Property(c => c.IsGroup).HasColumnName("isgroup");
                 eb.Property(c => c.CreatedBy).HasColumnName("createdby");
                 eb.Property(c => c.CreatedAt).HasColumnName("createdat");
+                eb.Property(c => c.GroupPhotoUrl).HasColumnName("group_photo_url");
 
                 eb.HasOne(c => c.Creator)
                   .WithMany()
@@ -1107,4 +1146,3 @@ modelBuilder.Entity<MarriageApplication>(eb =>
         }
     }
 }
-

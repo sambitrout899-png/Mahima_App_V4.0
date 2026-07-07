@@ -111,9 +111,12 @@ namespace Mahima.Api.v3.clean.Controllers
             // we allow updating either Status, or CloseComment, or both
             bool hasStatus = dto != null && !string.IsNullOrWhiteSpace(dto.Status);
             bool hasCloseComment = dto != null && dto.CloseComment != null;
+            bool hasTitle = dto != null && dto.Title != null;
+            bool hasMessage = dto != null && dto.Message != null;
+            bool hasAnonymous = dto != null && dto.Anonymous.HasValue;
 
-            if (!hasStatus && !hasCloseComment)
-                return BadRequest("Status or CloseComment value is required.");
+            if (!hasStatus && !hasCloseComment && !hasTitle && !hasMessage && !hasAnonymous)
+                return BadRequest("At least one prayer request value is required.");
 
             var req = await _db.PrayerRequests.FindAsync(id);
             if (req == null)
@@ -145,8 +148,13 @@ namespace Mahima.Api.v3.clean.Controllers
                 }
             }
 
+            if (!isPrivileged && currentUserId.HasValue)
+            {
+                isPrivileged = await HasPrayerDeskAccessAsync(currentUserId.Value);
+            }
+
             if (!isPrivileged)
-                return Forbid("Only administrators can update prayer request state.");
+                return Forbid("Only administrators and call center managers can update prayer requests.");
 
             // ---- apply updates ----
             if (hasStatus)
@@ -161,6 +169,27 @@ namespace Mahima.Api.v3.clean.Controllers
                 if (closeCommentProp != null && closeCommentProp.CanWrite)
                 {
                     closeCommentProp.SetValue(req, dto!.CloseComment);
+                }
+            }
+
+            if (hasTitle)
+            {
+                req.Title = string.IsNullOrWhiteSpace(dto!.Title) ? null : dto.Title.Trim();
+            }
+
+            if (hasMessage)
+            {
+                if (string.IsNullOrWhiteSpace(dto!.Message))
+                    return BadRequest("Prayer request message is required.");
+                req.Message = dto.Message.Trim();
+            }
+
+            if (hasAnonymous)
+            {
+                req.Anonymous = dto!.Anonymous!.Value;
+                if (req.Anonymous)
+                {
+                    req.CreatedBy = "Anonymous";
                 }
             }
 
@@ -181,6 +210,10 @@ namespace Mahima.Api.v3.clean.Controllers
             return Ok(new
             {
                 id = req.Id,
+                title = req.Title,
+                message = req.Message,
+                anonymous = req.Anonymous,
+                createdBy = req.CreatedBy,
                 status = req.Status,
                 closeComment = GetCloseCommentValue(req)
             });
@@ -195,8 +228,7 @@ namespace Mahima.Api.v3.clean.Controllers
             var roles = GetCurrentUserRoles().ToList();
             bool isPrivileged = IsPrivilegedUser(roles);
             if (currentUserId != null && currentUserId == SuperUserGuid) isPrivileged = true;
-            var isCallCenterManager = currentUserId.HasValue && await IsCallCenterManagerAsync(currentUserId.Value);
-            var canManagePrayerDesk = isPrivileged || isCallCenterManager;
+            var canManagePrayerDesk = isPrivileged || (currentUserId.HasValue && await HasPrayerDeskAccessAsync(currentUserId.Value));
 
             IQueryable<PrayerRequest> query = _db.PrayerRequests.AsNoTracking();
             if (!canManagePrayerDesk)
@@ -276,7 +308,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT t.id, t.prayerrequestid, t.userid, t.title, t.testimonytext, t.imageurl, t.voiceurl,
+                SELECT t.id, t.prayerrequestid, t.userid, t.title, t.testimonytext, t.testimonytexthindi, t.imageurl, t.voiceurl,
                        t.createdat, t.updatedat, p.createdby, p.message AS prayermessage, p.closecomment
                 FROM prayertestimonies t
                 JOIN prayerrequests p ON p.id = t.prayerrequestid
@@ -307,28 +339,114 @@ namespace Mahima.Api.v3.clean.Controllers
             var conn = _db.Database.GetDbConnection();
             if (conn.State != ConnectionState.Open) await conn.OpenAsync();
 
+            var testimonyText = dto?.TestimonyText?.Trim();
+            var testimonyTextHindi = dto?.TestimonyTextHindi?.Trim();
+            if (!string.IsNullOrWhiteSpace(testimonyText) && string.IsNullOrWhiteSpace(testimonyTextHindi))
+            {
+                testimonyTextHindi = await GenerateHindiTestimonyAsync(testimonyText);
+            }
+
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
                 UPDATE prayertestimonies
                 SET title = @title,
                     testimonytext = @text,
+                    testimonytexthindi = COALESCE(NULLIF(@textHindi, ''), testimonytexthindi),
                     imageurl = @image,
                     voiceurl = @voice,
                     updatedat = now()
                 WHERE id = @id AND (@isAdmin = true OR userid = @userId)
-                RETURNING id, prayerrequestid, userid, title, testimonytext, imageurl, voiceurl, createdat, updatedat,
+                RETURNING id, prayerrequestid, userid, title, testimonytext, testimonytexthindi, imageurl, voiceurl, createdat, updatedat,
                           '' AS createdby, '' AS prayermessage, '' AS closecomment;";
             AddParam(cmd, "id", id);
             AddParam(cmd, "isAdmin", isPrivileged);
             AddParam(cmd, "userId", currentUserId.Value);
             AddParam(cmd, "title", (object?)dto?.Title?.Trim() ?? DBNull.Value);
-            AddParam(cmd, "text", (object?)dto?.TestimonyText?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "text", (object?)testimonyText ?? DBNull.Value);
+            AddParam(cmd, "textHindi", (object?)testimonyTextHindi ?? DBNull.Value);
             AddParam(cmd, "image", (object?)dto?.ImageUrl?.Trim() ?? DBNull.Value);
             AddParam(cmd, "voice", (object?)dto?.VoiceUrl?.Trim() ?? DBNull.Value);
 
             using var reader = await cmd.ExecuteReaderAsync();
             if (!await reader.ReadAsync()) return NotFound();
             return Ok(MapTestimony(reader));
+        }
+
+        [HttpPost("testimonies/backfill-hindi")]
+        [Authorize]
+        public async Task<IActionResult> BackfillHindiTestimonies()
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            var roles = GetCurrentUserRoles().ToList();
+            var isPrivileged = IsPrivilegedUser(roles) || currentUserId == SuperUserGuid;
+            if (!isPrivileged) return Forbid("Only administrators can backfill testimony translations.");
+
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            var candidates = new List<(long Id, string English)>();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT id, testimonytext
+                    FROM prayertestimonies
+                    WHERE NULLIF(trim(COALESCE(testimonytext, '')), '') IS NOT NULL
+                      AND NULLIF(trim(COALESCE(testimonytexthindi, '')), '') IS NULL
+                    ORDER BY id;";
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var text = reader["testimonytext"] == DBNull.Value ? null : reader["testimonytext"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        candidates.Add((Convert.ToInt64(reader["id"]), text.Trim()));
+                }
+            }
+
+            var updated = 0;
+            var skipped = 0;
+            var failed = 0;
+
+            foreach (var item in candidates)
+            {
+                string? hindi;
+                try
+                {
+                    hindi = await GenerateHindiTestimonyAsync(item.English);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not translate testimony {TestimonyId} to Hindi", item.Id);
+                    failed++;
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(hindi))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                using var update = conn.CreateCommand();
+                update.CommandText = @"
+                    UPDATE prayertestimonies
+                    SET testimonytexthindi = @hindi,
+                        updatedat = now()
+                    WHERE id = @id
+                      AND NULLIF(trim(COALESCE(testimonytexthindi, '')), '') IS NULL;";
+                AddParam(update, "id", item.Id);
+                AddParam(update, "hindi", hindi.Trim());
+                updated += await update.ExecuteNonQueryAsync();
+            }
+
+            return Ok(new
+            {
+                total = candidates.Count,
+                updated,
+                skipped,
+                failed
+            });
         }
 
         // helper to safely read CloseComment via reflection (or null)
@@ -421,7 +539,27 @@ namespace Mahima.Api.v3.clean.Controllers
             };
         }
 
-        private async Task<bool> IsCallCenterManagerAsync(Guid userId)
+        private static string NormalizeAccessName(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            return new string(value
+                .ToLowerInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+        }
+
+        private static bool IsPrayerDeskManagerName(string? value)
+        {
+            var name = NormalizeAccessName(value);
+            return name == "callcentermanager"
+                || name == "callcentremanager"
+                || name == "callcenter"
+                || name == "callcentre"
+                || name == "prayerdeskmanager"
+                || name == "prayercallcentermanager";
+        }
+
+        private async Task<bool> HasPrayerDeskAccessAsync(Guid userId)
         {
             try
             {
@@ -430,6 +568,18 @@ namespace Mahima.Api.v3.clean.Controllers
                     await conn.OpenAsync();
 
                 await Mahima.Api.v3.clean.Controllers.PositionsController.EnsurePositionTablesAsync((Npgsql.NpgsqlConnection)conn);
+                using (var roleTableCmd = conn.CreateCommand())
+                {
+                    roleTableCmd.CommandText = @"
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    role_id integer NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+    assigned_at timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, role_id)
+);";
+                    await roleTableCmd.ExecuteNonQueryAsync();
+                }
+
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = @"
 SELECT EXISTS (
@@ -437,14 +587,26 @@ SELECT EXISTS (
     FROM public.user_positions up
     JOIN public.positions p ON p.id = up.position_id AND p.is_active = true
     WHERE up.user_id = @user_id
-      AND lower(regexp_replace(p.name, '[^a-z0-9]+', '', 'g')) IN ('callcentermanager', 'callcentremanager')
+      AND lower(regexp_replace(p.name, '[^a-z0-9]+', '', 'g')) IN ('callcentermanager', 'callcentremanager', 'callcenter', 'callcentre', 'prayerdeskmanager', 'prayercallcentermanager')
+) OR EXISTS (
+    SELECT 1
+    FROM public.users u
+    LEFT JOIN public.roles primary_role ON primary_role.id::text = u.role::text
+    WHERE u.id = @user_id
+      AND lower(regexp_replace(COALESCE(primary_role.name, u.role::text), '[^a-z0-9]+', '', 'g')) IN ('callcentermanager', 'callcentremanager', 'callcenter', 'callcentre', 'prayerdeskmanager', 'prayercallcentermanager')
+) OR EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    JOIN public.roles r ON r.id = ur.role_id
+    WHERE ur.user_id = @user_id
+      AND lower(regexp_replace(r.name, '[^a-z0-9]+', '', 'g')) IN ('callcentermanager', 'callcentremanager', 'callcenter', 'callcentre', 'prayerdeskmanager', 'prayercallcentermanager')
 );";
                 AddParam(cmd, "user_id", userId);
                 return Convert.ToBoolean(await cmd.ExecuteScalarAsync());
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not determine Call Center Manager position for user {UserId}.", userId);
+                _logger.LogWarning(ex, "Could not determine prayer desk access for user {UserId}.", userId);
                 return false;
             }
         }
@@ -745,6 +907,8 @@ GROUP BY prayerrequestid;";
             var roles = GetCurrentUserRoles().ToList();
             bool isPrivileged = IsPrivilegedUser(roles);
             if (currentUserId == SuperUserGuid) isPrivileged = true;
+            if (!isPrivileged && currentUserId.HasValue)
+                isPrivileged = await HasPrayerDeskAccessAsync(currentUserId.Value);
 
             var request = await _db.PrayerRequests.FirstOrDefaultAsync(p => p.Id == id);
             if (request == null) return NotFound();
@@ -855,12 +1019,17 @@ GROUP BY prayerrequestid;";
                     userid uuid NULL,
                     title text NULL,
                     testimonytext text NULL,
+                    testimonytexthindi text NULL,
                     imageurl text NULL,
                     voiceurl text NULL,
                     createdat timestamp without time zone NOT NULL DEFAULT now(),
                     updatedat timestamp without time zone NULL
                 );";
             await cmd.ExecuteNonQueryAsync();
+
+            using var alter = conn.CreateCommand();
+            alter.CommandText = "ALTER TABLE prayertestimonies ADD COLUMN IF NOT EXISTS testimonytexthindi text NULL;";
+            await alter.ExecuteNonQueryAsync();
         }
 
         private async Task EnsureTestimonyForAnsweredPrayerAsync(PrayerRequest request)
@@ -891,22 +1060,42 @@ GROUP BY prayerrequestid;";
                 var draft = string.IsNullOrWhiteSpace(ai.Answer)
                     ? $"Praise God. This prayer has been answered.\n\n{request.CloseComment}".Trim()
                     : ai.Answer.Trim();
+                var draftHindi = await GenerateHindiTestimonyAsync(draft);
 
                 using var insertCmd = conn.CreateCommand();
                 insertCmd.CommandText = @"
-                    INSERT INTO prayertestimonies (prayerrequestid, userid, title, testimonytext, createdat)
-                    VALUES (@prayerId, @userId, @title, @text, now())
+                    INSERT INTO prayertestimonies (prayerrequestid, userid, title, testimonytext, testimonytexthindi, createdat)
+                    VALUES (@prayerId, @userId, @title, @text, @textHindi, now())
                     ON CONFLICT (prayerrequestid) DO NOTHING;";
                 AddParam(insertCmd, "prayerId", request.Id);
                 AddParam(insertCmd, "userId", (object?)request.UserId ?? DBNull.Value);
                 AddParam(insertCmd, "title", string.IsNullOrWhiteSpace(request.Title) ? "Answered Prayer Testimony" : request.Title);
                 AddParam(insertCmd, "text", draft);
+                AddParam(insertCmd, "textHindi", (object?)draftHindi ?? DBNull.Value);
                 await insertCmd.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Could not create AI testimony for prayer request {PrayerRequestId}", request.Id);
             }
+        }
+
+        private async Task<string?> GenerateHindiTestimonyAsync(string? englishText)
+        {
+            if (string.IsNullOrWhiteSpace(englishText)) return null;
+
+            var prompt =
+                "Translate this Christian answered-prayer testimony into natural, respectful Hindi. " +
+                "Preserve names, dates, and meaning. Do not add new details. Return only the Hindi translation.\n\n" +
+                englishText.Trim();
+
+            var botUserId = await _pastorBot.EnsurePastorBotUserAsync();
+            var ai = await _pastorBot.AskAsync(botUserId, prompt, sendToJaiMasih: false, language: "hi", persona: "pastor");
+            if (!string.Equals(ai.Source, "ai", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var answer = ai.Answer?.Trim();
+            return string.IsNullOrWhiteSpace(answer) ? null : answer;
         }
 
         private static void AddParam(System.Data.Common.DbCommand cmd, string name, object? value)
@@ -929,6 +1118,8 @@ GROUP BY prayerrequestid;";
                 userId = G("userid"),
                 title = S("title"),
                 testimonyText = S("testimonytext"),
+                testimonyTextHindi = S("testimonytexthindi"),
+                testimonyTextHi = S("testimonytexthindi"),
                 imageUrl = S("imageurl"),
                 voiceUrl = S("voiceurl"),
                 createdAt = D("createdat"),
@@ -967,7 +1158,10 @@ GROUP BY prayerrequestid;";
             {
                 if (string.IsNullOrWhiteSpace(r)) continue;
                 var low = r.Trim().ToLowerInvariant();
+                var normalized = NormalizeAccessName(r);
                 if (low == "admin" || low == "administrator" || low == "staff" || low == "superuser" || low == "manager")
+                    return true;
+                if (normalized == "superadmin" || normalized == "superadministrator" || IsPrayerDeskManagerName(r))
                     return true;
                 if (low.Contains("admin") || low.Contains("staff"))
                     return true;
@@ -996,12 +1190,16 @@ GROUP BY prayerrequestid;";
     {
         public string? Title { get; set; }
         public string? TestimonyText { get; set; }
+        public string? TestimonyTextHindi { get; set; }
         public string? ImageUrl { get; set; }
         public string? VoiceUrl { get; set; }
     }
 
     public class UpdatePrayerRequestStatusDto
     {
+        public string? Title { get; set; }
+        public string? Message { get; set; }
+        public bool? Anonymous { get; set; }
         public string? Status { get; set; }
 
         // NEW: closing / admin comment; may be null to clear

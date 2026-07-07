@@ -1,17 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Data;
 using Mahima.Api.v3.clean.Dtos;
 using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services.Ai;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Mahima.Api.v3.clean.Services
@@ -24,44 +23,89 @@ namespace Mahima.Api.v3.clean.Services
 
         private readonly MahimaDbContext _db;
         private readonly IChatService _chatService;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _config;
+        private readonly ILlmProvider _llm;
+        private readonly IScriptureService _scripture;
         private readonly ILogger<PastorBotService> _logger;
 
         public PastorBotService(
             MahimaDbContext db,
             IChatService chatService,
-            IHttpClientFactory httpClientFactory,
-            IConfiguration config,
+            ILlmProvider llm,
+            IScriptureService scripture,
             ILogger<PastorBotService> logger)
         {
             _db = db;
             _chatService = chatService;
-            _httpClientFactory = httpClientFactory;
-            _config = config;
+            _llm = llm;
+            _scripture = scripture;
             _logger = logger;
         }
 
         public async Task<Guid> EnsurePastorBotUserAsync(CancellationToken ct = default)
         {
-            var bot = await _db.Users.FirstOrDefaultAsync(u => u.Username == BotUsername || u.UserCode == BotUserCode, ct);
-            if (bot != null) return bot.Id;
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync(ct);
 
-            bot = new User
+            static void AddParam(System.Data.Common.DbCommand cmd, string name, object value)
             {
-                Username = BotUsername,
-                UserCode = BotUserCode,
-                DisplayName = "AI Pastor",
-                Email = "pastor.bot@mahimaministries.local",
-                Role = "admin",
-                JoinDate = DateTime.UtcNow
-            };
+                var p = cmd.CreateParameter();
+                p.ParameterName = name;
+                p.Value = value;
+                cmd.Parameters.Add(p);
+            }
 
-            _db.Users.Add(bot);
-            await _db.SaveChangesAsync(ct);
-            return bot.Id;
+            await using (var find = conn.CreateCommand())
+            {
+                find.CommandText = @"
+SELECT id
+FROM public.users
+WHERE username = @username OR ""UserCode"" = @userCode
+LIMIT 1";
+                AddParam(find, "@username", BotUsername);
+                AddParam(find, "@userCode", BotUserCode);
+
+                var existing = await find.ExecuteScalarAsync(ct);
+                if (existing is Guid existingId)
+                {
+                    await using var update = conn.CreateCommand();
+                    update.CommandText = @"
+UPDATE public.users
+SET username = COALESCE(NULLIF(username, ''), @username),
+    ""UserCode"" = COALESCE(NULLIF(""UserCode"", ''), @userCode),
+    displayname = @displayName,
+    email = COALESCE(NULLIF(email, ''), @email),
+    role = COALESCE(NULLIF(role, ''), @role)
+WHERE id = @id";
+                    AddParam(update, "@id", existingId);
+                    AddParam(update, "@username", BotUsername);
+                    AddParam(update, "@userCode", BotUserCode);
+                    AddParam(update, "@displayName", "AI Pastor");
+                    AddParam(update, "@email", "pastor.bot@mahimaministries.local");
+                    AddParam(update, "@role", "admin");
+                    await update.ExecuteNonQueryAsync(ct);
+                    return existingId;
+                }
+            }
+
+            var botId = Guid.NewGuid();
+            await using (var insert = conn.CreateCommand())
+            {
+                insert.CommandText = @"
+INSERT INTO public.users (id, username, ""UserCode"", displayname, email, role, joindate)
+VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
+                AddParam(insert, "@id", botId);
+                AddParam(insert, "@username", BotUsername);
+                AddParam(insert, "@userCode", BotUserCode);
+                AddParam(insert, "@displayName", "AI Pastor");
+                AddParam(insert, "@email", "pastor.bot@mahimaministries.local");
+                AddParam(insert, "@role", "admin");
+                AddParam(insert, "@joinDate", DateTime.UtcNow);
+                await insert.ExecuteNonQueryAsync(ct);
+            }
+
+            return botId;
         }
-
         public async Task<Chat> EnsureJaiMasihChatAsync(CancellationToken ct = default)
         {
             var botUserId = await EnsurePastorBotUserAsync(ct);
@@ -82,10 +126,19 @@ namespace Mahima.Api.v3.clean.Services
                 await _db.SaveChangesAsync(ct);
             }
 
-            var allUserIds = await _db.Users
-                .AsNoTracking()
-                .Select(u => u.Id)
-                .ToListAsync(ct);
+            var allUserIds = new List<Guid>();
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync(ct);
+            await using (var usersCmd = conn.CreateCommand())
+            {
+                usersCmd.CommandText = "SELECT id FROM public.users";
+                await using var reader = await usersCmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    if (!reader.IsDBNull(0)) allUserIds.Add(reader.GetGuid(0));
+                }
+            }
 
             if (!allUserIds.Contains(botUserId))
                 allUserIds.Add(botUserId);
@@ -159,9 +212,14 @@ namespace Mahima.Api.v3.clean.Services
 
             if (sendToJaiMasih)
             {
-                var message = await SendJaiMasihMessageAsync(answer, ct);
-                reply.ChatId = message.ChatId;
-                reply.MessageId = message.Id;
+                var shared = await ShareConversationToJaiMasihAsync(userId, trimmed, answer, ct);
+                reply.SharedMessages = shared.ToList();
+                var last = shared.LastOrDefault();
+                if (last != null)
+                {
+                    reply.ChatId = last.ChatId;
+                    reply.MessageId = last.Id;
+                }
             }
 
             return reply;
@@ -187,35 +245,239 @@ namespace Mahima.Api.v3.clean.Services
             };
         }
 
-        public async Task<MessageDto?> TryReplyInChatAsync(Guid chatId, Guid userId, string? userMessage, CancellationToken ct = default)
+        public async Task<IReadOnlyList<MessageDto>> TryReplyInChatAsync(Guid chatId, Guid userId, string? userMessage, CancellationToken ct = default)
         {
-            var text = (userMessage ?? string.Empty).Trim();
-            if (!ShouldPastorReply(text)) return null;
+            _logger.LogInformation("AI Pastor chat reply requested. ChatId={ChatId} UserId={UserId} HasMessage={HasMessage}",
+                chatId, userId, !string.IsNullOrWhiteSpace(userMessage));
+            var canonicalBotUserId = await EnsurePastorBotUserAsync(ct);
+            var botUserId = await ResolvePastorBotUserForChatAsync(chatId, userId, canonicalBotUserId, ct);
+            if (userId == botUserId) return Array.Empty<MessageDto>();
 
-            var botUserId = await EnsurePastorBotUserAsync(ct);
+            var text = CleanChatText(userMessage);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                _logger.LogInformation("AI Pastor chat reply skipped because message was empty after cleanup. ChatId={ChatId}", chatId);
+                return Array.Empty<MessageDto>();
+            }
+
+            var shouldReply = await ShouldPastorReplyAsync(chatId, text, botUserId, ct);
+            if (!shouldReply)
+            {
+                _logger.LogInformation("AI Pastor chat reply skipped because chat/message did not match pastor rules. ChatId={ChatId}", chatId);
+                return Array.Empty<MessageDto>();
+            }
+
             await EnsureBotIsChatMemberAsync(chatId, botUserId, ct);
 
             var prompt = text.StartsWith("@pastor", StringComparison.OrdinalIgnoreCase)
                 ? text.Substring("@pastor".Length).Trim()
-                : text.StartsWith("/pastor", StringComparison.OrdinalIgnoreCase)
-                    ? text.Substring("/pastor".Length).Trim()
-                    : text.Trim();
+                : text.StartsWith("@ai pastor", StringComparison.OrdinalIgnoreCase)
+                    ? text.Substring("@ai pastor".Length).Trim()
+                    : text.StartsWith("/pastor", StringComparison.OrdinalIgnoreCase)
+                        ? text.Substring("/pastor".Length).Trim()
+                        : text.Trim();
 
             if (string.IsNullOrWhiteSpace(prompt))
                 prompt = "Please give me today's spiritual guidance.";
 
-            var answer = (await AskAsync(userId, prompt, false, null, null, null, ct)).Answer;
-            return await _chatService.AddMessageAsync(chatId, botUserId, answer, "text");
+            var history = await BuildChatConversationAsync(chatId, botUserId, ct);
+            using var replyTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            replyTimeout.CancelAfter(TimeSpan.FromSeconds(60));
+
+            string answer;
+            try
+            {
+                var pastorReply = await AskAsync(userId, prompt, false, null, "pastor-chat", history, replyTimeout.Token);
+                _logger.LogInformation("AI Pastor chat AskAsync completed. ChatId={ChatId} Source={Source} Persona={Persona}",
+                    chatId, pastorReply.Source, pastorReply.Persona);
+
+                if (!string.Equals(pastorReply.Source, "ai", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("AI Pastor chat reply skipped because LLM returned fallback for chat {ChatId}.", chatId);
+                    return Array.Empty<MessageDto>();
+                }
+
+                answer = pastorReply.Answer;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("AI Pastor chat reply timed out for chat {ChatId}.", chatId);
+                return Array.Empty<MessageDto>();
+            }
+
+            var messagesToBroadcast = new List<MessageDto>();
+            var reply = await _chatService.AddMessageAsync(chatId, botUserId, answer, "text");
+            messagesToBroadcast.Add(reply);
+
+            return messagesToBroadcast;
         }
 
-        private static bool ShouldPastorReply(string text) =>
-            text.StartsWith("@pastor", StringComparison.OrdinalIgnoreCase)
-            || text.StartsWith("/pastor", StringComparison.OrdinalIgnoreCase);
+        private async Task<bool> ShouldPastorReplyAsync(Guid chatId, string text, Guid botUserId, CancellationToken ct)
+        {
+            var isMention =
+                text.StartsWith("@pastor", StringComparison.OrdinalIgnoreCase)
+                || text.StartsWith("@ai pastor", StringComparison.OrdinalIgnoreCase)
+                || text.StartsWith("/pastor", StringComparison.OrdinalIgnoreCase);
+
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new { c.Name, c.IsGroup })
+                .FirstOrDefaultAsync(ct);
+            if (chat == null) return false;
+
+            if (chat.IsGroup && isMention)
+                return true;
+
+            if (IsPastorChatName(chat.Name))
+                return true;
+
+            var members = await _db.ChatMembers
+                .AsNoTracking()
+                .Where(cm => cm.ChatId == chatId)
+                .Select(cm => new
+                {
+                    cm.UserId,
+                    Username = cm.User != null ? cm.User.Username : null,
+                    UserCode = cm.User != null ? cm.User.UserCode : null,
+                    DisplayName = cm.User != null ? cm.User.DisplayName : null,
+                    Email = cm.User != null ? cm.User.Email : null
+                })
+                .ToListAsync(ct);
+
+            return !chat.IsGroup && members.Any(m =>
+                m.UserId == botUserId || IsPastorIdentity(m.Username, m.UserCode, m.DisplayName, m.Email));
+        }
+
+        private async Task<IReadOnlyList<MessageDto>> ShareConversationToJaiMasihAsync(Guid userId, string question, string answer, CancellationToken ct)
+        {
+            var botUserId = await EnsurePastorBotUserAsync(ct);
+            var jaiMasih = await EnsureJaiMasihChatAsync(ct);
+            var messages = new List<MessageDto>();
+
+            var cleanQuestion = CleanChatText(question);
+            if (!string.IsNullOrWhiteSpace(cleanQuestion))
+                messages.Add(await _chatService.AddMessageAsync(jaiMasih.Id, userId, cleanQuestion, "text"));
+
+            if (!string.IsNullOrWhiteSpace(answer))
+                messages.Add(await _chatService.AddMessageAsync(jaiMasih.Id, botUserId, answer, "text"));
+
+            return messages;
+        }
+
+        private async Task<bool> IsDirectPastorChatAsync(Guid chatId, Guid botUserId, CancellationToken ct)
+        {
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new { c.IsGroup, c.Name })
+                .FirstOrDefaultAsync(ct);
+            if (chat == null || chat.IsGroup) return false;
+
+            return await _db.ChatMembers
+                .AsNoTracking()
+                .AnyAsync(cm => cm.ChatId == chatId && cm.UserId == botUserId, ct);
+        }
+
+        private async Task<Guid> ResolvePastorBotUserForChatAsync(Guid chatId, Guid senderId, Guid canonicalBotUserId, CancellationToken ct)
+        {
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new { c.IsGroup, c.Name })
+                .FirstOrDefaultAsync(ct);
+            if (chat == null || chat.IsGroup) return canonicalBotUserId;
+
+            var members = await _db.ChatMembers
+                .AsNoTracking()
+                .Where(cm => cm.ChatId == chatId)
+                .Select(cm => new
+                {
+                    cm.UserId,
+                    Username = cm.User != null ? cm.User.Username : null,
+                    UserCode = cm.User != null ? cm.User.UserCode : null,
+                    DisplayName = cm.User != null ? cm.User.DisplayName : null,
+                    Email = cm.User != null ? cm.User.Email : null
+                })
+                .ToListAsync(ct);
+
+            if (members.Any(m => m.UserId == canonicalBotUserId)) return canonicalBotUserId;
+
+            var pastorMember = members.FirstOrDefault(m =>
+                m.UserId != senderId &&
+                IsPastorIdentity(m.Username, m.UserCode, m.DisplayName, m.Email));
+            if (pastorMember != null) return pastorMember.UserId;
+
+            if (IsPastorChatName(chat.Name))
+            {
+                var otherMember = members.FirstOrDefault(m => m.UserId != senderId);
+                if (otherMember != null) return otherMember.UserId;
+            }
+
+            return canonicalBotUserId;
+        }
+
+        private static bool IsPastorIdentity(string? username, string? userCode, string? displayName, string? email)
+        {
+            var combined = $"{username} {userCode} {displayName} {email}".ToLowerInvariant();
+            var normalized = new string(combined.Where(char.IsLetterOrDigit).ToArray());
+            return normalized.Contains("pastorbot")
+                || normalized.Contains("botpastor")
+                || normalized.Contains("aipastor")
+                || normalized.Contains("aicounseller")
+                || normalized.Contains("aicounselor")
+                || normalized.Contains("pastorbotmahimaministrieslocal");
+        }
+
+        private async Task<IReadOnlyList<PastorBotMessageDto>> BuildChatConversationAsync(Guid chatId, Guid botUserId, CancellationToken ct)
+        {
+            var recent = await _chatService.GetMessagesAsync(chatId, page: 1, size: 14);
+
+            return recent.Items
+                .Select(m => new PastorBotMessageDto
+                {
+                    Role = m.SenderId == botUserId ? "assistant" : "user",
+                    Text = CleanChatText(m.Content)
+                })
+                .Where(m => !string.IsNullOrWhiteSpace(m.Text))
+                .ToList();
+        }
+
+        private static string CleanChatText(string? text)
+        {
+            var value = (text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+            value = Regex.Replace(value, @"\s*\[jm-attachment:[A-Za-z0-9+/=]+\]", string.Empty, RegexOptions.IgnoreCase);
+            value = Regex.Replace(value, @"\s*\[jm-message-meta:[A-Za-z0-9+/=]+\]", string.Empty, RegexOptions.IgnoreCase);
+            return value.Trim();
+        }
+
+        private static bool IsPastorChatName(string? name)
+        {
+            var normalized = new string((name ?? string.Empty)
+                .ToLowerInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+
+            return normalized == "jaimasih"
+                || normalized == "aipastor"
+                || normalized == "pastorbot"
+                || normalized.Contains("jaimasih")
+                || normalized.Contains("aipastor");
+        }
 
         private async Task EnsureBotIsChatMemberAsync(Guid chatId, Guid botUserId, CancellationToken ct)
         {
             var exists = await _db.ChatMembers.AnyAsync(cm => cm.ChatId == chatId && cm.UserId == botUserId, ct);
             if (exists) return;
+
+            var chat = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => new { c.IsGroup })
+                .FirstOrDefaultAsync(ct);
+            if (chat == null || !chat.IsGroup) return;
 
             _db.ChatMembers.Add(new ChatMember
             {
@@ -240,12 +502,13 @@ namespace Mahima.Api.v3.clean.Services
             var value = (persona ?? string.Empty).Trim().ToLowerInvariant();
             if (language == "hi") return "hindi-pastoral-guide";
             if (language == "pa") return "punjabi-pastoral-guide";
+            if (value.Contains("pastor-chat")) return "pastor-chat";
             return value.Contains("teaching") ? "english-teaching-guide" : "english-evangelist";
         }
 
         private static string BuildSystemPrompt(string language, string persona)
         {
-            var basePrompt = @"You are Mahima Ministry's AI Pastor assistant. Give warm, biblical, practical, non-judgmental guidance. Encourage prayer, church community, and contacting a real pastor for crisis, abuse, self-harm, legal, medical, or emergency issues. Do not claim to replace a human pastor. Never claim to be, imitate, or speak as a real public figure.";
+            var basePrompt = @"You are Mahima Ministry's AI Counseller assistant. Give warm, biblical, practical, non-judgmental guidance. Encourage prayer, church community, and contacting a real pastor for crisis, abuse, self-harm, legal, medical, or emergency issues. Do not claim to replace a human pastor. Never claim to be, imitate, or speak as a real public figure.";
 
             if (language == "hi")
             {
@@ -260,6 +523,11 @@ namespace Mahima.Api.v3.clean.Services
             if (persona == "english-teaching-guide")
             {
                 return basePrompt + " Reply in English like a thoughtful pastoral teacher: clear, structured, conversational, and practical. Include a Bible verse, reflection, next step, and short prayer.";
+            }
+
+            if (persona == "pastor-chat")
+            {
+                return basePrompt + " Reply like a one-to-one chat conversation, not a sermon or announcement. Be natural, specific to the user's latest message, and keep most replies to 3-6 short sentences. Use the recent conversation context, ask at most one gentle follow-up question when helpful, and do not always include a full prayer or Bible verse unless the user asks or the moment clearly needs it.";
             }
 
             return basePrompt + " Reply in English with a warm classic evangelistic tone: compassionate, hopeful, direct, and reverent, without imitating any specific preacher. Include a Bible verse, practical encouragement, and a short prayer.";
@@ -301,135 +569,93 @@ Respond as a pastoral counsellor using this shape:
             };
         }
 
-        private static object[] BuildAiInput(string system, string question, IReadOnlyList<PastorBotMessageDto>? conversation)
+        /// <summary>
+        /// Builds the Scripture-grounding block appended to the system prompt.
+        /// The model is told to cite ONLY these retrieved verses, which keeps the
+        /// autonomous pastor from inventing chapter/verse numbers.
+        /// </summary>
+        private static string BuildScriptureGrounding(IReadOnlyList<ScriptureVerse> verses)
         {
-            var input = new List<object> { new { role = "system", content = system } };
+            if (verses == null || verses.Count == 0) return string.Empty;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("SCRIPTURE GROUNDING — the verses below have been retrieved as relevant to this conversation.");
+            sb.AppendLine("When you cite Scripture, quote ONLY from these verses and use their exact references.");
+            sb.AppendLine("Do not invent chapter or verse numbers. If none fit, speak biblically without a citation rather than guessing.");
+            foreach (var v in verses)
+                sb.AppendLine($"- {v.Reference}: \"{v.Text}\"");
+            return sb.ToString().Trim();
+        }
+
+        private async Task<string?> TryAskConfiguredAiAsync(Guid userId, string question, string language, string persona, IReadOnlyList<PastorBotMessageDto>? conversation, CancellationToken ct)
+        {
+            // No external API key needed — the configured ILlmProvider may be a
+            // self-hosted model (Ollama / vLLM) or any OpenAI-compatible endpoint.
+            if (!_llm.IsConfigured) return null;
+
+            // System prompt + retrieved Scripture grounding (RAG-lite).
+            var system = BuildSystemPrompt(language, persona);
+            var verses = _scripture.FindRelevant(question, language, 3);
+            var grounding = BuildScriptureGrounding(verses);
+            if (grounding.Length > 0)
+                system += "\n\n" + grounding;
+
+            var request = new LlmRequest { Temperature = 0.6, MaxTokens = 700 };
+            request.Messages.Add(LlmMessage.System(system));
+
+            // Carry recent conversation turns for context.
             foreach (var message in (conversation ?? Array.Empty<PastorBotMessageDto>()).TakeLast(12))
             {
                 var text = (message.Text ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(text)) continue;
 
                 var role = string.Equals(message.Role, "pastor", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
                     ? "assistant"
                     : "user";
 
-                input.Add(new { role, content = text });
+                request.Messages.Add(new LlmMessage(role, text));
             }
 
-            input.Add(new { role = "user", content = question });
-            return input.ToArray();
-        }
+            request.Messages.Add(LlmMessage.User(question));
 
-        private async Task<string?> TryAskConfiguredAiAsync(Guid userId, string question, string language, string persona, IReadOnlyList<PastorBotMessageDto>? conversation, CancellationToken ct)
-        {
-            var apiKey = _config["PastorBot:OpenAiApiKey"];
-            if (string.IsNullOrWhiteSpace(apiKey)) return null;
-
-            try
+            var result = await _llm.CompleteAsync(request, ct);
+            if (!result.Success)
             {
-                var model = _config["PastorBot:Model"] ?? "gpt-4.1";
-                var endpoint = _config["PastorBot:Endpoint"] ?? "https://api.openai.com/v1/responses";
-                var client = _httpClientFactory.CreateClient("PastorBot");
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-                var system = BuildSystemPrompt(language, persona);
-                var payload = new
-                {
-                    model,
-                    input = BuildAiInput(system, question, conversation)
-                };
-
-                using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                using var response = await client.PostAsync(endpoint, content, ct);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("PastorBot AI provider failed with {StatusCode}", response.StatusCode);
-                    return null;
-                }
-
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-
-                if (doc.RootElement.TryGetProperty("output_text", out var outputText))
-                    return outputText.GetString();
-
-                if (doc.RootElement.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
-                {
-                    var parts = new List<string>();
-                    foreach (var item in output.EnumerateArray())
-                    {
-                        if (!item.TryGetProperty("content", out var contentArray) || contentArray.ValueKind != JsonValueKind.Array) continue;
-                        foreach (var part in contentArray.EnumerateArray())
-                        {
-                            if (part.TryGetProperty("text", out var text))
-                                parts.Add(text.GetString() ?? string.Empty);
-                        }
-                    }
-
-                    var joined = string.Join("\n", parts.Where(p => !string.IsNullOrWhiteSpace(p))).Trim();
-                    return string.IsNullOrWhiteSpace(joined) ? null : joined;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "PastorBot AI provider failed; using fallback guidance.");
+                _logger.LogWarning("AI Counseller LLM call failed ({Provider}/{Model}): {Error}",
+                    result.Provider, result.Model, result.Error);
+                return null;
             }
 
-            return null;
+            return result.Text;
         }
 
         private async Task<string?> TryAskConfiguredVisionAsync(Guid userId, string imageDataUrl, string note, string language, string persona, CancellationToken ct)
         {
-            var apiKey = _config["PastorBot:OpenAiApiKey"];
-            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+            if (!_llm.IsConfigured) return null;
             if (!IsSupportedImageDataUrl(imageDataUrl)) return null;
 
-            try
+            var request = new LlmVisionRequest
             {
-                var model = _config["PastorBot:VisionModel"] ?? _config["PastorBot:Model"] ?? "gpt-4.1";
-                var endpoint = _config["PastorBot:Endpoint"] ?? "https://api.openai.com/v1/responses";
-                var client = _httpClientFactory.CreateClient("PastorBot");
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                SystemPrompt = BuildReadMeSystemPrompt(language, persona),
+                UserText = BuildReadMeVisionPrompt(note, language),
+                ImageUrl = imageDataUrl,
+                Temperature = 0.6,
+                MaxTokens = 700
+            };
 
-                var system = BuildReadMeSystemPrompt(language, persona);
-                var question = BuildReadMeVisionPrompt(note, language);
-                var payload = new
-                {
-                    model,
-                    input = new object[]
-                    {
-                        new { role = "system", content = system },
-                        new
-                        {
-                            role = "user",
-                            content = new object[]
-                            {
-                                new { type = "input_text", text = question },
-                                new { type = "input_image", image_url = imageDataUrl }
-                            }
-                        }
-                    }
-                };
-
-                using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                using var response = await client.PostAsync(endpoint, content, ct);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("PastorBot ReadMe provider failed with {StatusCode}", response.StatusCode);
-                    return null;
-                }
-
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-                return ExtractAiResponseText(doc);
-            }
-            catch (Exception ex)
+            var result = await _llm.CompleteVisionAsync(request, ct);
+            if (!result.Success)
             {
-                _logger.LogWarning(ex, "PastorBot ReadMe provider failed; using fallback guidance.");
+                // capability-unavailable just means the configured model is text-only;
+                // that is expected for many self-hosted setups — fall back quietly.
+                if (result.Error != "capability-unavailable")
+                    _logger.LogWarning("AI Counseller vision call failed ({Provider}/{Model}): {Error}",
+                        result.Provider, result.Model, result.Error);
+                return null;
             }
 
-            return null;
+            return result.Text;
         }
 
         private static bool IsSupportedImageDataUrl(string value) =>
@@ -437,31 +663,6 @@ Respond as a pastoral counsellor using this shape:
             (value.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase) ||
              value.StartsWith("data:image/png;base64,", StringComparison.OrdinalIgnoreCase) ||
              value.StartsWith("data:image/webp;base64,", StringComparison.OrdinalIgnoreCase));
-
-        private static string? ExtractAiResponseText(JsonDocument doc)
-        {
-            if (doc.RootElement.TryGetProperty("output_text", out var outputText))
-                return outputText.GetString();
-
-            if (doc.RootElement.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
-            {
-                var parts = new List<string>();
-                foreach (var item in output.EnumerateArray())
-                {
-                    if (!item.TryGetProperty("content", out var contentArray) || contentArray.ValueKind != JsonValueKind.Array) continue;
-                    foreach (var part in contentArray.EnumerateArray())
-                    {
-                        if (part.TryGetProperty("text", out var text))
-                            parts.Add(text.GetString() ?? string.Empty);
-                    }
-                }
-
-                var joined = string.Join("\n", parts.Where(p => !string.IsNullOrWhiteSpace(p))).Trim();
-                return string.IsNullOrWhiteSpace(joined) ? null : joined;
-            }
-
-            return null;
-        }
 
         private static string BuildReadMeFallbackAnswer(string note, string language)
         {

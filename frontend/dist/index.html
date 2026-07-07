@@ -22,6 +22,17 @@
     </style>
 
     <!--
+      Runtime Google auth override:
+      - Set window.__GOOGLE_CLIENT_ID__ to your Web OAuth client ID.
+      - For Android native plugin builds, optionally set window.__GOOGLE_ANDROID_CLIENT_ID__.
+      - Backend must also include the same IDs under GoogleAuth:ClientIds or matching env vars.
+    -->
+    <script>
+      window.__GOOGLE_CLIENT_ID__ = window.__GOOGLE_CLIENT_ID__ || "";
+      window.__GOOGLE_ANDROID_CLIENT_ID__ = window.__GOOGLE_ANDROID_CLIENT_ID__ || "";
+    </script>
+
+    <!--
       Runtime API base override:
       - During local development this ensures frontend hits your backend at http://localhost:5001/api
       - If you want to override this in another environment, set window.__API_BASE__ before this file is loaded.
@@ -53,8 +64,8 @@
         }
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-rBTn6mCK.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-qAHTDvb8.css">
+    <script type="module" crossorigin src="/assets/index-C9cYp16p.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CHaSmGgl.css">
   </head>
   <body>
     <div id="root"></div>

@@ -1,12 +1,14 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Identity;
+using Google.Apis.Auth;
 using Npgsql;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -80,8 +82,119 @@ public class AuthController : ControllerBase
         public string? Phone { get; set; }
     }
 
+    public class GoogleLoginDto
+    {
+        public string? IdToken { get; set; }
+    }
+
     private static string QuoteIdentifier(string identifier) =>
         "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    private string[] GetGoogleAuthClientIds()
+    {
+        var configured = new List<string>();
+
+        var namedClientIds = new[]
+        {
+            _config["GoogleAuth:ClientId"],
+            _config["GoogleAuth:WebClientId"],
+            _config["GoogleAuth:AndroidClientId"],
+            _config["GoogleAuth:IosClientId"],
+            Environment.GetEnvironmentVariable("GOOGLE_AUTH_CLIENT_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_AUTH_WEB_CLIENT_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_AUTH_ANDROID_CLIENT_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_AUTH_IOS_CLIENT_ID"),
+        };
+
+        configured.AddRange(namedClientIds.Where(id => !string.IsNullOrWhiteSpace(id))!);
+
+        var clientIds = _config.GetSection("GoogleAuth:ClientIds").Get<string[]>();
+        if (clientIds != null)
+            configured.AddRange(clientIds.Where(id => !string.IsNullOrWhiteSpace(id)));
+
+        var envClientIds = Environment.GetEnvironmentVariable("GOOGLE_AUTH_CLIENT_IDS");
+        if (!string.IsNullOrWhiteSpace(envClientIds))
+        {
+            configured.AddRange(envClientIds
+                .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(id => !string.IsNullOrWhiteSpace(id)));
+        }
+
+        return configured
+            .Select(id => id.Trim())
+            .Where(id => id.EndsWith(".apps.googleusercontent.com", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string NormalizePhoneForDuplicateCheck(string? value)
+    {
+        var digits = new string((value ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (digits.Length > 10 && digits.StartsWith("91", StringComparison.Ordinal))
+            digits = digits.Substring(digits.Length - 10);
+
+        return digits;
+    }
+
+    private static async Task<(Guid Id, string? DisplayName, string? Username, string? Phone)?> FindUserByPhoneAsync(
+        NpgsqlConnection conn,
+        string? phone)
+    {
+        var normalizedPhone = NormalizePhoneForDuplicateCheck(phone);
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+            return null;
+
+        await using var cmd = new NpgsqlCommand(@"
+WITH normalized_users AS (
+    SELECT
+        id,
+        displayname,
+        username,
+        phone,
+        CASE
+            WHEN length(raw_phone) > 10 AND raw_phone LIKE '91%' THEN right(raw_phone, 10)
+            ELSE raw_phone
+        END AS normalized_phone
+    FROM (
+        SELECT
+            id,
+            displayname,
+            username,
+            phone,
+            regexp_replace(coalesce(phone, ''), '\D', '', 'g') AS raw_phone
+        FROM public.users
+    ) u
+)
+SELECT id, displayname, username, phone
+FROM normalized_users
+WHERE normalized_phone = @phone
+LIMIT 1;", conn);
+        cmd.Parameters.AddWithValue("phone", NpgsqlTypes.NpgsqlDbType.Text, normalizedPhone);
+
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        if (!await rdr.ReadAsync())
+            return null;
+
+        return (
+            rdr.GetGuid(rdr.GetOrdinal("id")),
+            rdr["displayname"]?.ToString(),
+            rdr["username"]?.ToString(),
+            rdr["phone"]?.ToString()
+        );
+    }
+
+    private static ConflictObjectResult DuplicatePhoneConflict((Guid Id, string? DisplayName, string? Username, string? Phone) existing) =>
+        new(new
+        {
+            message = "Mobile number already exists for another user. Please use a unique mobile number.",
+            existingUser = new
+            {
+                id = existing.Id,
+                name = string.IsNullOrWhiteSpace(existing.DisplayName) ? existing.Username : existing.DisplayName,
+                username = existing.Username,
+                phone = existing.Phone
+            }
+        });
 
     private static async Task<string?> GetUserColumnAsync(NpgsqlConnection conn, params string[] candidates)
     {
@@ -117,6 +230,44 @@ LIMIT 1;", conn);
         }
 
         return $"MHN{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000:D8}";
+    }
+
+    private static string SanitizeGoogleUsername(string raw)
+    {
+        var normalized = new string((raw ?? "googleuser")
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch == '_' || ch == '.' ? ch : '_')
+            .ToArray())
+            .Trim('_', '.');
+
+        if (string.IsNullOrWhiteSpace(normalized))
+            normalized = "googleuser";
+
+        if (normalized.Length > 40)
+            normalized = normalized.Substring(0, 40).Trim('_', '.');
+
+        return string.IsNullOrWhiteSpace(normalized) ? "googleuser" : normalized;
+    }
+
+    private static async Task<string> GenerateUniqueGoogleUsernameAsync(NpgsqlConnection conn, string baseUsername)
+    {
+        var cleanBase = SanitizeGoogleUsername(baseUsername);
+        var candidate = cleanBase;
+
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+SELECT COUNT(*)
+FROM public.users
+WHERE LOWER(TRIM(username)) = @username;", conn);
+            cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, candidate.ToLowerInvariant());
+            var exists = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+            if (!exists) return candidate;
+
+            candidate = $"{cleanBase}{RandomNumberGenerator.GetInt32(1000, 999999)}";
+        }
+
+        return $"{cleanBase}{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
     }
 
     private static async Task EnsureAuthSecurityTablesAsync(NpgsqlConnection conn)
@@ -311,6 +462,10 @@ WHERE LOWER(TRIM(username)) = @username
                     return Conflict(new { message = "Username or email already exists" });
             }
 
+            var existingUserWithPhone = await FindUserByPhoneAsync(conn, phone);
+            if (existingUserWithPhone.HasValue)
+                return DuplicatePhoneConflict(existingUserWithPhone.Value);
+
             var memberRoleId = 2;
             var memberRoleName = "Member";
             await using (var roleCmd = new NpgsqlCommand(@"
@@ -418,6 +573,210 @@ RETURNING id;";
     }
 
     // ================= LOGIN =================
+[AllowAnonymous]
+[HttpPost("google")]
+public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginDto dto)
+{
+    if (dto == null || string.IsNullOrWhiteSpace(dto.IdToken))
+        return BadRequest(new { message = "Google token is required" });
+
+    var googleClientIds = GetGoogleAuthClientIds();
+
+    if (googleClientIds.Length == 0)
+        return StatusCode(500, new { message = "Google authentication is not configured." });
+
+    GoogleJsonWebSignature.Payload payload;
+    try
+    {
+        payload = await GoogleJsonWebSignature.ValidateAsync(
+            dto.IdToken,
+            new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = googleClientIds
+            });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogWarning(ex, "Google token validation failed");
+        return Unauthorized(new { message = "Google sign-in could not be verified." });
+    }
+
+    if (payload == null || !payload.EmailVerified)
+        return Unauthorized(new { message = "Google email is not verified." });
+
+    var email = payload.Email?.Trim().ToLowerInvariant();
+    if (string.IsNullOrWhiteSpace(email))
+        return Unauthorized(new { message = "Google account did not provide an email address." });
+
+    var display = !string.IsNullOrWhiteSpace(payload.Name)
+        ? payload.Name.Trim()
+        : email.Split('@')[0];
+
+    try
+    {
+        await using var conn = new NpgsqlConnection(_connStr);
+        await conn.OpenAsync();
+        await EnsureAuthSecurityTablesAsync(conn);
+
+        Guid userGuid;
+        string username;
+        string? phone;
+        string role;
+        object id;
+
+        await using (var findCmd = new NpgsqlCommand(@"
+SELECT
+  u.id,
+  u.username,
+  u.displayname,
+  u.email,
+  u.phone,
+  r.name as role
+FROM users u
+JOIN roles r ON r.id = u.role::int
+WHERE LOWER(TRIM(u.email)) = @email
+LIMIT 1;", conn))
+        {
+            findCmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, email);
+            await using var rdr = await findCmd.ExecuteReaderAsync();
+            if (await rdr.ReadAsync())
+            {
+                id = rdr["id"];
+                userGuid = Guid.Parse(id.ToString() ?? Guid.Empty.ToString());
+                username = rdr["username"]?.ToString() ?? email;
+                display = rdr["displayname"]?.ToString() ?? display;
+                phone = rdr["phone"]?.ToString();
+                role = rdr["role"]?.ToString() ?? "Member";
+                await rdr.CloseAsync();
+
+                var blockReason = await GetActiveUserBlockReasonAsync(conn, userGuid);
+                if (!string.IsNullOrWhiteSpace(blockReason))
+                {
+                    await RecordSecurityEventAsync(conn, "BlockedGoogleLogin", "high", username, userGuid, blockReason);
+                    return StatusCode(423, new { message = "Your access is blocked. Please contact Mahima Ministry admin.", reason = blockReason });
+                }
+            }
+            else
+            {
+                await rdr.CloseAsync();
+
+                var memberRoleId = 2;
+                var memberRoleName = "Member";
+                await using (var roleCmd = new NpgsqlCommand(@"
+SELECT id, name
+FROM roles
+WHERE LOWER(name) = 'member'
+LIMIT 1;", conn))
+                await using (var roleRdr = await roleCmd.ExecuteReaderAsync())
+                {
+                    if (await roleRdr.ReadAsync())
+                    {
+                        memberRoleId = Convert.ToInt32(roleRdr["id"]);
+                        memberRoleName = roleRdr["name"]?.ToString() ?? "Member";
+                    }
+                }
+
+                var baseUsername = SanitizeGoogleUsername(email.Split('@')[0]);
+                username = await GenerateUniqueGoogleUsernameAsync(conn, baseUsername);
+                phone = null;
+                role = memberRoleName;
+
+                var passwordHash = _pwHasher.HashPassword(null, $"GOOGLE:{payload.Subject}:{Guid.NewGuid():N}");
+                var insertColumns = new List<string>
+                {
+                    QuoteIdentifier("username"),
+                    QuoteIdentifier("email"),
+                    QuoteIdentifier("passwordhash"),
+                    QuoteIdentifier("role"),
+                    QuoteIdentifier("joindate"),
+                    QuoteIdentifier("phone"),
+                    QuoteIdentifier("displayname"),
+                };
+                var insertValues = new List<string>
+                {
+                    "@username",
+                    "@email",
+                    "@passwordhash",
+                    "@role",
+                    "NOW()",
+                    "NULL",
+                    "@displayname",
+                };
+
+                var userCodeColumn = await GetUserColumnAsync(conn, "UserCode", "usercode");
+                var profilePhotoColumn = await GetUserColumnAsync(conn, "profilephotourl", "ProfilePhotoUrl");
+
+                if (!string.IsNullOrWhiteSpace(userCodeColumn))
+                {
+                    insertColumns.Insert(0, QuoteIdentifier(userCodeColumn));
+                    insertValues.Insert(0, "@usercode");
+                }
+
+                if (!string.IsNullOrWhiteSpace(profilePhotoColumn))
+                {
+                    insertColumns.Add(QuoteIdentifier(profilePhotoColumn));
+                    insertValues.Add("@profilephotourl");
+                }
+
+                var insertSql = $@"
+INSERT INTO public.users ({string.Join(", ", insertColumns)})
+VALUES ({string.Join(", ", insertValues)})
+RETURNING id;";
+
+                await using var insertCmd = new NpgsqlCommand(insertSql, conn);
+                if (!string.IsNullOrWhiteSpace(userCodeColumn))
+                {
+                    var generatedCode = await GenerateUserCodeAsync(conn, userCodeColumn);
+                    insertCmd.Parameters.AddWithValue("usercode", NpgsqlTypes.NpgsqlDbType.Text, generatedCode);
+                }
+                insertCmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username);
+                insertCmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, email);
+                insertCmd.Parameters.AddWithValue("passwordhash", NpgsqlTypes.NpgsqlDbType.Text, passwordHash);
+                insertCmd.Parameters.AddWithValue("role", NpgsqlTypes.NpgsqlDbType.Text, memberRoleId.ToString());
+                insertCmd.Parameters.AddWithValue("displayname", NpgsqlTypes.NpgsqlDbType.Text, display);
+                if (!string.IsNullOrWhiteSpace(profilePhotoColumn))
+                    insertCmd.Parameters.AddWithValue("profilephotourl", NpgsqlTypes.NpgsqlDbType.Text, (object?)payload.Picture ?? DBNull.Value);
+
+                id = await insertCmd.ExecuteScalarAsync() ?? Guid.Empty;
+                userGuid = Guid.Parse(id.ToString() ?? Guid.Empty.ToString());
+                await SendNewUserWelcomeAsync(userGuid, display);
+            }
+        }
+
+        var roles = await LoadEffectiveRoles(conn, userGuid, role);
+        var pages = await LoadPermissions(conn, roles);
+        await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userGuid);
+        var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userGuid);
+        var token = _jwtService.GenerateToken(userGuid, username, display, role);
+
+        await RecordSecurityEventAsync(conn, "GoogleLogin", "low", username, userGuid, email);
+
+        return Ok(new
+        {
+            token,
+            user = new
+            {
+                id = userGuid,
+                username,
+                display,
+                displayName = display,
+                email,
+                phone,
+                role,
+                roles,
+                pages,
+                positions,
+                primaryPosition = positions.FirstOrDefault()
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Google login failed for {Email}", email);
+        return StatusCode(500, new { message = "Google login failed", detail = ex.Message });
+    }
+}
+
 [AllowAnonymous]
 [HttpPost("login")]
 public async Task<IActionResult> Login([FromBody] LoginDto dto)

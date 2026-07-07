@@ -14,6 +14,7 @@ namespace Mahima.Api.v3.clean.Dtos
         public string ContentType { get; set; } = "text";
         public string? AttachmentUrl { get; set; }
         public List<AttachmentDto>? Attachments { get; set; }
+        public string Status { get; set; } = "delivered";
 
         public MessageDto() { }
 

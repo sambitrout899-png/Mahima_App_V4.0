@@ -41,11 +41,12 @@ import { getToken, logout as authLogout } from "../auth/authService";
 import mahimaLogo from "../../assets/mahima-logo.png";
 
 const galleryImages = [
-   "/images/1000236887.jpg",
+  "/images/1000236887.jpg",
   "/images/1000236888.jpg",
   "/images/1000236889.jpg",
   "/images/1000236890.jpg",
-  "/images/1000236891.jpg",];
+  "/images/1000236891.jpg",
+];
 
 const verses = [
   '"Come to Me, all you who labor and are heavy laden, and I will give you rest." — Matthew 11:28',
@@ -62,6 +63,11 @@ const contact = {
   email: "Contact@mahimaministries.in",
   address: "Universal Public School, Gurunanak Nagar, Gulab Devi Road, Jalandhar, Punjab 144021",
 };
+
+const SAAS_MAHIMA_URL =
+  typeof window !== "undefined" && window.__SAAS_MAHIMA_URL__
+    ? window.__SAAS_MAHIMA_URL__
+    : "https://beta.mahimaministries.in/#/saas";
 
 const services = [
   { day: "Saturday", title: "Worship Service", time: "6:00 – 9:00 PM", tag: "Weekly",
@@ -310,6 +316,11 @@ function TopNav({ onDonate }) {
               {loggedIn ? (isMobileAppMode() ? "Open App" : "Logout") : "Login"}
             </button>
 
+            <a href={SAAS_MAHIMA_URL}
+              className="hidden h-11 items-center gap-2 rounded-full border border-stone-900/10 bg-white px-4 text-sm font-black text-stone-900 shadow-sm transition active:scale-[0.97] dark:border-white/10 dark:bg-white/10 dark:text-stone-50 md:inline-flex">
+              SaaS Mahima <ArrowUpRight size={14} />
+            </a>
+
             <button type="button" onClick={onDonate}
               className="hidden h-11 items-center gap-2 rounded-full bg-gradient-to-br from-rose-800 to-amber-600 px-5 text-sm font-black text-amber-50 shadow-[0_8px_24px_-8px_rgba(159,18,57,.5)] transition active:scale-[0.97] lg:inline-flex">
               <Heart size={14} fill="currentColor" /> Donate
@@ -352,6 +363,10 @@ function TopNav({ onDonate }) {
                 className="h-14 rounded-2xl bg-stone-900 text-sm font-black text-stone-50 active:scale-[0.98] dark:bg-stone-100 dark:text-stone-900">
                 {hasToken() ? "My Account" : "Login"}
               </button>
+              <a href={SAAS_MAHIMA_URL}
+                className="grid h-14 place-items-center rounded-2xl bg-white text-sm font-black text-stone-900 ring-1 ring-stone-900/5 active:scale-[0.98] dark:bg-white/[0.06] dark:text-stone-50 dark:ring-white/10">
+                SaaS Mahima
+              </a>
               <button type="button" onClick={() => { setMenuOpen(false); onDonate(); }}
                 className="h-14 rounded-2xl bg-gradient-to-br from-rose-800 to-amber-600 text-sm font-black text-amber-50 active:scale-[0.98]">
                 Donate
@@ -392,7 +407,7 @@ function Hero({ onDonate }) {
         <h1 className="mt-5 font-serif text-[2.85rem] font-black leading-[0.94] tracking-[-0.03em] text-amber-50 sm:text-7xl lg:text-[6.5rem]">
           Worship.<br />
           <span className="italic text-amber-200">Heal.</span><br />
-          Saved.
+          Send.
         </h1>
 
         <p className="mt-5 max-w-xl text-base leading-7 text-stone-200/85 sm:text-lg sm:leading-8">
@@ -418,6 +433,10 @@ function Hero({ onDonate }) {
             className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-rose-800 to-amber-600 px-6 text-[15px] font-black text-amber-50 shadow-lg transition active:scale-[0.98]">
             <Sparkles size={16} /> Give
           </button>
+          <a href={SAAS_MAHIMA_URL}
+            className="inline-flex h-14 items-center justify-center gap-2 rounded-full border border-amber-100/25 bg-amber-50/95 px-6 text-[15px] font-black text-stone-950 shadow-lg transition active:scale-[0.98]">
+            SaaS Mahima <ArrowUpRight size={16} />
+          </a>
         </div>
 
         <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] font-bold text-amber-100/85">

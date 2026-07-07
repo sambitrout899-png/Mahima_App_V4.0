@@ -852,6 +852,60 @@ export default function TeamsPage() {
             transform: translateX(-50%) translateY(0);
           }
         }
+
+        .teams-page {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96), rgba(246,248,251,.96)),
+            radial-gradient(circle at 100% 0%, rgba(4,120,87,.08), transparent 28rem) !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .teams-header,
+        .team-card,
+        .teams-modal,
+        .teams-search-wrap {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius-lg, 12px) !important;
+          background: var(--enterprise-surface, #ffffff) !important;
+          box-shadow: var(--enterprise-shadow-sm, 0 1px 2px rgba(15,23,42,.05)) !important;
+        }
+        .teams-title,
+        .team-card-title,
+        .teams-modal-title {
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .teams-subtitle,
+        .team-card-desc,
+        .team-meta {
+          color: var(--enterprise-muted, #617086) !important;
+        }
+        .teams-input,
+        .teams-select,
+        .teams-textarea {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius, 10px) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .team-icon-btn-primary,
+        .team-action-btn-primary {
+          border-color: transparent !important;
+          background: linear-gradient(180deg, var(--enterprise-primary, #047857), var(--enterprise-primary-strong, #065f46)) !important;
+          color: #ffffff !important;
+          box-shadow: 0 8px 20px rgba(4,120,87,.18) !important;
+        }
+        .team-icon-btn-soft,
+        .team-action-btn-secondary,
+        .team-icon-btn {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .team-badge,
+        .team-member-count {
+          border-color: rgba(4,120,87,.22) !important;
+          background: var(--enterprise-primary-soft, #ecfdf5) !important;
+          color: var(--enterprise-primary-strong, #065f46) !important;
+        }
       `}</style>
 
       <div className="teams-header">

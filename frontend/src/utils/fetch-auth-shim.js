@@ -405,4 +405,13 @@ export function login(data) {
   });
 }
 
+export function googleLogin(data) {
+  return apiFetchJson("/auth/google", {
+    method: "POST",
+    skipAuth: true,
+    retryPublicApi: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
 

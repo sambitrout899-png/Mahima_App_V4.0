@@ -74,9 +74,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("android/download")]
         public IActionResult DownloadAndroid()
         {
-            var publicRoot = GetPublicRoot();
-            var latestPath = Path.Combine(publicRoot, "downloads", "mahima-app.apk");
-            if (!System.IO.File.Exists(latestPath))
+            var latestPath = FindLatestApkPath();
+            if (string.IsNullOrWhiteSpace(latestPath) || !System.IO.File.Exists(latestPath))
                 return NotFound("The Mahima Android APK has not been published yet.");
 
             Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
@@ -113,15 +112,16 @@ namespace Mahima.Api.v3.clean.Controllers
             if (!extension.Equals(".apk", StringComparison.OrdinalIgnoreCase))
                 return BadRequest("Only Android .apk files are allowed.");
 
-            var publicRoot = GetPublicRoot();
-            var downloadsRoot = Path.Combine(publicRoot, "downloads");
-            Directory.CreateDirectory(downloadsRoot);
+            var downloadsRoot = GetWritableDownloadsRoot();
+            var publicDownloadsRoot = GetPublicDownloadsRoot();
 
             var cleanVersion = CleanForFileName(version);
             var cleanBuild = CleanForFileName(string.IsNullOrWhiteSpace(build) ? DateTime.UtcNow.ToString("yyyyMMddHHmmss") : build);
             var versionedFileName = $"mahima-app-{cleanVersion}-{cleanBuild}.apk";
             var versionedPath = Path.Combine(downloadsRoot, versionedFileName);
             var latestPath = Path.Combine(downloadsRoot, "mahima-app.apk");
+            var publicVersionedPath = Path.Combine(publicDownloadsRoot, versionedFileName);
+            var publicLatestPath = Path.Combine(publicDownloadsRoot, "mahima-app.apk");
             var tempPath = Path.Combine(downloadsRoot, $".{Guid.NewGuid():N}.upload");
 
             try
@@ -133,6 +133,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
                 System.IO.File.Move(tempPath, versionedPath, overwrite: true);
                 System.IO.File.Copy(versionedPath, latestPath, overwrite: true);
+                TryMirrorFile(versionedPath, publicVersionedPath);
+                TryMirrorFile(latestPath, publicLatestPath);
 
                 var now = DateTime.UtcNow;
                 var baseUrl = PublicBaseUrl();
@@ -181,7 +183,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 try
                 {
                     await System.IO.File.WriteAllTextAsync(GetPublicVersionManifestPath(), json, HttpContext.RequestAborted);
-                    await System.IO.File.WriteAllTextAsync(Path.Combine(downloadsRoot, "app-release-manifest.json"), json, HttpContext.RequestAborted);
+                    await System.IO.File.WriteAllTextAsync(Path.Combine(publicDownloadsRoot, "app-release-manifest.json"), json, HttpContext.RequestAborted);
                 }
                 catch (Exception manifestEx)
                 {
@@ -194,7 +196,7 @@ namespace Mahima.Api.v3.clean.Controllers
                     Action = "UploadAndroidApk",
                     EntityType = "AppRelease",
                     EntityId = version.Trim(),
-                    Details = $"Uploaded {versionedFileName}; latest pointer updated to /downloads/mahima-app.apk",
+                    Details = $"Uploaded {versionedFileName}; durable latest updated and public /downloads/mahima-app.apk mirror refreshed",
                     CreatedAt = now
                 });
                 await _db.SaveChangesAsync(HttpContext.RequestAborted);
@@ -243,6 +245,13 @@ namespace Mahima.Api.v3.clean.Controllers
         private string GetPublicVersionManifestPath() =>
             Path.Combine(GetPublicRoot(), "app-version.json");
 
+        private string GetPublicDownloadsRoot()
+        {
+            var root = Path.Combine(GetPublicRoot(), "downloads");
+            Directory.CreateDirectory(root);
+            return root;
+        }
+
         private string GetWritableReleaseRoot()
         {
             var configured =
@@ -250,7 +259,11 @@ namespace Mahima.Api.v3.clean.Controllers
                 Environment.GetEnvironmentVariable("MAHIMA_RELEASE_ROOT");
 
             if (string.IsNullOrWhiteSpace(configured))
-                configured = Path.Combine(_env.ContentRootPath, "App_Data", "app-releases");
+            {
+                configured = OperatingSystem.IsLinux()
+                    ? "/var/lib/mahima/app-releases"
+                    : Path.Combine(_env.ContentRootPath, "App_Data", "app-releases");
+            }
 
             Directory.CreateDirectory(configured);
             return Path.GetFullPath(configured);
@@ -258,6 +271,94 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private string GetWritableVersionManifestPath() =>
             Path.Combine(GetWritableReleaseRoot(), "app-version.json");
+
+        private string GetWritableDownloadsRoot()
+        {
+            var root = Path.Combine(GetWritableReleaseRoot(), "downloads");
+            Directory.CreateDirectory(root);
+            return root;
+        }
+
+        private string? FindLatestApkPath()
+        {
+            var publicDownloadsRoot = GetPublicDownloadsRoot();
+            var writableDownloadsRoot = GetWritableDownloadsRoot();
+            var publicLatestPath = Path.Combine(publicDownloadsRoot, "mahima-app.apk");
+            var writableLatestPath = Path.Combine(writableDownloadsRoot, "mahima-app.apk");
+
+            if (System.IO.File.Exists(publicLatestPath))
+                return publicLatestPath;
+
+            if (System.IO.File.Exists(writableLatestPath))
+            {
+                TryMirrorFile(writableLatestPath, publicLatestPath);
+                return writableLatestPath;
+            }
+
+            var manifestVersionedFile = TryReadVersionedApkFileName(GetWritableVersionManifestPath()) ??
+                                        TryReadVersionedApkFileName(GetPublicVersionManifestPath());
+            if (!string.IsNullOrWhiteSpace(manifestVersionedFile))
+            {
+                var writableVersionedPath = Path.Combine(writableDownloadsRoot, manifestVersionedFile);
+                var publicVersionedPath = Path.Combine(publicDownloadsRoot, manifestVersionedFile);
+
+                if (System.IO.File.Exists(writableVersionedPath))
+                {
+                    TryMirrorFile(writableVersionedPath, publicVersionedPath);
+                    TryMirrorFile(writableVersionedPath, publicLatestPath);
+                    return writableVersionedPath;
+                }
+
+                if (System.IO.File.Exists(publicVersionedPath))
+                {
+                    TryMirrorFile(publicVersionedPath, publicLatestPath);
+                    return publicVersionedPath;
+                }
+            }
+
+            return null;
+        }
+
+        private string? TryReadVersionedApkFileName(string manifestPath)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(manifestPath)) return null;
+
+                using var stream = System.IO.File.OpenRead(manifestPath);
+                using var document = JsonDocument.Parse(stream);
+                if (!document.RootElement.TryGetProperty("android", out var android)) return null;
+
+                if (android.TryGetProperty("versionedFileName", out var versionedFileName))
+                    return versionedFileName.GetString();
+
+                if (android.TryGetProperty("fileName", out var fileName))
+                    return fileName.GetString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read APK file name from app release manifest {ManifestPath}", manifestPath);
+            }
+
+            return null;
+        }
+
+        private void TryMirrorFile(string sourcePath, string destinationPath)
+        {
+            try
+            {
+                var destinationDirectory = Path.GetDirectoryName(destinationPath);
+                if (!string.IsNullOrWhiteSpace(destinationDirectory))
+                    Directory.CreateDirectory(destinationDirectory);
+
+                if (System.IO.File.Exists(sourcePath))
+                    System.IO.File.Copy(sourcePath, destinationPath, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not mirror file {SourcePath} to {DestinationPath}", sourcePath, destinationPath);
+            }
+        }
 
         private string PublicBaseUrl()
         {

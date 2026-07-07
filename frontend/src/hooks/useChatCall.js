@@ -211,6 +211,7 @@ export default function useChatCall({ connection, chat, meId, enabled = true }) 
       await connection.invoke("StartCall", {
         chatId: chat.id,
         sdp: JSON.stringify(offer),
+        type,
       });
 
       clearNoAnswerTimer();
@@ -225,6 +226,33 @@ export default function useChatCall({ connection, chat, meId, enabled = true }) 
       failCall(err?.message || "Call failed", chat.id);
     }
   }, [chat?.id, clearNoAnswerTimer, connection, createPeerConnection, enabled, failCall, getMedia]);
+
+  const restoreIncomingCall = useCallback((payload) => {
+    if (!enabled || !payload?.chatId || !payload?.sdp) return false;
+    if (String(payload.fromUserId) === String(meId)) return false;
+    if (pcRef.current) return false;
+
+    const type = payload.type || payload.callType || (() => {
+      try {
+        const offer = JSON.parse(payload.sdp);
+        return typeof offer.sdp === "string" && /m=video/.test(offer.sdp) ? "video" : "audio";
+      } catch {
+        return "audio";
+      }
+    })();
+
+    activeChatIdRef.current = payload.chatId;
+    callTypeRef.current = type;
+    setCallState({
+      status: "ringing",
+      offer: payload.sdp,
+      chatId: payload.chatId,
+      fromUserId: payload.fromUserId,
+      type,
+      direction: "in",
+    });
+    return true;
+  }, [enabled, meId]);
 
   const accept = useCallback(async () => {
     if (callState.status !== "ringing") return;
@@ -286,23 +314,9 @@ export default function useChatCall({ connection, chat, meId, enabled = true }) 
       if (String(payload.fromUserId) === String(meId)) return;
       if (pcRef.current) return;
 
-      activeChatIdRef.current = payload.chatId;
-
-      let type = "audio";
-      try {
-        const offer = JSON.parse(payload.sdp);
-        if (typeof offer.sdp === "string" && /m=video/.test(offer.sdp)) type = "video";
-      } catch {}
-
-      callTypeRef.current = type;
-      setCallState({
-        status: "ringing",
-        offer: payload.sdp,
-        chatId: payload.chatId,
-        fromUserId: payload.fromUserId,
-        type,
-        direction: "in",
-      });
+      const restored = restoreIncomingCall(payload);
+      const type = payload.type || payload.callType || "audio";
+      if (!restored) return;
 
       notifyIncomingCall({
         chatId: payload.chatId,
@@ -365,7 +379,7 @@ export default function useChatCall({ connection, chat, meId, enabled = true }) 
       try { connection.off?.("CallSignal", onSignal); } catch {}
       try { connection.off?.("CallEnded", onEnded); } catch {}
     };
-  }, [callState.chatId, chat?.id, clearNoAnswerTimer, cleanup, connection, enabled, failCall, meId]);
+  }, [callState.chatId, chat?.id, clearNoAnswerTimer, cleanup, connection, enabled, failCall, meId, restoreIncomingCall]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -397,6 +411,7 @@ export default function useChatCall({ connection, chat, meId, enabled = true }) 
     endCall,
     toggleMic,
     toggleCamera,
+    restoreIncomingCall,
   };
 }
 

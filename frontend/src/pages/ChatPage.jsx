@@ -47,6 +47,39 @@ const arrayFrom = (data) => {
   return [];
 };
 
+const PENDING_CALL_KEY = "mahima_pending_call_notification";
+const PENDING_SHARE_KEY = "mahima_pending_share_intent";
+
+function readPendingCallIntent() {
+  try {
+    const raw = localStorage.getItem(PENDING_CALL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.chatId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingCallIntent() {
+  try { localStorage.removeItem(PENDING_CALL_KEY); } catch {}
+}
+
+function readPendingShareIntent() {
+  try {
+    const raw = localStorage.getItem(PENDING_SHARE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.text ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingShareIntent() {
+  try { localStorage.removeItem(PENDING_SHARE_KEY); } catch {}
+}
+
 async function readApiError(res, fallback) {
   const text = await res.text().catch(() => "");
   if (!text) return fallback;
@@ -94,6 +127,7 @@ export default function ChatPage() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [showListOnMobile, setShowListOnMobile] = useState(true);
   const [chatError, setChatError] = useState("");
+  const [pendingShareText, setPendingShareText] = useState("");
 
   const meId = useMemo(() => getMeId(), []);
   const token = useMemo(() => getToken(), []);
@@ -189,6 +223,14 @@ export default function ChatPage() {
     loadUsers();
   }, [loadChats, loadUsers]);
 
+  useEffect(() => {
+    const pending = readPendingShareIntent();
+    if (!pending?.text) return;
+    setPendingShareText(String(pending.text).trim());
+    setShowListOnMobile(true);
+    clearPendingShareIntent();
+  }, []);
+
   /* ----- auto-refresh fallback (polling + tab focus) -----
      SignalR pushes are real-time when connected; this layer covers the
      cases where the hub drops out or the tab was backgrounded. */
@@ -251,6 +293,19 @@ export default function ChatPage() {
       loadChats();
     };
 
+    const onChatUpdated = (chat) => {
+      if (!chat?.id) {
+        loadChats();
+        return;
+      }
+      setChats((prev) => sortChatsByLatest(prev.map((c) =>
+        String(c.id) === String(chat.id) ? { ...c, ...chat } : c
+      )));
+      setSelectedChat((cur) =>
+        cur && String(cur.id) === String(chat.id) ? { ...cur, ...chat } : cur
+      );
+    };
+
     const removeChat = (payload) => {
       const chatId = payload?.chatId ?? payload?.ChatId;
       setChats((prev) => prev.filter((c) => String(c.id) !== String(chatId)));
@@ -259,11 +314,13 @@ export default function ChatPage() {
 
     connection.on("ReceiveMessage", onReceiveMessage);
     connection.on("ChatCreated", onChatCreated);
+    connection.on("ChatUpdated", onChatUpdated);
     connection.on("ChatDeleted", removeChat);
     connection.on("ChatSoftDeleted", removeChat);
     return () => {
       try { connection.off("ReceiveMessage", onReceiveMessage); } catch {}
       try { connection.off("ChatCreated", onChatCreated); } catch {}
+      try { connection.off("ChatUpdated", onChatUpdated); } catch {}
       try { connection.off("ChatDeleted", removeChat); } catch {}
       try { connection.off("ChatSoftDeleted", removeChat); } catch {}
     };
@@ -285,6 +342,36 @@ export default function ChatPage() {
     chat: selectedChat,
     meId,
   });
+
+  useEffect(() => {
+    const pending = readPendingCallIntent();
+    const chatId = pending?.chatId;
+    if (!chatId || !connection || !isConnected || !call.restoreIncomingCall) return;
+
+    const targetChat = chatsRef.current.find((chat) => String(chat.id) === String(chatId));
+    if (targetChat) {
+      setSelectedChat(targetChat);
+      setShowListOnMobile(false);
+    }
+
+    let cancelled = false;
+    async function restorePendingCall() {
+      try {
+        const active = await connection.invoke("GetActiveCall", String(chatId));
+        if (cancelled) return;
+        if (active?.sdp) {
+          call.restoreIncomingCall(active);
+        }
+      } catch (err) {
+        console.warn("[ChatPage] could not restore pending call", err);
+      } finally {
+        clearPendingCallIntent();
+      }
+    }
+
+    restorePendingCall();
+    return () => { cancelled = true; };
+  }, [call.restoreIncomingCall, chats, connection, isConnected]);
 
   // Resolve the peer's display name for the call overlay. Incoming calls can
   // arrive even when that conversation is not currently open.
@@ -399,6 +486,16 @@ export default function ChatPage() {
     if (!chatKnown) loadChats();
   };
 
+  const onChatUpdatedLocal = (chat) => {
+    if (!chat?.id) return;
+    setChats((prev) => sortChatsByLatest(prev.map((c) =>
+      String(c.id) === String(chat.id) ? { ...c, ...chat } : c
+    )));
+    setSelectedChat((cur) =>
+      cur && String(cur.id) === String(chat.id) ? { ...cur, ...chat } : cur
+    );
+  };
+
   const startChatCall = useCallback((type) => {
     if (!selectedChat?.id) return;
     if (!isConnected) {
@@ -495,9 +592,12 @@ export default function ChatPage() {
             currentUserId={meId}
             usersMap={usersMap}
             onMessageCreated={onMessageCreated}
+            onChatUpdated={onChatUpdatedLocal}
             onBack={onBack}
             onStartAudioCall={() => startChatCall("audio")}
             onStartVideoCall={() => startChatCall("video")}
+            initialDraftText={pendingShareText}
+            onDraftConsumed={() => setPendingShareText("")}
           />
         </main>
       </div>

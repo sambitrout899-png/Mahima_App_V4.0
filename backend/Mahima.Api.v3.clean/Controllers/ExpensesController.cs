@@ -38,11 +38,23 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ExpenseDto>>> GetExpenses(
             [FromQuery] string? month,
-            [FromQuery] string? category)
+            [FromQuery] string? category,
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate)
         {
             var query = _db.Expenses.AsQueryable();
 
-            if (!string.IsNullOrWhiteSpace(month))
+            if (fromDate.HasValue)
+            {
+                query = query.Where(e => e.Date >= fromDate.Value.Date);
+            }
+
+            if (toDate.HasValue)
+            {
+                query = query.Where(e => e.Date <= toDate.Value.Date);
+            }
+
+            if (!fromDate.HasValue && !toDate.HasValue && !string.IsNullOrWhiteSpace(month))
             {
                 // month expected format: "YYYY-MM"
                 if (DateTime.TryParse(month + "-01", out var firstDay))

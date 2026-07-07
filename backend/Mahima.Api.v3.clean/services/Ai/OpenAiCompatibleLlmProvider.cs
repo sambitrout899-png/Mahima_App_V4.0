@@ -55,10 +55,39 @@ namespace Mahima.Api.v3.clean.Services.Ai
 
         public string Name => "openai-compatible";
 
-        private string BaseUrl => (_config["PastorBot:BaseUrl"]
-                                   ?? "https://api.openai.com/v1").TrimEnd('/');
-        private string? ApiKey => _config["PastorBot:ApiKey"]
-                                  ?? _config["PastorBot:OpenAiApiKey"]; // back-compat
+        private string? ApiKey
+        {
+            get
+            {
+                var apiKey = (_config["PastorBot:ApiKey"] ?? string.Empty).Trim();
+                if (!string.IsNullOrWhiteSpace(apiKey)) return apiKey;
+
+                var openAiApiKey = (_config["PastorBot:OpenAiApiKey"] ?? string.Empty).Trim();
+                return string.IsNullOrWhiteSpace(openAiApiKey) ? null : openAiApiKey;
+            }
+        }
+        private string BaseUrl
+        {
+            get
+            {
+                var configured = (_config["PastorBot:BaseUrl"] ?? string.Empty).Trim().TrimEnd('/');
+                var legacyEndpoint = (_config["PastorBot:Endpoint"] ?? string.Empty).Trim();
+                var hasOpenAiKey = !string.IsNullOrWhiteSpace(_config["PastorBot:OpenAiApiKey"])
+                                   || !string.IsNullOrWhiteSpace(_config["PastorBot:ApiKey"]);
+
+                if (hasOpenAiKey &&
+                    (string.IsNullOrWhiteSpace(configured) ||
+                     configured.Contains("localhost:11434", StringComparison.OrdinalIgnoreCase) ||
+                     legacyEndpoint.Contains("api.openai.com/v1/responses", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return "https://api.openai.com/v1";
+                }
+
+                return string.IsNullOrWhiteSpace(configured)
+                    ? "https://api.openai.com/v1"
+                    : configured;
+            }
+        }
         private string Model => _config["PastorBot:Model"] ?? "gpt-4o-mini";
         private string VisionModel => _config["PastorBot:VisionModel"]
                                       ?? _config["PastorBot:Model"]
@@ -140,6 +169,8 @@ namespace Mahima.Api.v3.clean.Services.Ai
                 }
 
                 var url = $"{BaseUrl}/chat/completions";
+                _logger.LogInformation("LLM provider {Provider} requesting model {Model} at {Url}. ApiKeyConfigured={HasApiKey}",
+                    Name, model, url, !string.IsNullOrWhiteSpace(ApiKey));
                 using var body = new StringContent(
                     JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 

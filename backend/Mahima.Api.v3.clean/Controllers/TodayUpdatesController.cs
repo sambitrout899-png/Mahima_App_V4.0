@@ -48,13 +48,25 @@ namespace Mahima.Api.v3.clean.Controllers
             var location = await ResolveLocationAsync(client, lat, lon, timezone, ct);
 
             var weatherTask = ResolveWeatherAsync(client, lat, lon, ct);
-            var articlesTask = FetchChristianArticlesAsync(client, location, ct);
+            var localArticlesTask = FetchChristianArticlesAsync(client, location, ct);
+            var globalArticlesTask = FetchGlobalChristianArticlesAsync(client, ct);
+            var preacherWordTask = FetchPreacherWordArticlesAsync(client, ct);
+            var meetingsTask = FetchChristianMeetingArticlesAsync(client, location, ct);
+            var sensitiveTask = FetchSensitiveChristianArticlesAsync(client, ct);
             var israelWatchTask = FetchIsraelWatchArticlesAsync(client, ct);
 
-            await Task.WhenAll(weatherTask, articlesTask, israelWatchTask);
+            await Task.WhenAll(weatherTask, localArticlesTask, globalArticlesTask, preacherWordTask, meetingsTask, sensitiveTask, israelWatchTask);
 
             var weather = await weatherTask;
-            var articles = await articlesTask;
+            var articles = (await localArticlesTask)
+                .Concat(await globalArticlesTask)
+                .Concat(await preacherWordTask)
+                .Concat(await meetingsTask)
+                .Concat(await sensitiveTask)
+                .GroupBy(article => article.Url ?? article.Title, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .Take(18)
+                .ToList();
             var israelWatch = await israelWatchTask;
             var christianUpdate = await BuildChristianUpdateAsync(location, articles, ct);
 
@@ -156,7 +168,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 var query = string.Join(" OR ", terms);
                 var url = "https://api.gdeltproject.org/api/v2/doc/doc"
                     + $"?query={Uri.EscapeDataString(query)}"
-                    + "&mode=ArtList&format=json&maxrecords=8&sort=HybridRel";
+                    + "&mode=ArtList&format=json&maxrecords=8&sort=HybridRel&timespan=48h";
 
                 var json = await client.GetStringAsync(url, ct);
                 using var doc = JsonDocument.Parse(json);
@@ -169,7 +181,9 @@ namespace Mahima.Api.v3.clean.Controllers
                         Title = GetString(article, "title") ?? "Christian community update",
                         Url = GetString(article, "url"),
                         Source = GetString(article, "domain") ?? GetString(article, "sourcecountry"),
-                        SeenDate = GetString(article, "seendate")
+                        SeenDate = GetString(article, "seendate"),
+                        Category = "Local",
+                        Tone = "news"
                     })
                     .Where(article => IsChristianCommunityUpdate(article.Title))
                     .GroupBy(article => article.Title, StringComparer.OrdinalIgnoreCase)
@@ -192,6 +206,101 @@ namespace Mahima.Api.v3.clean.Controllers
             var faith = new[] { "christian", "church", "pastor", "ministry", "mission", "believers", "prayer", "bible", "gospel", "worship" };
             return faith.Any(t.Contains);
         }
+
+        private async Task<IReadOnlyList<ArticleDto>> FetchGlobalChristianArticlesAsync(HttpClient client, CancellationToken ct)
+        {
+            var query = @"(Christian OR church OR pastor OR ministry OR Bible OR gospel OR worship OR believers) (global OR world OR international OR mission OR revival OR persecution OR prayer)";
+            return await FetchGdeltArticlesAsync(client, query, "Global", "news", 8, IsChristianCommunityUpdate, ct);
+        }
+
+        private async Task<IReadOnlyList<ArticleDto>> FetchPreacherWordArticlesAsync(HttpClient client, CancellationToken ct)
+        {
+            var query = @"(sermon OR preaching OR preacher OR pastor OR ""Sunday message"" OR ""Bible teaching"" OR ""Christian conference"") (Jesus OR Christ OR gospel OR church)";
+            return await FetchGdeltArticlesAsync(client, query, "Word", "faith", 8, IsPreacherWordUpdate, ct);
+        }
+
+        private async Task<IReadOnlyList<ArticleDto>> FetchChristianMeetingArticlesAsync(HttpClient client, LocationDto location, CancellationToken ct)
+        {
+            var terms = new List<string> { "Christian meeting", "church meeting", "prayer meeting", "worship night", "revival meeting", "Christian conference" };
+            if (!string.IsNullOrWhiteSpace(location.City)) terms.Add($"\"{location.City}\"");
+            if (!string.IsNullOrWhiteSpace(location.State)) terms.Add($"\"{location.State}\"");
+            if (!string.IsNullOrWhiteSpace(location.Country)) terms.Add($"\"{location.Country}\"");
+            var query = string.Join(" OR ", terms);
+            return await FetchGdeltArticlesAsync(client, query, "Meetings", "meeting", 8, IsMeetingUpdate, ct);
+        }
+
+        private async Task<IReadOnlyList<ArticleDto>> FetchSensitiveChristianArticlesAsync(HttpClient client, CancellationToken ct)
+        {
+            var query = @"(Christian OR church OR pastor OR believers OR missionary OR ministry) (attack OR persecution OR arrest OR violence OR crisis OR ban OR vandalism OR discrimination OR abuse OR scandal OR conflict OR war)";
+            return await FetchGdeltArticlesAsync(client, query, "Sensitive", "alert", 10, IsSensitiveChristianUpdate, ct);
+        }
+
+        private async Task<IReadOnlyList<ArticleDto>> FetchGdeltArticlesAsync(
+            HttpClient client,
+            string query,
+            string category,
+            string tone,
+            int maxRecords,
+            Func<string?, bool> predicate,
+            CancellationToken ct)
+        {
+            try
+            {
+                var url = "https://api.gdeltproject.org/api/v2/doc/doc"
+                    + $"?query={Uri.EscapeDataString(query)}"
+                    + $"&mode=ArtList&format=json&maxrecords={maxRecords}&sort=HybridRel&timespan=48h";
+
+                var json = await client.GetStringAsync(url, ct);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("articles", out var articles) || articles.ValueKind != JsonValueKind.Array)
+                    return Array.Empty<ArticleDto>();
+
+                return articles.EnumerateArray()
+                    .Select(article => new ArticleDto
+                    {
+                        Title = GetString(article, "title") ?? $"{category} Christian update",
+                        Url = GetString(article, "url"),
+                        Source = GetString(article, "domain") ?? GetString(article, "sourcecountry"),
+                        SeenDate = GetString(article, "seendate"),
+                        Category = category,
+                        Tone = tone
+                    })
+                    .Where(article => predicate(article.Title))
+                    .GroupBy(article => article.Title, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .Take(6)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "{Category} Christian update lookup failed.", category);
+                return Array.Empty<ArticleDto>();
+            }
+        }
+
+        private static bool IsPreacherWordUpdate(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            var word = new[] { "sermon", "preach", "pastor", "bible", "gospel", "teaching", "conference", "message", "worship" };
+            return word.Any(t.Contains) && IsChristianCommunityUpdate(title);
+        }
+
+        private static bool IsMeetingUpdate(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            var meeting = new[] { "meeting", "conference", "gathering", "revival", "prayer", "worship", "service", "crusade" };
+            return meeting.Any(t.Contains) && IsChristianCommunityUpdate(title);
+        }
+
+        private static bool IsSensitiveChristianUpdate(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            var sensitive = new[] { "attack", "persecution", "arrest", "violence", "crisis", "ban", "vandal", "discrimination", "abuse", "scandal", "conflict", "war" };
+            return sensitive.Any(t.Contains) && IsChristianCommunityUpdate(title);
+        }
         private async Task<IReadOnlyList<ArticleDto>> FetchIsraelWatchArticlesAsync(HttpClient client, CancellationToken ct)
         {
             try
@@ -199,7 +308,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 var query = @"(Israel OR Jerusalem OR ""Middle East"") (""second coming"" OR prophecy OR prophetic OR ""end times"" OR eschatology OR Bible OR Christian)";
                 var url = "https://api.gdeltproject.org/api/v2/doc/doc"
                     + $"?query={Uri.EscapeDataString(query)}"
-                    + "&mode=ArtList&format=json&maxrecords=12&sort=HybridRel";
+                    + "&mode=ArtList&format=json&maxrecords=12&sort=HybridRel&timespan=48h";
 
                 var json = await client.GetStringAsync(url, ct);
                 using var doc = JsonDocument.Parse(json);
@@ -212,7 +321,9 @@ namespace Mahima.Api.v3.clean.Controllers
                         Title = GetString(article, "title") ?? "Israel watch update",
                         Url = GetString(article, "url"),
                         Source = GetString(article, "domain") ?? GetString(article, "sourcecountry"),
-                        SeenDate = GetString(article, "seendate")
+                        SeenDate = GetString(article, "seendate"),
+                        Category = "Israel Watch",
+                        Tone = "israel"
                     })
                     .Where(article => IsIsraelSecondComingWatch(article.Title))
                     .GroupBy(article => article.Title, StringComparer.OrdinalIgnoreCase)
@@ -253,12 +364,13 @@ namespace Mahima.Api.v3.clean.Controllers
 
             try
             {
-                var headlines = string.Join("\n", articles.Select((article, index) => $"{index + 1}. {article.Title} ({article.Source})"));
-                var prompt = $@"Create a short Christian update for {region} for {today}.
+                var headlines = string.Join("\n", articles.Select((article, index) => $"{index + 1}. [{article.Category}] {article.Title} ({article.Source})"));
+                var prompt = $@"Create a fresh Live Faith Wire briefing for {region} for {today}.
 Use only these verified public headlines; do not invent details:
 {headlines}
 
-Write 2 concise sentences and one prayer focus. Keep it pastoral, careful, and factual.";
+Cover: local Christian updates, global Christian news, words/messages from preachers or Christian teachers, meetings/conferences/prayer gatherings, and sensitive Christian news where present.
+Write 4 concise bullets and one prayer focus. Keep it pastoral, factual, cautious, and avoid sensational claims. For sensitive news, use careful wording and encourage prayer, verification, and pastoral wisdom.";
 
                 var userId = User.GetUserIdGuid();
                 using var summaryTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -359,6 +471,8 @@ Write 2 concise sentences and one prayer focus. Keep it pastoral, careful, and f
             public string? Url { get; set; }
             public string? Source { get; set; }
             public string? SeenDate { get; set; }
+            public string? Category { get; set; }
+            public string? Tone { get; set; }
         }
     }
 }

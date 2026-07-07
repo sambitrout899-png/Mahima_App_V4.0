@@ -224,11 +224,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 INSERT INTO pages (key, title, description, created_at, updated_at)
                 VALUES
                     ('DASHBOARD', 'Home', 'Main home dashboard and quick links.', now(), now()),
-                    ('PASTOR', 'AI Pastor', 'Pastoral AI assistant for prayer, Scripture, and daily guidance.', now(), now()),
+                    ('PASTOR', 'AI Counseller', 'Pastoral AI assistant for prayer, Scripture, and daily guidance.', now(), now()),
                     ('APP_DOWNLOADS', 'App Downloads', 'Android and iOS app download and upgrade page.', now(), now()),
                     ('SERMONS', 'Sermons', 'Sermon library and media management.', now(), now()),
                     ('PRAYER_REQUESTS', 'Prayer Requests', 'Prayer request intake, tracking, and updates.', now(), now()),
                     ('TASKS', 'Tasks', 'Team task management and follow-up tracking.', now(), now()),
+                    ('PROJECT_MANAGEMENT', 'Project Management', 'PMO portfolio controls for construction, crusades, and Mahima application demo projects.', now(), now()),
                     ('USERS', 'Users', 'User account and staff profile management.', now(), now()),
                     ('TEAMS', 'Teams', 'Team setup, membership, and ministry group management.', now(), now()),
                     ('ROLES', 'Roles', 'Role setup and page permission assignment.', now(), now()),

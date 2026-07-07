@@ -108,9 +108,10 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("upload")]
         [RequestSizeLimit(MaxBytes)]
         [RequestFormLimits(MultipartBodyLengthLimit = MaxBytes)]
-        public async Task<IActionResult> Upload([FromForm] IFormFile file, [FromForm] string? path)
+        public async Task<IActionResult> Upload([FromForm] IFormFile? file, [FromForm] string? path, [FromForm] string? relativePath)
         {
-            if (file == null || file.Length == 0) return BadRequest("file is required.");
+            file ??= Request.Form.Files.FirstOrDefault();
+            if (file == null) return BadRequest("file is required.");
             if (file.Length > MaxBytes) return BadRequest("File too large. Maximum size is 2 GB.");
 
             try
@@ -119,8 +120,22 @@ namespace Mahima.Api.v3.clean.Controllers
                 var folder = ResolveSafePath(root, path);
                 Directory.CreateDirectory(folder);
 
-                var cleanFileName = CleanFileName(file.FileName);
-                var targetPath = UniqueTargetPath(folder, cleanFileName);
+                var uploadRelativePath = CleanRelativeUploadPath(relativePath);
+                var targetFolder = folder;
+                if (!string.IsNullOrWhiteSpace(uploadRelativePath))
+                {
+                    var relativeFolder = Path.GetDirectoryName(uploadRelativePath);
+                    if (!string.IsNullOrWhiteSpace(relativeFolder))
+                    {
+                        targetFolder = ResolveSafePath(root, Path.Combine(ToRelativePath(root, folder), relativeFolder));
+                        Directory.CreateDirectory(targetFolder);
+                    }
+                }
+
+                var cleanFileName = !string.IsNullOrWhiteSpace(uploadRelativePath)
+                    ? Path.GetFileName(uploadRelativePath)
+                    : CleanFileName(file.FileName);
+                var targetPath = UniqueTargetPath(targetFolder, cleanFileName);
 
                 await using var stream = System.IO.File.Create(targetPath);
                 await file.CopyToAsync(stream, HttpContext.RequestAborted);
@@ -140,7 +155,7 @@ namespace Mahima.Api.v3.clean.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Could not upload server file {FileName}", file.FileName);
+                _logger.LogError(ex, "Could not upload server file {FileName}", file?.FileName);
                 return StatusCode(500, "Could not upload file.");
             }
         }
@@ -439,6 +454,20 @@ namespace Mahima.Api.v3.clean.Controllers
             return string.IsNullOrWhiteSpace(clean) ? $"upload-{Guid.NewGuid():N}.bin" : clean;
         }
 
+        private static string CleanRelativeUploadPath(string? relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath)) return string.Empty;
+
+            var segments = relativePath
+                .Replace('\\', '/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Select(CleanFileName)
+                .Where(segment => segment != "." && segment != ".." && !string.IsNullOrWhiteSpace(segment))
+                .ToArray();
+
+            return segments.Length == 0 ? string.Empty : Path.Combine(segments);
+        }
+
         private static string UniqueTargetPath(string folder, string fileName)
         {
             var target = Path.Combine(folder, fileName);
@@ -458,10 +487,18 @@ namespace Mahima.Api.v3.clean.Controllers
         private static void CopyDirectory(string source, string target)
         {
             Directory.CreateDirectory(target);
+
             foreach (var file in Directory.EnumerateFiles(source))
-                System.IO.File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
+            {
+                var targetFile = UniqueTargetPath(target, Path.GetFileName(file));
+                System.IO.File.Copy(file, targetFile);
+            }
+
             foreach (var directory in Directory.EnumerateDirectories(source))
-                CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
+            {
+                var targetDirectory = UniqueTargetPath(target, Path.GetFileName(directory));
+                CopyDirectory(directory, targetDirectory);
+            }
         }
 
         private static bool IsInsidePath(string parent, string child)

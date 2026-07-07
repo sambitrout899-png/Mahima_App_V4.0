@@ -460,6 +460,7 @@ namespace Mahima.Api.v3.clean.Controllers
         /* =================================================================
            POST /api/sermons
            ================================================================= */
+        [Microsoft.AspNetCore.Authorization.Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] SermonDto dto)
         {
@@ -471,6 +472,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                if (!await CanManageMediaAsync(conn)) return Forbid();
                 var hasType = await EnsureSchemaAsync(conn);
                 var hasResourceColumns = _resourceColumnsExist;
 
@@ -547,6 +549,7 @@ namespace Mahima.Api.v3.clean.Controllers
         /* =================================================================
            PUT /api/sermons/{id}
            ================================================================= */
+        [Microsoft.AspNetCore.Authorization.Authorize]
         [HttpPut("{id:int}")]
         public async Task<IActionResult> Update(int id, [FromBody] SermonDto dto)
         {
@@ -557,6 +560,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                if (!await CanManageMediaAsync(conn)) return Forbid();
                 var hasType = await EnsureSchemaAsync(conn);
                 var hasResourceColumns = _resourceColumnsExist;
 
@@ -632,6 +636,7 @@ namespace Mahima.Api.v3.clean.Controllers
         /* =================================================================
            DELETE /api/sermons/{id}
            ================================================================= */
+        [Microsoft.AspNetCore.Authorization.Authorize]
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -640,6 +645,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                if (!await CanManageMediaAsync(conn)) return Forbid();
 
                 const string sql = @"DELETE FROM ""Sermons"" WHERE ""Id"" = @id;";
                 await using var cmd = new NpgsqlCommand(sql, conn);
@@ -662,7 +668,6 @@ namespace Mahima.Api.v3.clean.Controllers
         public async Task<IActionResult> UploadDigitalFile(int id, [FromForm] IFormFile file)
         {
             if (ConnectionMissing(out var fail)) return fail!;
-            if (!IsAdminUser()) return Forbid();
             if (file == null || file.Length == 0) return BadRequest("Digital file is required.");
 
             var extension = Path.GetExtension(file.FileName);
@@ -672,6 +677,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                if (!await CanManageMediaAsync(conn)) return Forbid();
                 await EnsureSchemaAsync(conn);
                 if (!_resourceColumnsExist) return StatusCode(500, "Resource file columns are not available.");
 
@@ -960,13 +966,72 @@ namespace Mahima.Api.v3.clean.Controllers
             return Guid.TryParse(raw, out var id) ? id : null;
         }
 
+        private static string NormalizeAccessName(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            return new string(value.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        }
+
+        private static bool IsMediaManagerRoleName(string? value)
+        {
+            var role = NormalizeAccessName(value);
+            return role is "admin" or "administrator" or "superadmin" or "superadministrator" or "mediamanager";
+        }
+
         private bool IsAdminUser()
         {
             return User.IsInRole("admin") ||
                    User.IsInRole("ADMIN") ||
+                   User.IsInRole("Media Manager") ||
                    User.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type.EndsWith("/role", StringComparison.OrdinalIgnoreCase) || c.Type == "role") &&
-                       string.Equals(c.Value, "admin", StringComparison.OrdinalIgnoreCase));
+                       IsMediaManagerRoleName(c.Value));
+        }
+
+        private async Task<bool> CanManageMediaAsync(NpgsqlConnection conn)
+        {
+            if (IsAdminUser()) return true;
+
+            var userId = CurrentUserId();
+            if (!userId.HasValue) return false;
+
+            const string ensureUserRoles = @"
+                CREATE TABLE IF NOT EXISTS public.user_roles (
+                    user_id uuid NOT NULL,
+                    role_id integer NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+                    assigned_at timestamp without time zone NOT NULL DEFAULT now(),
+                    assigned_by uuid NULL,
+                    PRIMARY KEY (user_id, role_id)
+                );";
+            await using (var guard = new NpgsqlCommand(ensureUserRoles, conn))
+            {
+                await guard.ExecuteNonQueryAsync();
+            }
+
+            const string sql = @"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM public.user_roles ur
+                    JOIN public.roles r ON r.id = ur.role_id
+                    WHERE ur.user_id = @userId
+                      AND regexp_replace(lower(coalesce(r.name, '')), '[^a-z0-9]', '', 'g')
+                          IN ('admin', 'administrator', 'superadmin', 'superadministrator', 'mediamanager')
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM public.users u
+                    LEFT JOIN public.roles r ON r.id::text = u.role::text
+                    WHERE u.id = @userId
+                      AND (
+                          regexp_replace(lower(coalesce(u.role, '')), '[^a-z0-9]', '', 'g')
+                              IN ('admin', 'administrator', 'superadmin', 'superadministrator', 'mediamanager')
+                          OR regexp_replace(lower(coalesce(r.name, '')), '[^a-z0-9]', '', 'g')
+                              IN ('admin', 'administrator', 'superadmin', 'superadministrator', 'mediamanager')
+                      )
+                );";
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("userId", NpgsqlDbType.Uuid, userId.Value);
+            return (bool)(await cmd.ExecuteScalarAsync() ?? false);
         }
 
         private async Task<ResourceAccess?> LoadResourceAccessAsync(NpgsqlConnection conn, int id)

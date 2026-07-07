@@ -20,12 +20,18 @@ namespace Mahima.Api.v3.clean.Controllers
         private static readonly HashSet<string> AllowedContentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "image/jpeg",
+            "image/jpg",
             "image/png",
             "image/webp",
             "image/gif",
+            "image/heic",
+            "image/heif",
+            "image/avif",
             "video/mp4",
             "video/webm",
             "video/quicktime",
+            "video/3gpp",
+            "video/x-m4v",
             "audio/mpeg",
             "audio/mp4",
             "audio/ogg",
@@ -100,7 +106,18 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var relativeFolder = Path.Combine("chat", DateTime.UtcNow.ToString("yyyy"), DateTime.UtcNow.ToString("MM"));
             var targetFolder = Path.Combine(uploadRoot, relativeFolder);
-            Directory.CreateDirectory(targetFolder);
+
+            try
+            {
+                Directory.CreateDirectory(targetFolder);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not create chat upload folder {TargetFolder}", targetFolder);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "Upload storage is not writable. Please check server folder permissions.");
+            }
 
             var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
             var fullPath = Path.Combine(targetFolder, fileName);
@@ -109,6 +126,13 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var stream = System.IO.File.Create(fullPath);
                 await file.CopyToAsync(stream);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogError(ex, "Upload folder is not writable: {TargetFolder}", targetFolder);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    "Upload folder is not writable. Please check server folder permissions.");
             }
             catch (Exception ex)
             {

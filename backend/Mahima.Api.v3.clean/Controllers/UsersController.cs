@@ -52,11 +52,11 @@ namespace Mahima.Api.v3.clean.Controllers
                     HttpContext.RequestAborted);
 
                 await _chatHub.Clients.All.SendAsync("ReceiveMessage", sent, HttpContext.RequestAborted);
-                _logger.LogInformation("AI Pastor welcome sent for new user {UserId}", userId);
+                _logger.LogInformation("AI Counseller welcome sent for new user {UserId}", userId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "AI Pastor welcome could not be sent for new user {UserId}", userId);
+                _logger.LogWarning(ex, "AI Counseller welcome could not be sent for new user {UserId}", userId);
             }
         }
 
@@ -83,6 +83,78 @@ namespace Mahima.Api.v3.clean.Controllers
         private static object DbTimestamp(DateTime? value) =>
             value.HasValue ? EnsureUtc(value.Value) : DBNull.Value;
 
+        private static string NormalizePhoneForDuplicateCheck(string? value)
+        {
+            var digits = new string((value ?? string.Empty).Where(char.IsDigit).ToArray());
+            if (digits.Length > 10 && digits.StartsWith("91", StringComparison.Ordinal))
+                digits = digits.Substring(digits.Length - 10);
+
+            return digits;
+        }
+
+        private static async Task<(Guid Id, string? DisplayName, string? Username, string? Phone)?> FindUserByPhoneAsync(
+            NpgsqlConnection conn,
+            string? phone,
+            Guid? excludeUserId = null)
+        {
+            var normalizedPhone = NormalizePhoneForDuplicateCheck(phone);
+            if (string.IsNullOrWhiteSpace(normalizedPhone))
+                return null;
+
+            await using var cmd = new NpgsqlCommand(@"
+WITH normalized_users AS (
+    SELECT
+        id,
+        displayname,
+        username,
+        phone,
+        CASE
+            WHEN length(raw_phone) > 10 AND raw_phone LIKE '91%' THEN right(raw_phone, 10)
+            ELSE raw_phone
+        END AS normalized_phone
+    FROM (
+        SELECT
+            id,
+            displayname,
+            username,
+            phone,
+            regexp_replace(coalesce(phone, ''), '\D', '', 'g') AS raw_phone
+        FROM public.users
+    ) u
+)
+SELECT id, displayname, username, phone
+FROM normalized_users
+WHERE normalized_phone = @phone
+  AND (@excludeUserId IS NULL OR id <> @excludeUserId)
+LIMIT 1;", conn);
+            cmd.Parameters.AddWithValue("phone", NpgsqlTypes.NpgsqlDbType.Text, normalizedPhone);
+            cmd.Parameters.AddWithValue("excludeUserId", NpgsqlTypes.NpgsqlDbType.Uuid, excludeUserId.HasValue ? (object)excludeUserId.Value : DBNull.Value);
+
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            if (!await rdr.ReadAsync())
+                return null;
+
+            return (
+                rdr.GetGuid(rdr.GetOrdinal("id")),
+                rdr["displayname"]?.ToString(),
+                rdr["username"]?.ToString(),
+                rdr["phone"]?.ToString()
+            );
+        }
+
+        private static ConflictObjectResult DuplicatePhoneConflict((Guid Id, string? DisplayName, string? Username, string? Phone) existing) =>
+            new(new
+            {
+                message = "Mobile number already exists for another user. Please use a unique mobile number.",
+                existingUser = new
+                {
+                    id = existing.Id,
+                    name = string.IsNullOrWhiteSpace(existing.DisplayName) ? existing.Username : existing.DisplayName,
+                    username = existing.Username,
+                    phone = existing.Phone
+                }
+            });
+
         private static async Task EnsureUserProfilesTableAsync(NpgsqlConnection conn)
         {
             await using var cmd = new NpgsqlCommand(@"
@@ -99,6 +171,19 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
             await using var cmd = new NpgsqlCommand(@"
 ALTER TABLE public.users
 ADD COLUMN IF NOT EXISTS payrollenabled boolean NOT NULL DEFAULT false;", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task EnsureUserAccessBlocksAsync(NpgsqlConnection conn)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.user_access_blocks (
+    user_id uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    reason text NULL,
+    blocked_by uuid NULL,
+    blocked_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    is_active boolean NOT NULL DEFAULT true
+);", conn);
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -162,6 +247,9 @@ ADD COLUMN IF NOT EXISTS payrollenabled boolean NOT NULL DEFAULT false;", conn);
             public string? EmergencyContactPhone { get; set; }
             public bool? IsPastor { get; set; }
             public bool? PayrollEnabled { get; set; }
+            public bool IsBlocked { get; set; }
+            public string? BlockReason { get; set; }
+            public string? BlockedAtUtc { get; set; }
         }
 
         // GET api/users?search=&page=1&limit=50
@@ -185,6 +273,7 @@ ADD COLUMN IF NOT EXISTS payrollenabled boolean NOT NULL DEFAULT false;", conn);
                 await conn.OpenAsync();
                 await EnsureUserProfilesTableAsync(conn);
                 await EnsurePayrollEnabledColumnAsync(conn);
+                await EnsureUserAccessBlocksAsync(conn);
                 var columns = await GetUsersColumnsAsync(conn);
 
                 string Expr(params string[] names)
@@ -265,9 +354,13 @@ SELECT COUNT(*) OVER() AS total,
        {SelectExpr("CurrentAddress", "CurrentAddress", "currentaddress")},
        {SelectExpr("EmergencyContactPhone", "EmergencyContactPhone", "emergencycontactphone")},
        {SelectExpr("IsPastor", "IsPastor", "ispastor")},
-       {SelectExpr("PayrollEnabled", "payrollenabled", "PayrollEnabled", "payroll_enabled")}
+       {SelectExpr("PayrollEnabled", "payrollenabled", "PayrollEnabled", "payroll_enabled")},
+       COALESCE(b.is_active, false) AS ""IsBlocked"",
+       b.reason AS ""BlockReason"",
+       b.blocked_at_utc AS ""BlockedAtUtc""
 FROM users u
 LEFT JOIN public.user_profiles p ON p.user_id = u.id
+LEFT JOIN public.user_access_blocks b ON b.user_id = u.id AND b.is_active = true
 {where}
 ORDER BY ({joinDateExpr}) DESC NULLS LAST, COALESCE(({displayNameExpr})::text, ({usernameExpr})::text, ({emailExpr})::text, '') ASC, ({idExpr}) ASC
 LIMIT @limit OFFSET @offset;";
@@ -430,7 +523,10 @@ WHERE table_schema = 'public'
                 CurrentAddress = DbString(rdr, "CurrentAddress"),
                 EmergencyContactPhone = DbString(rdr, "EmergencyContactPhone"),
                 IsPastor = DbBool(rdr, "IsPastor"),
-                PayrollEnabled = DbBool(rdr, "PayrollEnabled")
+                PayrollEnabled = DbBool(rdr, "PayrollEnabled"),
+                IsBlocked = DbBool(rdr, "IsBlocked") ?? false,
+                BlockReason = DbString(rdr, "BlockReason"),
+                BlockedAtUtc = DbString(rdr, "BlockedAtUtc")
             };
         }
 
@@ -846,6 +942,10 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await EnsurePayrollEnabledColumnAsync(conn);
+        var existingUserWithPhone = await FindUserByPhoneAsync(conn, phone);
+        if (existingUserWithPhone.HasValue)
+            return DuplicatePhoneConflict(existingUserWithPhone.Value);
+
         var (roleId, roleName) = await ResolveRoleAsync(conn, requestedRole);
 
         const string sql = @"
@@ -900,7 +1000,7 @@ RETURNING id;
 	
         var id = await cmd.ExecuteScalarAsync();
         var createdUserId = Guid.TryParse(id?.ToString(), out var createdGuid) ? createdGuid : Guid.Empty;
-        _logger.LogInformation("New user {UserId} queued for AI Pastor welcome dashboard approval.", createdUserId);
+        _logger.LogInformation("New user {UserId} queued for AI Counseller welcome dashboard approval.", createdUserId);
 
         return Ok(new
         {
@@ -1261,6 +1361,10 @@ Console.WriteLine(body.ToString());
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await EnsurePayrollEnabledColumnAsync(conn);
+        var parsedUserId = Guid.Parse(id);
+        var existingUserWithPhone = await FindUserByPhoneAsync(conn, phone, parsedUserId);
+        if (existingUserWithPhone.HasValue)
+            return DuplicatePhoneConflict(existingUserWithPhone.Value);
 
         var sql = @"
 UPDATE users SET
@@ -1315,7 +1419,7 @@ WHERE id = @Id;
         cmd.Parameters.AddWithValue("IsPastor", NpgsqlTypes.NpgsqlDbType.Boolean, isPastor ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("PayrollEnabled", NpgsqlTypes.NpgsqlDbType.Boolean, payrollEnabled ?? (object)DBNull.Value);
 
-        cmd.Parameters.AddWithValue("Id", Guid.Parse(id));
+        cmd.Parameters.AddWithValue("Id", parsedUserId);
 
         var rows = await cmd.ExecuteNonQueryAsync();
 

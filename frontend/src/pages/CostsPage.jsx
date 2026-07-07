@@ -1,4 +1,4 @@
-// src/pages/CostsPage.jsx
+﻿// src/pages/CostsPage.jsx
 //
 // Modern accounting dashboard. Same API endpoints as before
 // (/api/accounting/{accounts,balances,ledger,pnl,journal,opening-balance}),
@@ -284,6 +284,16 @@ export default function CostsPage() {
   const financialYearEnd = financialYearStart.add(1, "year").subtract(1, "day");
   const [fromDate, setFromDate] = useState(financialYearStart.format("YYYY-MM-DD"));
   const [toDate, setToDate] = useState(financialYearEnd.format("YYYY-MM-DD"));
+  const periodParams = useMemo(() => {
+    const from = fromDate ? dayjs(fromDate).startOf("day").toISOString() : "";
+    const to = toDate ? dayjs(toDate).endOf("day").toISOString() : "";
+    return { from, to };
+  }, [fromDate, toDate]);
+  const periodLabel = useMemo(() => {
+    const from = fromDate ? dayjs(fromDate).format("DD MMM YYYY") : "Start";
+    const to = toDate ? dayjs(toDate).format("DD MMM YYYY") : "Today";
+    return from === to ? from : `${from} - ${to}`;
+  }, [fromDate, toDate]);
 
   // Loading flags
   const [loadingAll, setLoadingAll] = useState(false);
@@ -307,9 +317,12 @@ export default function CostsPage() {
   const fetchAccountsAndBalances = useCallback(async () => {
     setLoadingAll(true);
     try {
+      const balancePath = periodParams.to
+        ? `/balances?toDate=${encodeURIComponent(periodParams.to)}`
+        : "/balances";
       const [a, b] = await Promise.all([
         axios.get(accountingUrl("/accounts"), authConfig()),
-        axios.get(accountingUrl("/balances"), authConfig()),
+        axios.get(accountingUrl(balancePath), authConfig()),
       ]);
       setAccounts(arrayFrom(a?.data));
       setBalances(arrayFrom(b?.data));
@@ -319,7 +332,7 @@ export default function CostsPage() {
     } finally {
       setLoadingAll(false);
     }
-  }, [toastError]);
+  }, [periodParams.to, toastError]);
 
   // Load 6-month P&L trend on dashboard mount
   const fetchPnlTrend = useCallback(async () => {
@@ -369,12 +382,6 @@ export default function CostsPage() {
   // write to a `timestamp with time zone` column.
   // dayjs parses "YYYY-MM-DD" as local midnight; startOf/endOf ensures
   // we cover the whole local day, then toISOString() converts to UTC.
-  const periodParams = useMemo(() => {
-    const from = fromDate ? dayjs(fromDate).startOf("day").toISOString() : "";
-    const to = toDate ? dayjs(toDate).endOf("day").toISOString() : "";
-    return { from, to };
-  }, [fromDate, toDate]);
-
   const periodSlug = useMemo(() => `${fromDate || "start"}-to-${toDate || "today"}`, [fromDate, toDate]);
 
   const loadLedger = async (account) => {
@@ -423,10 +430,15 @@ export default function CostsPage() {
     }
   }, [periodParams, toastError]);
 
-  // Reload P&L whenever period or view changes to reports
+  // Reload range-sensitive reports whenever the selected period changes.
   useEffect(() => {
-    if (view === "reports") loadPnl();
+    if (view === "dashboard" || view === "reports") loadPnl();
   }, [view, loadPnl]);
+
+  useEffect(() => {
+    if (view === "transactions" && selectedAccount) loadLedger(selectedAccount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodParams.from, periodParams.to, view]);
 
   // Auto-load default ledger when entering Transactions view
   useEffect(() => {
@@ -472,6 +484,7 @@ export default function CostsPage() {
       toastSuccess("Expense recorded.");
       setExpenseModal(false);
       await fetchAccountsAndBalances();
+      if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
     } catch (e) {
       toastError(errMsg(e, "Save failed."));
@@ -492,6 +505,7 @@ export default function CostsPage() {
       toastSuccess("Income recorded.");
       setIncomeModal(false);
       await fetchAccountsAndBalances();
+      if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
     } catch (e) {
       toastError(errMsg(e, "Save failed."));
@@ -530,6 +544,7 @@ export default function CostsPage() {
       toastSuccess("Journal entry posted.");
       setManualJournalModal(false);
       await fetchAccountsAndBalances();
+      if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
       if (selectedAccount) await loadLedger(selectedAccount);
     } catch (e) {
@@ -595,6 +610,9 @@ export default function CostsPage() {
       const m = now.subtract(1, "month");
       setFromDate(m.startOf("month").format("YYYY-MM-DD"));
       setToDate(m.endOf("month").format("YYYY-MM-DD"));
+    } else if (preset === "thisYear") {
+      setFromDate(now.startOf("year").format("YYYY-MM-DD"));
+      setToDate(now.endOf("year").format("YYYY-MM-DD"));
     } else if (preset === "thisQuarter") {
       const q = Math.floor(now.month() / 3);
       setFromDate(now.month(q * 3).startOf("month").format("YYYY-MM-DD"));
@@ -635,6 +653,17 @@ export default function CostsPage() {
   }, [balances, accounts]);
 
   const expenseBreakdown = useMemo(() => {
+    const periodExpenses = arrayFrom(pnl?.expenseAccounts)
+      .map((row) => ({
+        name: row.accountName || row.AccountName || "Expense",
+        value: safeNum(row.amount ?? row.Amount),
+      }))
+      .filter((row) => row.value > 0)
+      .sort((x, y) => y.value - x.value)
+      .slice(0, 6);
+
+    if (periodExpenses.length > 0) return periodExpenses;
+
     const data = balances
       .filter((b) => {
         const t = b.type || accounts.find((a) => a.id === b.accountId)?.type;
@@ -647,7 +676,7 @@ export default function CostsPage() {
       .sort((x, y) => y.value - x.value)
       .slice(0, 6);
     return data;
-  }, [balances, accounts]);
+  }, [pnl, balances, accounts]);
 
   const filteredLedger = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -891,7 +920,7 @@ export default function CostsPage() {
       }
       await fetchAccountsAndBalances();
       if (selectedAccount) await loadLedger(selectedAccount);
-      if (view === "reports") await loadPnl();
+      if (view === "dashboard" || view === "reports") await loadPnl();
     } catch (e) {
       toastError(errMsg(e, "Failed to import accounting CSV."));
     } finally {
@@ -975,6 +1004,7 @@ export default function CostsPage() {
             { id: "thisMonth", label: "This month" },
             { id: "lastMonth", label: "Last month" },
             { id: "thisQuarter", label: "This quarter" },
+            { id: "thisYear", label: "This year" },
             { id: "ytd", label: "YTD" },
             { id: "lastYear", label: "Last year" },
           ].map((p) => (
@@ -1067,9 +1097,11 @@ export default function CostsPage() {
           cashAndBank={cashAndBank}
           balances={balances}
           accounts={accounts}
+          periodPnl={pnl}
+          periodLabel={periodLabel}
           pnlSeries={pnlSeries}
           expenseBreakdown={expenseBreakdown}
-          loading={loadingAll}
+          loading={loadingAll || loadingPnl}
           onCardClick={(type) => {
             if (type === "EXPENSE") setExpenseModal(true);
             else if (type === "INCOME") setIncomeModal(true);
@@ -1194,11 +1226,10 @@ export default function CostsPage() {
 /*  Dashboard view                                                           */
 /* ======================================================================== */
 
-function DashboardView({ totalsByType, cashAndBank, balances, accounts, pnlSeries, expenseBreakdown, loading, onCardClick }) {
-  const lastMonth = pnlSeries[pnlSeries.length - 1] || { income: 0, expense: 0, net: 0 };
-  const prevMonth = pnlSeries[pnlSeries.length - 2] || { income: 0, expense: 0, net: 0 };
-  const incomeDelta = prevMonth.income ? ((lastMonth.income - prevMonth.income) / prevMonth.income) * 100 : null;
-  const expenseDelta = prevMonth.expense ? ((lastMonth.expense - prevMonth.expense) / prevMonth.expense) * 100 : null;
+function DashboardView({ totalsByType, cashAndBank, balances, accounts, periodPnl, periodLabel, pnlSeries, expenseBreakdown, loading, onCardClick }) {
+  const selectedIncome = safeNum(periodPnl?.income ?? periodPnl?.totalIncome);
+  const selectedExpense = safeNum(periodPnl?.expense ?? periodPnl?.totalExpense);
+  const selectedNet = safeNum(periodPnl?.net);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -1212,9 +1243,8 @@ function DashboardView({ totalsByType, cashAndBank, balances, accounts, pnlSerie
           loading={loading}
         />
         <KpiCard
-          label="Income (this month)"
-          value={formatINR(lastMonth.income)}
-          delta={incomeDelta}
+          label={`Income (${periodLabel})`}
+          value={formatINR(selectedIncome)}
           deltaPositive
           icon={<TrendingUp className="w-4 h-4" />}
           tone="blue"
@@ -1222,19 +1252,18 @@ function DashboardView({ totalsByType, cashAndBank, balances, accounts, pnlSerie
           onClick={() => onCardClick("INCOME")}
         />
         <KpiCard
-          label="Expense (this month)"
-          value={formatINR(lastMonth.expense)}
-          delta={expenseDelta}
+          label={`Expense (${periodLabel})`}
+          value={formatINR(selectedExpense)}
           icon={<TrendingDown className="w-4 h-4" />}
           tone="amber"
           loading={loading}
           onClick={() => onCardClick("EXPENSE")}
         />
         <KpiCard
-          label="Net (this month)"
-          value={formatINR(lastMonth.net)}
+          label={`Net (${periodLabel})`}
+          value={formatINR(selectedNet)}
           icon={<BarChart3 className="w-4 h-4" />}
-          tone={lastMonth.net >= 0 ? "emerald" : "rose"}
+          tone={selectedNet >= 0 ? "emerald" : "rose"}
           loading={loading}
         />
       </div>
@@ -1382,6 +1411,11 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
     );
   }, [ledger]);
 
+  const endingBalance = useMemo(() => {
+    const last = ledger[ledger.length - 1];
+    return safeNum(last?.balance ?? last?.Balance);
+  }, [ledger]);
+
   const balanceByAccount = useMemo(() => {
     const map = new Map();
     for (const b of balances || []) map.set(String(b.accountId), b);
@@ -1469,13 +1503,14 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
           <EmptyState message="No entries for this account in the selected period. Try FY view or select Cash in Hand, Easter Day Meeting Expense, Rent Expense, Capital Fund, or Sambit Raut Unsecured Loan." />
         ) : (
           <div className="overflow-x-auto -mx-3">
-            <table className="min-w-full text-xs">
+            <table className="min-w-[840px] w-full text-xs">
               <thead>
                 <tr className="bg-slate-50 text-slate-600">
                   <th className="px-3 py-2 text-left">Date</th>
                   <th className="px-3 py-2 text-left">Description</th>
                   <th className="px-3 py-2 text-right">Debit</th>
                   <th className="px-3 py-2 text-right">Credit</th>
+                  <th className="px-3 py-2 text-right">Balance</th>
                 </tr>
               </thead>
               <tbody>
@@ -1491,6 +1526,9 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
                     <td className="px-3 py-2 text-right tabular-nums text-slate-700">
                       {safeNum(l.credit) ? formatINR(l.credit) : "�"}
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                      {formatINR(l.balance ?? l.Balance)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1499,6 +1537,7 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
                   <td colSpan={2} className="px-3 py-2 text-right">Totals</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatINR(totals.debit)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatINR(totals.credit)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-900">{formatINR(endingBalance)}</td>
                 </tr>
               </tfoot>
             </table>

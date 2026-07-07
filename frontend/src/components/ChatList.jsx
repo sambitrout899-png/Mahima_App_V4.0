@@ -61,6 +61,14 @@ const smartTime = (input) => {
   return d.format("DD/MM/YY");
 };
 
+const isPastorChatName = (value = "") => {
+  const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalized === "aipastor"
+    || normalized === "pastorbot"
+    || normalized.includes("aipastor")
+    || normalized.includes("pastorbot");
+};
+
 /* component */
 
 export default function ChatList({
@@ -281,7 +289,7 @@ export default function ChatList({
           const unread = Number(chat.unreadCount || 0);
           const avatarUrl = avatarUrlFor(chat);
           const peerId = chat.isGroup ? null : findOtherId(chat);
-          const peerOnline = peerId ? onlineSet.has(String(peerId)) : false;
+          const peerOnline = !chat.isGroup && (isPastorChatName(name) || (peerId ? onlineSet.has(String(peerId)) : false));
 
           // Did *I* send the last message? Show a tiny check.
           const lm = chat.lastMessage;

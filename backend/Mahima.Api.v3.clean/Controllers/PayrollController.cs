@@ -117,9 +117,11 @@ namespace Mahima.Api.Controllers
             await EnsurePayrollPaymentColumnsAsync();
             var fromDate = DateTime.SpecifyKind(from.Date, DateTimeKind.Utc);
 
+            // Arrears are calculated only as of the selected payroll period.
+            // Future payroll runs must not affect a backdated month.
             var previousRun = await _db.PayrollRuns
                 .AsNoTracking()
-                .Where(r => r.UserId == userId && r.To < fromDate)
+                .Where(r => r.UserId == userId && r.From < fromDate && r.To < fromDate)
                 .OrderByDescending(r => r.To)
                 .ThenByDescending(r => r.RunAt)
                 .FirstOrDefaultAsync();
@@ -281,6 +283,126 @@ namespace Mahima.Api.Controllers
         {
             var root = _env.WebRootPath ?? string.Empty;
             return System.IO.Path.Combine(root, "images", "mahima-logo.png");
+        }
+
+        private static string PayrollFinanceMarker(Guid runId) => $"[PAYROLL_RUN:{runId}]";
+
+        private async Task<Account> GetOrCreateAccountAsync(string name, string type)
+        {
+            var account = await _db.Accounts.FirstOrDefaultAsync(a => a.Name == name);
+            if (account != null)
+            {
+                if (!string.Equals(account.Type, type, StringComparison.OrdinalIgnoreCase))
+                    account.Type = type;
+                return account;
+            }
+
+            account = new Account
+            {
+                Name = name,
+                Type = type,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Accounts.Add(account);
+            return account;
+        }
+
+        private async Task DeletePayrollRunFinanceAsync(Guid runId)
+        {
+            var marker = PayrollFinanceMarker(runId);
+
+            var expenses = await _db.Expenses
+                .Where(e => e.Notes != null && e.Notes.Contains(marker))
+                .ToListAsync();
+            if (expenses.Count > 0)
+                _db.Expenses.RemoveRange(expenses);
+
+            var journals = await _db.JournalEntries
+                .Include(e => e.Lines)
+                .Where(e => e.Description != null && e.Description.Contains(marker))
+                .ToListAsync();
+            foreach (var journal in journals)
+            {
+                _db.JournalLines.RemoveRange(journal.Lines);
+                _db.JournalEntries.Remove(journal);
+            }
+        }
+
+        private async Task SyncPayrollRunFinanceAsync(PayrollRun run, string? displayName = null)
+        {
+            await EnsurePayrollPaymentColumnsAsync();
+            await DeletePayrollRunFinanceAsync(run.Id);
+
+            var marker = PayrollFinanceMarker(run.Id);
+            var staffName = string.IsNullOrWhiteSpace(displayName)
+                ? (string.IsNullOrWhiteSpace(run.StaffName) ? run.UserId : run.StaffName)
+                : displayName;
+            var payrollMonth = run.From.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+            var payable = run.PayableAmount > 0m ? run.PayableAmount : run.NetAmount + run.PreviousArrears;
+            var paid = Math.Min(Math.Max(0m, run.PaidAmount), payable);
+            var balance = Math.Max(0m, payable - paid);
+
+            if (paid > 0m)
+            {
+                _db.Expenses.Add(new Expense
+                {
+                    Description = $"Payroll paid - {staffName} - {payrollMonth}",
+                    Category = "PAYROLL",
+                    Amount = paid,
+                    Date = (run.PaidAtUtc ?? DateTime.UtcNow).Date,
+                    Vendor = staffName,
+                    PayrollPerson = staffName,
+                    PayrollMonth = payrollMonth,
+                    Notes = $"Auto generated from payroll run {run.Id} {marker}",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
+            if (payable > 0m)
+            {
+                var payrollExpense = await GetOrCreateAccountAsync("Payroll Expense", "EXPENSE");
+                var bank = await GetOrCreateAccountAsync("Bank", "ASSET");
+                var payrollPayable = await GetOrCreateAccountAsync("Payroll Payable", "LIABILITY");
+
+                var entry = new JournalEntry
+                {
+                    Date = run.To.Date,
+                    Description = $"Payroll run - {staffName} - {payrollMonth} {marker}",
+                    CreatedAt = DateTime.UtcNow,
+                    Lines = new List<JournalLine>
+                    {
+                        new()
+                        {
+                            AccountId = payrollExpense.Id,
+                            Debit = payable,
+                            Credit = 0
+                        }
+                    }
+                };
+
+                if (paid > 0m)
+                {
+                    entry.Lines.Add(new JournalLine
+                    {
+                        AccountId = bank.Id,
+                        Debit = 0,
+                        Credit = paid
+                    });
+                }
+
+                if (balance > 0m)
+                {
+                    entry.Lines.Add(new JournalLine
+                    {
+                        AccountId = payrollPayable.Id,
+                        Debit = 0,
+                        Credit = balance
+                    });
+                }
+
+                _db.JournalEntries.Add(entry);
+            }
         }
 
         // ---------- SETTINGS ---------------------------------------------
@@ -453,6 +575,11 @@ namespace Mahima.Api.Controllers
             await _db.SaveChangesAsync();
 
             var displayName = await ResolveDisplayNameAsync(run.UserId);
+            await SyncPayrollRunFinanceAsync(run, displayName);
+            AddAudit("Payroll.Run.FinanceSync", "PayrollRun", run.Id.ToString(),
+                new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount });
+            await _db.SaveChangesAsync();
+
             return Ok(ToRunDto(run, displayName));
         }
 
@@ -480,9 +607,12 @@ namespace Mahima.Api.Controllers
 
             AddAudit("Payroll.Run.Payment", "PayrollRun", run.Id.ToString(),
                 new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount, run.PaymentStatus });
+            var displayName = await ResolveDisplayNameAsync(run.UserId);
+            await SyncPayrollRunFinanceAsync(run, displayName);
+            AddAudit("Payroll.Run.FinanceSync", "PayrollRun", run.Id.ToString(),
+                new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount });
             await _db.SaveChangesAsync();
 
-            var displayName = await ResolveDisplayNameAsync(run.UserId);
             return Ok(ToRunDto(run, displayName));
         }
 
@@ -494,11 +624,35 @@ namespace Mahima.Api.Controllers
             var run = await _db.PayrollRuns.FindAsync(id);
             if (run == null) return NotFound();
 
+            await DeletePayrollRunFinanceAsync(run.Id);
             _db.PayrollRuns.Remove(run);
             AddAudit("Payroll.Run.Delete", "PayrollRun", run.Id.ToString(),
                 new { run.UserId, run.From, run.To });
             await _db.SaveChangesAsync();
             return NoContent();
+        }
+
+        [HttpPost("~/api/payroll/sync-finance")]
+        public async Task<IActionResult> SyncExistingPayrollFinance()
+        {
+            await EnsurePayrollPaymentColumnsAsync();
+            var runs = await _db.PayrollRuns
+                .OrderBy(r => r.From)
+                .ThenBy(r => r.Id)
+                .ToListAsync();
+
+            var synced = 0;
+            foreach (var run in runs)
+            {
+                var displayName = await ResolveDisplayNameAsync(run.UserId);
+                await SyncPayrollRunFinanceAsync(run, displayName);
+                AddAudit("Payroll.Run.FinanceBackfill", "PayrollRun", run.Id.ToString(),
+                    new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount });
+                synced++;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { success = true, synced });
         }
 
         [AllowAnonymous]

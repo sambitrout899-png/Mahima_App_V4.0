@@ -60,6 +60,12 @@ function withAccessToken(url, token) {
   return `${url}${separator}access_token=${encodeURIComponent(token)}`;
 }
 
+function isChildPath(parentPath, childPath) {
+  const parent = String(parentPath || "").replace(/\/+$/, "");
+  const child = String(childPath || "");
+  return Boolean(parent) && child.startsWith(`${parent}/`);
+}
+
 function fileKind(entry) {
   if (entry?.isDirectory) return "Folder";
   const ext = String(entry?.name || "").split(".").pop()?.toLowerCase() || "";
@@ -141,6 +147,7 @@ function Modal({ title, children, onClose }) {
 
 export default function ServerFilesPage() {
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
   const [currentPath, setCurrentPath] = useState("");
   const [parentPath, setParentPath] = useState(null);
   const [root, setRoot] = useState("");
@@ -248,9 +255,11 @@ export default function ServerFilesPage() {
     try {
       for (let index = 0; index < filesToUpload.length; index += 1) {
         const file = filesToUpload[index];
+        const relativePath = file.webkitRelativePath || "";
         const form = new FormData();
         form.append("file", file);
         if (currentPath) form.append("path", currentPath);
+        if (relativePath) form.append("relativePath", relativePath);
 
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -262,7 +271,7 @@ export default function ServerFilesPage() {
           xhr.upload.onprogress = (event) => {
             setTransfer({
               type: "upload",
-              name: file.name,
+              name: relativePath || file.name,
               loaded: event.loaded,
               total: event.lengthComputable ? event.total : file.size,
               status: "active",
@@ -279,7 +288,7 @@ export default function ServerFilesPage() {
 
           setTransfer({
             type: "upload",
-            name: file.name,
+            name: relativePath || file.name,
             loaded: 0,
             total: file.size,
             status: "active",
@@ -289,11 +298,12 @@ export default function ServerFilesPage() {
         });
       }
 
-      setMessage(`${filesToUpload.length} file${filesToUpload.length === 1 ? "" : "s"} uploaded.`);
+      const hasFolders = filesToUpload.some((file) => file.webkitRelativePath);
+      setMessage(`${filesToUpload.length} file${filesToUpload.length === 1 ? "" : "s"} uploaded${hasFolders ? " with folder structure" : ""}.`);
       const last = filesToUpload[filesToUpload.length - 1];
       setTransfer({
         type: "upload",
-        name: last.name,
+        name: last.webkitRelativePath || last.name,
         loaded: last.size,
         total: last.size,
         status: "done",
@@ -306,6 +316,7 @@ export default function ServerFilesPage() {
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   }
 
@@ -402,7 +413,13 @@ export default function ServerFilesPage() {
     setMessage("");
 
     try {
-      for (const entry of selectedEntries) {
+      const entriesToTransfer = selectedEntries.filter(
+        (entry) => !selectedEntries.some(
+          (candidate) => candidate.isDirectory && candidate.path !== entry.path && isChildPath(candidate.path, entry.path)
+        )
+      );
+
+      for (const entry of entriesToTransfer) {
         await apiFetch(`/server-files/${transferModal}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -412,7 +429,7 @@ export default function ServerFilesPage() {
           }),
         });
       }
-      setMessage(`${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} ${transferModal === "copy" ? "copied" : "moved"}.`);
+      setMessage(`${entriesToTransfer.length} item${entriesToTransfer.length === 1 ? "" : "s"} ${transferModal === "copy" ? "copied" : "moved"}.`);
       setTransferModal(null);
       await load(currentPath);
     } catch (err) {
@@ -542,7 +559,7 @@ export default function ServerFilesPage() {
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-5">
               <button
                 type="button"
                 onClick={() => setFolderModalOpen(true)}
@@ -558,6 +575,14 @@ export default function ServerFilesPage() {
               >
                 <UploadCloud className="h-4 w-4" />
                 Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                <FolderOpen className="h-4 w-4" />
+                Upload Folder
               </button>
               <button
                 type="button"
@@ -583,6 +608,15 @@ export default function ServerFilesPage() {
               ref={fileInputRef}
               type="file"
               multiple
+              className="hidden"
+              onChange={(event) => uploadFiles(event.target.files)}
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              webkitdirectory=""
+              directory=""
               className="hidden"
               onChange={(event) => uploadFiles(event.target.files)}
             />

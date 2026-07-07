@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -26,13 +27,15 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IHubContext<ChatHub> _hub;
         private readonly IWebHostEnvironment _env;
         private readonly MahimaDbContext _db;
+        private readonly ILogger<PastorBotController> _logger;
 
-        public PastorBotController(IPastorBotService pastorBot, IHubContext<ChatHub> hub, IWebHostEnvironment env, MahimaDbContext db)
+        public PastorBotController(IPastorBotService pastorBot, IHubContext<ChatHub> hub, IWebHostEnvironment env, MahimaDbContext db, ILogger<PastorBotController> logger)
         {
             _pastorBot = pastorBot;
             _hub = hub;
             _env = env;
             _db = db;
+            _logger = logger;
         }
 
         [HttpPost("ask")]
@@ -40,12 +43,36 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
-            if (!await CanUsePastorAsync()) return Forbid();
+            _logger.LogInformation("PastorBot ask received. UserId={UserId} Persona={Persona} Language={Language} SendToJaiMasih={SendToJaiMasih} HasQuestion={HasQuestion}",
+                userId, dto?.Persona, dto?.Language, dto?.SendToJaiMasih, !string.IsNullOrWhiteSpace(dto?.Question));
+            if (!await CanUsePastorAsync())
+            {
+                _logger.LogWarning("PastorBot ask denied for user {UserId}.", userId);
+                return Forbid();
+            }
 
             var reply = await _pastorBot.AskAsync(userId, dto.Question, dto.SendToJaiMasih, dto.Language, dto.Persona, dto.Conversation, HttpContext.RequestAborted);
+            _logger.LogInformation("PastorBot ask completed. UserId={UserId} Source={Source} Persona={Persona} HasSharedMessages={HasSharedMessages}",
+                userId, reply.Source, reply.Persona, reply.SharedMessages != null && reply.SharedMessages.Count > 0);
             if (reply.ChatId.HasValue)
             {
                 await _hub.Clients.All.SendAsync("ChatCreated", new { id = reply.ChatId.Value, name = PastorBotService.JaiMasihChatName, isGroup = true });
+            }
+
+            if (reply.SharedMessages != null && reply.SharedMessages.Count > 0)
+            {
+                foreach (var message in reply.SharedMessages)
+                {
+                    var memberIds = await _db.ChatMembers
+                        .AsNoTracking()
+                        .Where(cm => cm.ChatId == message.ChatId)
+                        .Select(cm => cm.UserId.ToString())
+                        .Distinct()
+                        .ToListAsync(HttpContext.RequestAborted);
+
+                    if (memberIds.Count > 0)
+                        await _hub.Clients.Users(memberIds).SendAsync("ReceiveMessage", message);
+                }
             }
 
             return Ok(reply);
@@ -143,13 +170,35 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             if (User.IsInRole("admin") || User.IsInRole("ADMIN")) return true;
 
-            var roleName = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
-            if (string.IsNullOrWhiteSpace(roleName)) return false;
+            var roleNames = User.Claims
+                .Where(c => c.Type == ClaimTypes.Role || string.Equals(c.Type, "role", StringComparison.OrdinalIgnoreCase))
+                .Select(c => c.Value)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            var normalizedRole = roleName.Trim().ToLower();
+            bool IsAdminLike(string value)
+            {
+                var normalized = new string((value ?? string.Empty)
+                    .ToLowerInvariant()
+                    .Where(char.IsLetterOrDigit)
+                    .ToArray());
+                return normalized == "admin"
+                    || normalized == "administrator"
+                    || normalized == "superadmin"
+                    || normalized == "superadministrator"
+                    || normalized == "superuser"
+                    || normalized.Contains("admin");
+            }
+
+            if (roleNames.Any(IsAdminLike)) return true;
+            if (roleNames.Count == 0) return false;
+
+            var normalizedRoles = roleNames.Select(r => r.Trim().ToLower()).ToList();
             var roleIds = await _db.Roles
                 .AsNoTracking()
-                .Where(r => r.Name.ToLower() == normalizedRole)
+                .Where(r => normalizedRoles.Contains(r.Name.ToLower()))
                 .Select(r => r.Id)
                 .ToListAsync(HttpContext.RequestAborted);
 

@@ -163,6 +163,8 @@ namespace Mahima.Api.v3.clean.Controllers
             public string Message { get; set; } = "";
             public List<string> UserIds { get; set; } = new();
             public Channels Channels { get; set; } = new();
+            public long? TaskId { get; set; }
+            public string? Source { get; set; }
         }
 
         public class Channels
@@ -216,8 +218,8 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                 await conn.OpenAsync();
 
 		var sql = @"SELECT id, email, phone, displayname
-            	FROM ""Users""
-            	WHERE CAST(id AS text) = ANY(@ids)";	                
+            	FROM public.users
+            	WHERE id::text = ANY(@ids)";	                
 		
 		await using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text, req.UserIds.ToArray());
@@ -232,9 +234,9 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
 
                         recipients.Add((
                             id,
-                            rdr["email"] is DBNull ? null : rdr["Email"]?.ToString(),
-                            rdr["phone"] is DBNull ? null : rdr["Phone"]?.ToString(),
-                            rdr["displayname"] is DBNull ? null : rdr["DisplayName"]?.ToString()
+                            rdr["email"] is DBNull ? null : rdr["email"]?.ToString(),
+                            rdr["phone"] is DBNull ? null : rdr["phone"]?.ToString(),
+                            rdr["displayname"] is DBNull ? null : rdr["displayname"]?.ToString()
                         ));
                     }
                 }
@@ -258,7 +260,39 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                 foreach (var r in recipients)
                 {
                     var errors = new List<string>();
-                    bool emailOk = false, smsOk = false, waOk = false;
+                    bool chatOk = false, emailOk = false, smsOk = false, waOk = false;
+
+                    if (Guid.TryParse(r.Id, out var recipientGuid))
+                    {
+                        try
+                        {
+                            var senderId = User.GetUserIdGuid();
+                            if (senderId == Guid.Empty) return Unauthorized();
+                            if (recipientGuid != senderId)
+                            {
+                                var chat = await _chatService.CreateOrGetDirectChatAsync(senderId, recipientGuid);
+                                var createdMsg = await _chatService.AddMessageAsync(
+                                    chat.Id,
+                                    senderId,
+                                    req.Message,
+                                    string.IsNullOrWhiteSpace(req.Type) ? "reminder" : req.Type.Trim().ToLowerInvariant());
+
+                                var memberIds = await _chatService.GetChatMemberIdsAsync(chat.Id);
+                                await _hub.Clients.Users(memberIds.Select(id => id.ToString()).Distinct())
+                                    .SendAsync("ReceiveMessage", createdMsg);
+                                chatOk = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            errors.Add($"Jai Masih chat failed: {ex.Message}");
+                            _logger.LogError(ex, "Jai Masih chat send failed to {RecipientId}", r.Id);
+                        }
+                    }
+                    else
+                    {
+                        errors.Add("Invalid recipient user id.");
+                    }
 
                     // EMAIL
                     if (req.Channels.Email && !string.IsNullOrWhiteSpace(r.Email) && !string.IsNullOrWhiteSpace(smtpHost))
@@ -336,11 +370,41 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                         r.Email,
                         r.Phone,
                         r.DisplayName,
+                        chatSent = chatOk,
                         emailSent = emailOk,
                         smsSent = smsOk,
                         whatsappSent = waOk,
                         errors
                     });
+                }
+
+                if (req.TaskId.HasValue)
+                {
+                    try
+                    {
+                        await using var logCmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.""TaskActivityLog"" (
+    ""Id"" bigserial PRIMARY KEY,
+    ""TaskId"" bigint NOT NULL REFERENCES public.""Tasks""(""Id"") ON DELETE CASCADE,
+    ""Action"" text NOT NULL,
+    ""Details"" text NULL,
+    ""CreatedById"" uuid NULL,
+    ""CreatedAt"" timestamp without time zone NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.""TaskActivityLog"" (""TaskId"", ""Action"", ""Details"", ""CreatedById"", ""CreatedAt"")
+VALUES (@taskId, @action, @details, @createdById, now());", conn);
+                        logCmd.Parameters.AddWithValue("taskId", req.TaskId.Value);
+                        logCmd.Parameters.AddWithValue("action", string.Equals(req.Source, "auto", StringComparison.OrdinalIgnoreCase) ? "auto-reminder-sent" : "task-reminder-sent");
+                        logCmd.Parameters.AddWithValue("details", $"Recipients: {recipients.Count}; Type: {req.Type}; Message: {req.Message}");
+                        var sender = User.GetUserIdGuid();
+                        logCmd.Parameters.AddWithValue("createdById", sender == Guid.Empty ? DBNull.Value : (object)sender);
+                        await logCmd.ExecuteNonQueryAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not log task reminder for task {TaskId}", req.TaskId.Value);
+                    }
                 }
 
                 return Ok(new { success = true, attempted = recipients.Count, results });

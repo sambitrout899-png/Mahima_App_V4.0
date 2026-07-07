@@ -328,11 +328,19 @@ namespace Mahima.Api.v3.clean.Services
 
             var other = await _db.Users
                 .AsNoTracking()
-                .FirstOrDefaultAsync(u =>
+                .Where(u =>
                     (u.Username != null && u.Username.ToLower() == normalized) ||
                     (u.Email != null && u.Email.ToLower() == normalized) ||
                     (u.Phone != null && u.Phone.ToLower() == normalized) ||
-                    (u.DisplayName != null && u.DisplayName.ToLower() == normalized));
+                    (u.DisplayName != null && u.DisplayName.ToLower() == normalized))
+                .Select(u => new
+                {
+                    u.Id,
+                    u.DisplayName,
+                    u.Username,
+                    u.Email
+                })
+                .FirstOrDefaultAsync();
 
             if (other == null)
                 throw new ArgumentException($"User not found: {usernameOrEmail}");
@@ -398,7 +406,15 @@ namespace Mahima.Api.v3.clean.Services
 
             var otherUser = await _db.Users
                 .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == userB);
+                .Where(u => u.Id == userB)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.DisplayName,
+                    u.Username,
+                    u.Email
+                })
+                .FirstOrDefaultAsync();
             if (otherUser == null)
                 throw new ArgumentException("User not found.");
 
@@ -423,7 +439,14 @@ namespace Mahima.Api.v3.clean.Services
                         if (otherMember != null)
                         {
                             var existingOtherUser = await _db.Users.AsNoTracking()
-                                .FirstOrDefaultAsync(u => u.Id == otherMember.UserId);
+                                .Where(u => u.Id == otherMember.UserId)
+                                .Select(u => new
+                                {
+                                    u.DisplayName,
+                                    u.Username,
+                                    u.Email
+                                })
+                                .FirstOrDefaultAsync();
 
                             // Avoid ternary parsing edge cases
                             var generatedName = existingOtherUser?.DisplayName ?? existingOtherUser?.Username ?? existingOtherUser?.Email

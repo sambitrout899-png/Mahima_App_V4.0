@@ -6,10 +6,13 @@
  */
 
 const CHAT_CHANNEL_ID = "jai-masih";
+const CALL_CHANNEL_ID = "jai-masih-calls";
 const GENERAL_CHANNEL_ID = "mahima-general";
 const NOTIFICATION_ICON = "ic_stat_jai_masih";
 const NOTIFICATION_COLOR = "#047857";
 const FCM_TOKEN_KEY = "mahima_fcm_token";
+const PENDING_CALL_KEY = "mahima_pending_call_notification";
+const PENDING_SHARE_KEY = "mahima_pending_share_intent";
 
 function getCapacitor() {
   try {
@@ -121,6 +124,102 @@ async function readFirebaseTokenDirectly() {
   }
 }
 
+async function readNativePendingCallIntent() {
+  const NativePushToken = await waitForPlugin("MahimaPushToken", 4, 150);
+  if (!NativePushToken?.getPendingCallIntent) return;
+
+  try {
+    const result = await NativePushToken.getPendingCallIntent();
+    const json = String(result?.json || "").trim();
+    if (!json) return;
+    const data = JSON.parse(json);
+    if (data?.chatId) {
+      openNotificationTarget({ kind: "call", ...data });
+    }
+  } catch (err) {
+    console.warn("[initNativeApp] Could not read pending native call intent:", err);
+  }
+}
+
+async function readNativePendingShareIntent() {
+  const NativePushToken = await waitForPlugin("MahimaPushToken", 4, 150);
+  if (!NativePushToken?.getPendingShareIntent) return;
+
+  try {
+    const result = await NativePushToken.getPendingShareIntent();
+    const json = String(result?.json || "").trim();
+    if (!json) return;
+    const data = JSON.parse(json);
+    const text = [data?.subject, data?.text].filter(Boolean).join("\n").trim();
+    if (!text) return;
+    localStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({
+      text,
+      subject: data?.subject || "",
+      receivedAt: data?.receivedAt || new Date().toISOString(),
+    }));
+    window.location.hash = "#/home/chat?share=1";
+  } catch (err) {
+    console.warn("[initNativeApp] Could not read pending native share intent:", err);
+  }
+}
+
+function notificationBodyFromPayload(notification, data = {}) {
+  return (
+    notification?.body ||
+    data.body ||
+    data.preview ||
+    data.message ||
+    "New chat message"
+  );
+}
+
+function openNotificationTarget(data = {}) {
+  if (data.kind === "call" && data.chatId) {
+    try {
+      localStorage.setItem(PENDING_CALL_KEY, JSON.stringify({
+        chatId: data.chatId,
+        callerId: data.callerId || data.fromUserId || "",
+        callerName: data.callerName || "",
+        callType: data.callType || data.type || "audio",
+        tappedAt: new Date().toISOString(),
+      }));
+    } catch {}
+    window.location.hash = `#/home/chat?call=1&chatId=${encodeURIComponent(data.chatId)}`;
+    return;
+  }
+
+  if (data.chatId || data.kind === "message") {
+    window.location.hash = data.chatId
+      ? `#/home/chat?chatId=${encodeURIComponent(data.chatId)}`
+      : "#/home/chat";
+  }
+}
+
+async function showNativeTrayNotification({ title, body, channelId, data }) {
+  const NativeTray = await waitForPlugin("MahimaTrayNotification", 4, 150);
+  if (!NativeTray?.show) {
+    window.__mahimaNativeTrayError = "MahimaTrayNotification native plugin is not available in this APK.";
+    return false;
+  }
+
+  try {
+    await NativeTray.show({
+      id: Math.floor(Date.now() % 2147483000),
+      title: title || "Jai Masih Di",
+      body: body || "New message",
+      channelId: channelId || CHAT_CHANNEL_ID,
+      data: data || {},
+    });
+    window.__mahimaNativeTrayError = "";
+    window.__mahimaNativeTrayShownAt = new Date().toISOString();
+    return true;
+  } catch (err) {
+    window.__mahimaNativeTrayError = err?.message || String(err);
+    console.warn("[initNativeApp] Native tray notification failed:", err);
+    return false;
+  }
+}
+
 async function saveFcmTokenToBackend(tokenValue) {
   const token = String(tokenValue || "").trim();
   if (!token) return false;
@@ -182,6 +281,17 @@ const CHANNELS = [
     lightColor: NOTIFICATION_COLOR,
   },
   {
+    id: CALL_CHANNEL_ID,
+    name: "Jai Masih - Calls",
+    description: "Incoming Jai Masih audio and video calls",
+    importance: 5,
+    visibility: 1,
+    sound: "default",
+    vibration: true,
+    lights: true,
+    lightColor: NOTIFICATION_COLOR,
+  },
+  {
     id: GENERAL_CHANNEL_ID,
     name: "Mahima Ministry - General",
     description: "Prayer requests, meeting reminders and general alerts",
@@ -211,9 +321,7 @@ async function createNotificationChannels() {
 
   LocalNotifications.addListener?.("localNotificationActionPerformed", (action) => {
     const data = action?.notification?.extra || action?.notification?.data || {};
-    if (data.chatId || data.kind === "message") {
-      window.location.hash = "#/home/chat";
-    }
+    openNotificationTarget(data);
   });
 }
 
@@ -243,6 +351,18 @@ async function registerForPushNotifications() {
 
     PushNotifications.addListener?.("pushNotificationReceived", async (notification) => {
       const data = notification?.data || {};
+      const title = notification?.title || data.title || "Jai Masih Di";
+      const body = notificationBodyFromPayload(notification, data);
+      const channelId = data.kind === "call" ? CALL_CHANNEL_ID : data.kind === "message" ? CHAT_CHANNEL_ID : GENERAL_CHANNEL_ID;
+
+      const nativeShown = await showNativeTrayNotification({
+        title,
+        body,
+        channelId,
+        data,
+      });
+      if (nativeShown) return;
+
       const LocalNotifications = getPlugin("LocalNotifications");
       if (!LocalNotifications?.schedule) return;
 
@@ -256,9 +376,9 @@ async function registerForPushNotifications() {
           notifications: [
             {
               id: Math.floor(Date.now() % 2147483000),
-              title: notification?.title || "Jai Masih Di",
-              body: notification?.body || data.preview || "New chat message",
-              channelId: data.kind === "message" ? CHAT_CHANNEL_ID : GENERAL_CHANNEL_ID,
+              title,
+              body,
+              channelId,
               sound: "default",
               smallIcon: NOTIFICATION_ICON,
               iconColor: NOTIFICATION_COLOR,
@@ -273,9 +393,7 @@ async function registerForPushNotifications() {
 
     PushNotifications.addListener?.("pushNotificationActionPerformed", (action) => {
       const data = action?.notification?.data || {};
-      if (data.chatId || data.kind === "message") {
-        window.location.hash = "#/home/chat";
-      }
+      openNotificationTarget(data);
     });
 
     window.__mahimaNativePushInitialized = true;
@@ -316,6 +434,8 @@ let initialized = false;
 export async function initNativeApp() {
   if (!isNative()) return;
   if (initialized) {
+    await readNativePendingCallIntent();
+    await readNativePendingShareIntent();
     await registerForPushNotifications();
     await flushPendingFcmToken();
     return;
@@ -324,6 +444,8 @@ export async function initNativeApp() {
 
   try {
     await createNotificationChannels();
+    await readNativePendingCallIntent();
+    await readNativePendingShareIntent();
     await registerForPushNotifications();
     console.info("[initNativeApp] Native notification initialization complete.");
   } catch (err) {
@@ -379,9 +501,12 @@ export async function getNotificationDiagnostics() {
     hasPushPlugin: Boolean(await waitForPlugin("PushNotifications", 2, 100)),
     hasLocalPlugin: Boolean(await waitForPlugin("LocalNotifications", 2, 100)),
     hasNativeTokenPlugin: Boolean(await waitForPlugin("MahimaPushToken", 2, 100)),
+    hasNativeTrayPlugin: Boolean(await waitForPlugin("MahimaTrayNotification", 2, 100)),
     authTokenPresent: Boolean(readAuthToken()),
     localFcmToken: maskToken(localToken),
     nativeTokenError: window.__mahimaNativeTokenError || "",
+    nativeTrayError: window.__mahimaNativeTrayError || "",
+    nativeTrayShownAt: window.__mahimaNativeTrayShownAt || "",
     registrationAttemptAt: window.__mahimaFcmRegistrationAttemptAt || "",
     tokenSavedAt: window.__mahimaFcmTokenSavedAt || "",
     backendStatus: await fetchDeviceTokenStatus(),
@@ -407,6 +532,16 @@ export async function sendLocalNotificationTest() {
   if (!isNative()) return { ok: false, stage: "native", message: "Not running inside the mobile app." };
 
   await createNotificationChannels();
+
+  const nativeShown = await showNativeTrayNotification({
+    title: "Jai Masih Di",
+    body: "Native Android tray notification is working on this phone.",
+    channelId: CHAT_CHANNEL_ID,
+    data: { kind: "diagnostic" },
+  });
+  if (nativeShown) {
+    return { ok: true, stage: "native-local", message: "Native Android tray notification posted." };
+  }
 
   const LocalNotifications = await waitForPlugin("LocalNotifications");
   if (!LocalNotifications?.schedule) {

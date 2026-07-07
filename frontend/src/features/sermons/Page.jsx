@@ -37,6 +37,11 @@ const thumbnailUrlFromId = (id) => (id ? `https://img.youtube.com/vi/${id}/hqdef
 const HARDCODED_ADMIN_ID = "ae9dfc94-07d8-469a-a8f6-a4c5aedcf3a9";
 
 function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }
+const normalizeAccessName = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const canManageMediaRole = (value) => {
+  const role = normalizeAccessName(value);
+  return ["admin", "administrator", "superadmin", "superadministrator", "mediamanager"].includes(role);
+};
 function decodeJwtPayload(token) {
   try {
     const [, payload] = token.split(".");
@@ -68,6 +73,14 @@ function useAdminDetection() {
       .concat(user?.role, user?.Role, user?.roleName, user?.RoleName)
       .filter(Boolean)
       .map(String);
+    [user?.roles, user?.Roles, user?.positions, user?.Positions].forEach((list) => {
+      if (Array.isArray(list)) {
+        list.forEach((item) => roleCandidates.push(String(item?.name ?? item?.Name ?? item?.role ?? item?.Role ?? item)));
+      }
+    });
+    [user?.position, user?.Position, user?.positionName, user?.PositionName, user?.primaryPosition, user?.PrimaryPosition]
+      .filter(Boolean)
+      .forEach((item) => roleCandidates.push(String(item?.name ?? item?.Name ?? item)));
 
     // also peek at JWT (if any) for roles/role claims
     const rawToken = localStorage.getItem("mahima_token") || localStorage.getItem("token") || null;
@@ -82,7 +95,7 @@ function useAdminDetection() {
     }
 
     const byId = uidCandidates.some((x) => String(x) === HARDCODED_ADMIN_ID);
-    const byRole = roleCandidates.some((r) => r?.toLowerCase?.() === "admin");
+    const byRole = roleCandidates.some(canManageMediaRole);
     setIsAdminUser(byId || byRole);
   }, []);
 
@@ -207,12 +220,12 @@ export default function SermonsPage() {
   const onKeyOpen = (e, id) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openWatch(id); } };
 
   const openAdd = () => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to add."); return; }
+    if (!isAdminUser || !adminMode) { alert("Enable management mode to add."); return; }
     setForm({ id:null, type: activeTab.replace(/s$/,''), title:"", speaker:"", date:"", youtube:"" });
     setShowModal(true);
   };
   const openEdit = (r) => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to edit."); return; }
+    if (!isAdminUser || !adminMode) { alert("Enable management mode to edit."); return; }
     setForm({
       id: r.id ?? r.Id ?? null,
       type: (r.type ?? r.Type ?? "sermon").toString().toLowerCase(),
@@ -226,7 +239,7 @@ export default function SermonsPage() {
 
   const save = async (e) => {
     e?.preventDefault?.();
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to save."); return; }
+    if (!isAdminUser || !adminMode) { alert("Enable management mode to save."); return; }
     if (!form.title || !form.youtube) { alert("Title and YouTube URL/ID are required"); return; }
     setSaving(true);
     try {
@@ -252,7 +265,7 @@ export default function SermonsPage() {
   };
 
   const doDelete = async (id) => {
-    if (!isAdminUser || !adminMode) { alert("Enable Admin mode to delete."); return; }
+    if (!isAdminUser || !adminMode) { alert("Enable management mode to delete."); return; }
     if (!window.confirm("Delete this item?")) return;
     try {
       await ensureApis();
@@ -292,11 +305,11 @@ export default function SermonsPage() {
         <div className="hero-actions">
           <button className="btn btn-ghost" onClick={load}>⟳ Refresh</button>
 
-          {/* Admin Mode switch (visible only to admin users) */}
+          {/* Management mode switch (visible only to media managers/admin users) */}
           {isAdminUser && (
             <label className="switch" title="Only administrators can toggle this">
               <input type="checkbox" checked={adminMode} onChange={(e)=>setAdminMode(e.target.checked)} />
-              <span>{adminMode ? "Admin mode: ON" : "Admin mode: OFF"}</span>
+              <span>{adminMode ? "Manage mode: ON" : "Manage mode: OFF"}</span>
             </label>
           )}
 
@@ -309,7 +322,7 @@ export default function SermonsPage() {
       {/* small hint */}
       {isAdminUser ? (
         <div className="hint" style={{ marginTop:6 }}>
-          Tip: Toggle <strong>Admin mode</strong> ON to enable Add / Edit / Delete.
+          Tip: Toggle <strong>Manage mode</strong> ON to enable Add / Edit / Delete.
         </div>
       ) : (
         <div className="hint" style={{ marginTop:6 }}>

@@ -1,1084 +1,1537 @@
-// src/features/admin/AdminDashboard.jsx
-import React, { useEffect, useMemo, useState } from "react";
+// src/features/admin/AdminDashboard.jsx  v3.0
+// ── Fixes: Members=0 (arrayFrom shape), compact() decimals, snapshotAt null, chatStats key
+// ── New:   Prayer RAG donut · Church Community · Upcoming Week · Team Performance
+//           Quick Actions bar · Recent Joiners · Ministry Milestones · trend arrows
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Activity,
-  AlertTriangle,
-  BarChart3,
-  Ban,
-  CalendarCheck,
-  CheckCircle2,
-  Clock3,
-  DollarSign,
-  Download,
-  HeartHandshake,
-  IndianRupee,
-  Layers,
-  MessageSquare,
-  RefreshCw,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  TrendingUp,
-  Users,
+  Activity, AlertTriangle, Ban, BookOpen,
+  CalendarCheck, CalendarDays, Download, ExternalLink,
+  HeartHandshake, IndianRupee, Layers, Lock,
+  MessageSquare, Plus, RefreshCw, ShieldCheck,
+  Sparkles, Target, UnlockKeyhole, Users,
 } from "lucide-react";
-import * as Recharts from "recharts";
+import {
+  BarChart, Bar, Cell, PieChart, Pie,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer,
+} from "recharts";
 import api from "../../api";
 
-const colors = {
-  emerald: "#059669",
-  teal: "#0d9488",
-  blue: "#2563eb",
-  sky: "#0284c7",
-  amber: "#d97706",
-  orange: "#ea580c",
-  rose: "#e11d48",
-  violet: "#7c3aed",
-  slate: "#475569",
+/* ═══════════════════ CONSTANTS ═══════════════════ */
+const PALETTE = {
+  emerald:"#059669", teal:"#0d9488", blue:"#2563eb", sky:"#0284c7",
+  amber:"#d97706", orange:"#ea580c", rose:"#e11d48", violet:"#7c3aed",
+  slate:"#475569", indigo:"#4f46e5", pink:"#db2777", lime:"#65a30d",
 };
+const PIE_COLORS = [PALETTE.emerald, PALETTE.blue, PALETTE.violet, PALETTE.amber, PALETTE.orange, PALETTE.rose, PALETTE.sky, PALETTE.indigo];
+const DATE_RANGES = [{ label:"7 days", v:7 },{ label:"30 days", v:30 },{ label:"90 days", v:90 }];
+const AUTO_REFRESH = 300;
 
-const moduleLabels = {
-  overview: "Core overview",
-  reports: "Admin reports",
-  prayers: "Prayer analytics",
-  users: "Users",
-  chats: "Chats",
-  tasks: "Tasks",
-  teams: "Teams",
-  attendance: "Attendance",
-  timesheets: "Timesheets",
-  pnl: "Accounting P&L",
-  balances: "Account balances",
-  balanceSheet: "Balance sheet",
-  sermons: "Sermons",
-  baptisms: "Baptism",
-  marriage: "Marriage",
-  counselling: "Counselling",
-  payrollRuns: "Payroll",
-  prayerRequests: "Prayer requests",
-  dailyRoutines: "Daily routines",
-};
-
-function getCurrentUserSync() {
+/* ═══════════════════ HELPERS ═══════════════════ */
+function getCurrentUser() {
   try {
-    for (const key of ["mahima_user", "user", "currentUser", "mahima_currentUser", "me"]) {
-      const raw = localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
+    for (const k of ["mahima_user","user","currentUser","mahima_currentUser","me"]) {
+      const r = localStorage.getItem(k); if (r) return JSON.parse(r);
     }
-  } catch {}
-  return null;
+  } catch {} return null;
 }
-
-function normalizeRoles(user) {
+function normalizeRoles(u) {
   const out = [];
-  const push = (value) => {
-    if (typeof value === "string" && value.trim()) out.push(value.toLowerCase().trim());
-  };
-  push(user?.role);
-  push(user?.Role);
-  push(user?.userRole);
-  if (Array.isArray(user?.roles)) {
-    user.roles.forEach((role) => {
-      if (typeof role === "string") push(role);
-      else {
-        push(role?.name);
-        push(role?.role);
-        push(role?.roleName);
-      }
-    });
-  }
+  const push = (v) => { if (typeof v === "string" && v.trim()) out.push(v.toLowerCase().trim()); };
+  push(u?.role); push(u?.Role); push(u?.userRole);
+  if (Array.isArray(u?.roles)) u.roles.forEach(r => typeof r === "string" ? push(r) : (push(r?.name), push(r?.role)));
   return out;
 }
-
-function hasDashboardPage(user) {
-  const pages = Array.isArray(user?.pages) ? user.pages.map((p) => String(p).toUpperCase()) : [];
+function hasDashPage(u) {
+  const pages = Array.isArray(u?.pages) ? u.pages.map(p => String(p).toUpperCase()) : [];
   return pages.includes("ADMIN") || pages.includes("ADMINDASHBOARD");
 }
 
-function arrayFrom(value) {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
-  if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.records)) return value.records;
+// ── Data extraction ──
+function arrayFrom(v) {
+  if (Array.isArray(v)) return v;
+  if (!v || typeof v !== "object") return [];
+  // Cover every response wrapper shape encountered in the wild
+  for (const k of ["data","items","records","rows","results","users","members","list","content","payload","value","collection"]) {
+    if (Array.isArray(v[k])) return v[k];
+  }
   return [];
 }
-function totalFrom(value, rows = arrayFrom(value)) {
-  return number(value?.total ?? value?.count ?? value?.totalCount ?? value?.recordsTotal ?? rows.length);
+function totalFrom(v) {
+  if (typeof v === "number") return v;
+  const rows = arrayFrom(v);
+  for (const k of ["total","count","totalCount","recordsTotal","TotalCount","Total","totalRecords","totalItems","length"]) {
+    const n = Number(v?.[k]);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return rows.length;
 }
-
-function countBy(rows, picker, fallback = "Unassigned") {
-  const map = new Map();
-  arrayFrom(rows).forEach((row) => {
-    const raw = typeof picker === "function" ? picker(row) : row?.[picker];
-    const key = String(raw || fallback).trim() || fallback;
-    map.set(key, (map.get(key) || 0) + 1);
+function num(v, fb = 0) { const n = Number(v); return Number.isFinite(n) ? n : fb; }
+function compact(v) {
+  const n = num(v);
+  const abs = Math.abs(n);
+  if (abs >= 1e7)      return `${+(n/1e7).toFixed(1)}Cr`;
+  if (abs >= 1e5)      return `${+(n/1e5).toFixed(1)}L`;
+  if (abs >= 1e3)      return `${+(n/1e3).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+function pct(v, total) {
+  if (total !== undefined) return total > 0 ? Math.round((v/total)*100) + "%" : "0%";
+  return Math.round(num(v)) + "%";
+}
+function currency(v) {
+  return new Intl.NumberFormat("en-IN",{ style:"currency", currency:"INR", maximumFractionDigits:0 }).format(num(v));
+}
+function amtFrom(v, ...keys) {
+  for (const k of keys) { if (v?.[k] != null) return num(v[k]); } return 0;
+}
+function countBy(rows, picker) {
+  const m = new Map();
+  arrayFrom(rows).forEach(row => {
+    const key = String((typeof picker === "function" ? picker(row) : row?.[picker]) || "—").trim();
+    m.set(key, (m.get(key)||0)+1);
   });
-  return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  return [...m.entries()].map(([name,value]) => ({ name, value })).sort((a,b) => b.value-a.value);
 }
-
-function number(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+function titleCaseRole(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "Unassigned";
+  return s
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, ch => ch.toUpperCase());
 }
-
-function currency(value) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(number(value));
+function roleLabel(v, roles = []) {
+  const s = String(v ?? "").trim();
+  if (!s) return "Member";
+  const l = s.toLowerCase();
+  const map = { "1":"Admin","2":"Member","10":"Volunteer","11":"Staff","12":"Pastor",
+                "admin":"Admin","member":"Member","staff":"Staff","volunteer":"Volunteer","pastor":"Pastor" };
+  if (/^\d+$/.test(s)) {
+    const found = arrayFrom(roles).find(role => String(role.id ?? role.Id) === s);
+    const name = found?.name ?? found?.Name;
+    if (name) return titleCaseRole(name);
+  }
+  return map[s] || map[l] || titleCaseRole(s);
 }
-
-function compactNumber(value) {
-  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 }).format(number(value));
+function userRole(u, roles = []) { return roleLabel(u?.roleName ?? u?.RoleName ?? u?.role ?? u?.Role ?? u?.roleId ?? u?.RoleId ?? "Member", roles); }
+function reportRoleRows(reports, roles = []) {
+  return arrayFrom(reports?.users?.byRole)
+    .map(row => ({
+      name: roleLabel(row.role ?? row.Role ?? row.name ?? row.Name, roles),
+      value: num(row.count ?? row.Count ?? row.value ?? row.Value),
+    }))
+    .filter(row => row.value > 0)
+    .sort((a,b) => b.value - a.value || a.name.localeCompare(b.name));
 }
-
-function pct(value) {
-  return `${Math.round(number(value))}%`;
+function reconcileRoleRows(rows, total, roles = []) {
+  const merged = new Map();
+  arrayFrom(rows).forEach(row => {
+    const name = roleLabel(row.name, roles);
+    const value = num(row.value);
+    if (value > 0) merged.set(name, (merged.get(name) || 0) + value);
+  });
+  const out = [...merged.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a,b) => b.value - a.value || a.name.localeCompare(b.name));
+  const roleTotal = out.reduce((sum, row) => sum + row.value, 0);
+  const missing = Math.max(0, num(total) - roleTotal);
+  if (missing > 0) out.push({ name:"Unassigned / Missing Role", value:missing });
+  return out;
 }
-function normalizeTaskStatusCode(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) return 0;
-  if (/^-?\d+$/.test(raw)) return Number(raw);
-  if (/complete|done|closed|close|finished/.test(raw)) return 2;
-  if (/progress|review/.test(raw)) return 1;
-  return 0;
-}
-
-function taskStatusLabel(value) {
-  const code = normalizeTaskStatusCode(value);
-  if (code === 2) return "Completed";
-  if (code === 3) return "On Hold";
-  if (code === 1) return "In Progress";
+function statusLabel(v) {
+  const c = Number(v); const s = String(v||"").toLowerCase();
+  if (c===2||/complete|done|closed|finish/.test(s)) return "Completed";
+  if (c===3||/hold/.test(s))  return "On Hold";
+  if (c===1||/progress|review/.test(s)) return "In Progress";
   return "Pending";
 }
-
-function taskPriorityLabel(value) {
-  const code = Number(value);
-  if (code === 3) return "Critical";
-  if (code === 2) return "High";
-  if (code === 1) return "Medium";
-  if (code === 0) return "Low";
-  return String(value || "None");
+function priorityLabel(v) {
+  const c = num(v);
+  if (c===5) return "Urgent"; if (c===4||c===3) return "Critical";
+  if (c===2) return "High";   if (c===1) return "Normal"; if (c===0) return "Low";
+  return String(v||"Normal");
 }
-function roleLabel(value) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "Unassigned";
-  const lower = raw.toLowerCase();
-  if (lower === "1") return "Admin";
-  if (lower === "2") return "Member";
-  if (lower === "10") return "Volunteer";
-  if (lower === "11") return "Staff";
-  if (lower === "12") return "Pastor";
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+function taskDue(t) { return t?.dueDate||t?.DueDate||t?.due||t?.Due; }
+function isDone(t)  { return statusLabel(t?.status??t?.Status)  === "Completed"; }
+function isOver(t)  { const d=taskDue(t); return Boolean(d && !isDone(t) && new Date(d)<new Date()); }
+function daysFrom(d, from = new Date()) {
+  return Math.ceil((new Date(d)-from)/(864e5));
 }
-
-function userRoleOf(user) {
-  return roleLabel(user?.role ?? user?.Role ?? user?.roleName ?? user?.RoleName ?? user?.roleId ?? user?.RoleId ?? user?.role_code ?? user?.roleCode);
+function safeDate(daysBack=0) {
+  const d=new Date(); d.setDate(d.getDate()-daysBack);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
-
-function amountFrom(value, ...keys) {
-  for (const key of keys) {
-    if (value?.[key] !== undefined && value?.[key] !== null) return number(value[key]);
-  }
-  return 0;
+function monthIsoRange(date = new Date()) {
+  const from = new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  const to = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { from:from.toISOString(), to:to.toISOString() };
 }
-function positiveRows(rows) {
-  return arrayFrom(rows).filter((row) => number(row?.value ?? row?.count ?? row?.Count) > 0);
-}
-
-function rowsTotal(rows, valueKey = "value") {
-  return arrayFrom(rows).reduce((sum, row) => sum + number(row?.[valueKey] ?? row?.count ?? row?.Count), 0);
-}
-
-function compactMetric(value) {
-  return typeof value === "number" ? compactNumber(value) : String(value ?? "");
-}
-
-function taskDueDate(task) {
-  return task?.dueDate || task?.DueDate || task?.due || task?.Due;
-}
-
-function isTaskCompleted(task) {
-  return normalizeTaskStatusCode(task?.status ?? task?.Status ?? task?.statusCode ?? task?.StatusCode) === 2;
-}
-
-function isTaskOverdue(task) {
-  const due = taskDueDate(task);
-  return Boolean(due && !isTaskCompleted(task) && new Date(due).getTime() < Date.now());
-}
-
-function safeDate(daysBack = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() - daysBack);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-async function safeGet(key, url, config = {}) {
+function addDays(d, n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+async function safeGet(key, url, cfg={}) {
   try {
-    const data = await api.get(url, config);
-    return { key, ok: true, data, error: null };
-  } catch (error) {
-    return {
-      key,
-      ok: false,
-      data: null,
-      error: error?.response?.data?.message || error?.message || "Unavailable",
-    };
+    const res = await api.get(url, cfg);
+    if (res && typeof res === "object" && "ok" in res && "data" in res) {
+      if (!res.ok) throw new Error(res.error || res.statusText || `HTTP ${res.status || ""}`.trim() || "Unavailable");
+      return { key, ok:true, data:res.data, error:null };
+    }
+    return { key, ok:true, data:res, error:null };
   }
+  catch(e) { return { key, ok:false, data:null, error:e?.response?.data?.message||e?.message||"Unavailable" }; }
 }
+function byKey(results) { return results.reduce((a,r)=>{ a[r.key]=r; return a; }, {}); }
 
-function toLookup(results) {
-  return results.reduce((acc, item) => {
-    acc[item.key] = item;
-    return acc;
-  }, {});
-}
+/* ═══════════════════ DASHBOARD BUILDER ═══════════════════ */
+function buildDashboard(results, days) {
+  const r = byKey(results);
+  const overview     = r.overview?.data    || {};
+  const reports      = r.reports?.data     || {};
+  const prayerApi    = r.prayers?.data     || {};
+  const roles        = arrayFrom(r.roles?.data);
 
-function buildDashboard(results) {
-  const r = toLookup(results);
-  const overview = r.overview?.data || {};
-  const reports = r.reports?.data || {};
-  const users = arrayFrom(r.users?.data);
-  const tasks = arrayFrom(r.tasks?.data);
-  const teams = arrayFrom(r.teams?.data);
-  const attendance = arrayFrom(r.attendance?.data);
-  const timesheets = arrayFrom(r.timesheets?.data);
-  const sermons = arrayFrom(r.sermons?.data);
-  const baptisms = arrayFrom(r.baptisms?.data);
-  const marriage = arrayFrom(r.marriage?.data);
-  const counselling = arrayFrom(r.counselling?.data);
-  const prayerRequests = arrayFrom(r.prayerRequests?.data);
-  const payrollRuns = arrayFrom(r.payrollRuns?.data);
-  const balances = arrayFrom(r.balances?.data);
+  // ── Extract arrays with fixed arrayFrom ──
+  const users        = arrayFrom(r.users?.data);
+  const tasks        = arrayFrom(r.tasks?.data);
+  const teams        = arrayFrom(r.teams?.data);
+  const attendance   = arrayFrom(r.attendance?.data);
+  const timesheets   = arrayFrom(r.timesheets?.data);
+  const sermons      = arrayFrom(r.sermons?.data);
+  const baptisms     = arrayFrom(r.baptisms?.data);
+  const marriages    = arrayFrom(r.marriage?.data);
+  const counselling  = arrayFrom(r.counselling?.data);
+  const prayerReqs   = arrayFrom(r.prayerRequests?.data);
+  const payroll      = arrayFrom(r.payrollRuns?.data);
+  const accounts     = arrayFrom(r.accounts?.data);
+  const balances     = arrayFrom(r.balances?.data);
+  const pnl          = r.costPnl?.data || r.pnl?.data || {};
   const balanceSheet = r.balanceSheet?.data || {};
-  const balanceSheetAssets = arrayFrom(balanceSheet.assets ?? balanceSheet.Assets);
-  const pnl = r.pnl?.data || {};
-  const dailyRoutines = r.dailyRoutines?.data || {};
 
-  const userRoleRows = countBy(users, userRoleOf);
-  const userRoleValue = (label) => userRoleRows.find((row) => row.name.toLowerCase() === label.toLowerCase())?.value || 0;
-  const userStats = {
-    total: number(overview?.users?.total ?? reports?.users?.total ?? totalFrom(r.users?.data, users)),
-    admins: number(overview?.users?.admins) || userRoleValue("Admin"),
-    members: number(overview?.users?.members) || userRoleValue("Member"),
-    staff: number(overview?.users?.staff) || userRoleValue("Staff"),
-    volunteers: number(overview?.users?.volunteers) || userRoleValue("Volunteer"),
-    new30: number(overview?.users?.newMembers30d),
-  };
+  // ── Users ──  FIX: use || not ?? so that 0 from analytics falls through to live data
+  const userRows     = users.length ? users : arrayFrom(reports?.users);
+  const rawRoleRows  = countBy(userRows, u => userRole(u, roles));
+  const analyticsRoleRows = reportRoleRows(reports, roles);
+  // Each step in the chain: 0 falls through to the next source via ||
+  const uTotal  = totalFrom(r.users?.data) || userRows.length || num(overview?.users?.total) || num(reports?.users?.total);
+  const roleRows = reconcileRoleRows(rawRoleRows.length ? rawRoleRows : analyticsRoleRows, uTotal, roles);
+  const roleVal = (lbl) => roleRows.find(x=>x.name.toLowerCase()===lbl.toLowerCase())?.value || 0;
+  const uMembers    = roleVal("Member") || roleVal("member") || num(overview?.users?.members);
+  const uAdmins     = roleVal("Admin")  || roleVal("admin")  || num(overview?.users?.admins);
+  const uStaff      = roleVal("Staff")  || roleVal("staff")  || num(overview?.users?.staff);
+  const uVolunteers = roleVal("Volunteer") || roleVal("volunteer") || num(overview?.users?.volunteers);
+  const uNew        = num(overview?.users?.newMembers30d) || num(overview?.users?.new30);
+  const roleTotal   = roleRows.reduce((sum,row)=>sum+num(row.value),0);
+  const roleMismatch = roleTotal - uTotal;
 
-  const liveTaskRows = tasks.length ? tasks : arrayFrom(reports?.tasks?.items);
-  const taskTotal = liveTaskRows.length || number(reports?.tasks?.total ?? overview?.tasks?.total);
+  // Recent joiners — sorted by createdAt descending
+  const recentJoiners = userRows
+    .filter(u => u.createdAt||u.joinedAt)
+    .sort((a,b)=>new Date(b.createdAt||b.joinedAt)-new Date(a.createdAt||a.joinedAt))
+    .slice(0,6)
+    .map(u=>({
+      name:   u.name||u.Name||u.fullName||u.username||"User",
+      role:   userRole(u, roles),
+      joined: u.createdAt||u.joinedAt,
+      initials:(u.name||u.fullName||"U").trim().split(/\s+/).map(w=>w[0]).join("").toUpperCase().slice(0,2),
+    }));
 
-  const taskStatus = liveTaskRows.length
-    ? ["Pending", "In Progress", "Completed", "On Hold"]
-        .map((name) => ({ name, value: liveTaskRows.filter((task) => taskStatusLabel(task?.status ?? task?.Status ?? task?.statusCode ?? task?.StatusCode) === name).length }))
-        .filter((row) => row.value > 0)
-    : reports?.tasks?.byStatus?.length
-      ? reports.tasks.byStatus
-          .map((x) => ({ name: taskStatusLabel(x.status), value: number(x.count) }))
-          .reduce((rows, row) => {
-            const existing = rows.find((item) => item.name === row.name);
-            if (existing) existing.value += row.value;
-            else rows.push(row);
-            return rows;
-          }, [])
-      : [];
+  // Role distribution for chart
+  const usersByRole = roleRows.filter(r=>r.value>0);
 
-  const taskPriority = liveTaskRows.length
-    ? ["Critical", "High", "Medium", "Low", "None"]
-        .map((name) => ({ name, value: liveTaskRows.filter((task) => taskPriorityLabel(task?.priority ?? task?.Priority) === name).length }))
-        .filter((row) => row.value > 0)
-    : reports?.tasks?.byPriority?.length
-      ? reports.tasks.byPriority.map((x) => ({ name: taskPriorityLabel(x.priority), value: number(x.count) }))
-      : [];
+  // ── Tasks ──
+  const liveTasks = tasks.length ? tasks : arrayFrom(reports?.tasks?.items);
+  const taskTotal = liveTasks.length || num(reports?.tasks?.total ?? overview?.tasks?.total);
 
-  const completedTasks = liveTaskRows.length
-    ? liveTaskRows.filter(isTaskCompleted).length
-    : taskStatus.filter((x) => /complete|done|closed/i.test(x.name)).reduce((sum, x) => sum + x.value, 0);
-  const openTasks = Math.max(0, taskTotal - completedTasks);
-  const overdueTasks = liveTaskRows.length
-    ? liveTaskRows.filter(isTaskOverdue).length
-    : number(overview?.tasks?.byRole?.reduce?.((sum, row) => sum + number(row.overdue), 0));
+  const taskByStatus = ["Pending","In Progress","Completed","On Hold"].map(name=>{
+    const value = liveTasks.length
+      ? liveTasks.filter(t=>statusLabel(t?.status??t?.Status)===name).length
+      : num(reports?.tasks?.byStatus?.find?.(x=>statusLabel(x.status)===name)?.count);
+    return { name, value };
+  }).filter(x=>x.value>0);
 
-  const chats = reports?.chats || {};
-  const chatStats = {
-    total: number(chats.total ?? totalFrom(r.chats?.data, arrayFrom(r.chats?.data))),
-    groups: number(chats.groupChats),
-    direct: number(chats.directChats),
-    messages30: number(chats.recentMessages30d),
-  };
+  const taskByPriority = ["Critical","Urgent","High","Normal","Low"].map(name=>{
+    const value = liveTasks.length
+      ? liveTasks.filter(t=>priorityLabel(t?.priority??t?.Priority)===name).length
+      : num(reports?.tasks?.byPriority?.find?.(x=>priorityLabel(x.priority)===name)?.count);
+    return { name, value };
+  }).filter(x=>x.value>0);
 
-  const prayer30 =
-    number(reports?.prayers?.created30d) ||
-    number(r.prayers?.data?.counts?.["30"]?.total) ||
-    prayerRequests.filter((p) => p.createdAt && new Date(p.createdAt) >= new Date(safeDate(30))).length;
-  const prayerResponded30 =
-    number(r.prayers?.data?.counts?.["30"]?.responded) ||
-    prayerRequests.filter((p) => /respond|closed|answered|testified/i.test(String(p.status))).length;
-  const prayerReminderTotal = prayerRequests.reduce((sum, p) => sum + number(p.reminderCount ?? p.ReminderCount), 0);
-  const prayerReminderToday = prayerRequests.reduce((sum, p) => sum + number(p.reminderTodayCount ?? p.ReminderTodayCount), 0);
-  const prayerRequestsWithReminders = prayerRequests.filter((p) => number(p.reminderCount ?? p.ReminderCount) > 0).length;
-  const prayerRagRed = prayerRequests.filter((p) => String(p.ragStatus ?? p.RagStatus).toLowerCase() === "red").length;
-  const prayerRagAmber = prayerRequests.filter((p) => String(p.ragStatus ?? p.RagStatus).toLowerCase() === "amber").length;
-  const prayerRagGreen = prayerRequests.filter((p) => {
-    const status = String((p.ragStatus ?? p.RagStatus) || "green").toLowerCase();
-    return status === "green";
+  const completed   = taskByStatus.find(x=>x.name==="Completed")?.value || 0;
+  const openTasks   = Math.max(0, taskTotal - completed);
+  const overdue     = liveTasks.filter(isOver);
+  const now         = new Date();
+  const upcoming    = liveTasks
+    .filter(t => !isDone(t) && taskDue(t) && daysFrom(taskDue(t),now)>=0 && daysFrom(taskDue(t),now)<=7)
+    .sort((a,b)=>new Date(taskDue(a))-new Date(taskDue(b)))
+    .slice(0,8)
+    .map(t=>({
+      id:t.id??t.Id, title:(t.title??t.Title)||"Untitled",
+      due:taskDue(t), daysLeft:daysFrom(taskDue(t),now),
+      priority:priorityLabel(t?.priority??t?.Priority),
+    }));
+  const overdueList = overdue
+    .sort((a,b)=>new Date(taskDue(a))-new Date(taskDue(b))).slice(0,8)
+    .map(t=>({
+      id:t.id??t.Id, title:(t.title??t.Title)||"Untitled",
+      due:taskDue(t), daysAgo:Math.abs(daysFrom(taskDue(t),now)),
+      priority:priorityLabel(t?.priority??t?.Priority),
+    }));
+  const todayKey = new Date().toISOString().slice(0,10);
+  const taskReminderLogs = liveTasks.flatMap(t =>
+    arrayFrom(t.activityLog ?? t.ActivityLog).filter(log =>
+      /reminder/i.test(String(log.action ?? log.Action ?? ""))
+    )
+  );
+  const taskReminderTotal = taskReminderLogs.length;
+  const taskReminderToday = taskReminderLogs.filter(log => {
+    const d = log.createdAt ?? log.CreatedAt;
+    return d && new Date(d).toISOString().slice(0,10) === todayKey;
   }).length;
 
-  const ministryStatus = [
-    ...countBy(baptisms, (x) => `Baptism: ${x.status || x.Status || "Pending"}`),
-    ...countBy(marriage, (x) => `Marriage: ${x.status || x.Status || "Pending"}`),
-    ...countBy(counselling, (x) => `Counselling: ${x.status || x.Status || "Pending"}`),
-  ].slice(0, 10);
+  // ── Chats ── (BUG FIX: backend key is recentMessages30d)
+  const chats = reports?.chats || {};
+  const chatStats = {
+    total:    num(chats.total ?? totalFrom(r.chats?.data)),
+    groups:   num(chats.groupChats),
+    direct:   num(chats.directChats),
+    messages: num(chats.recentMessages30d ?? chats.messages30 ?? chats.messages),
+  };
 
-  const accountingRows = reports?.accounting?.last30Days || [];
-  const income =
-    amountFrom(pnl, "income", "Income", "totalIncome", "TotalIncome") ||
-    accountingRows.filter((x) => /income|revenue/i.test(String(x.type ?? x.Type))).reduce((sum, x) => sum + Math.abs(amountFrom(x, "credit", "Credit", "net", "Net", "amount", "Amount")), 0);
-  const expense =
-    amountFrom(pnl, "expense", "Expense", "expenses", "Expenses", "totalExpense", "TotalExpense") ||
-    accountingRows.filter((x) => /expense/i.test(String(x.type ?? x.Type))).reduce((sum, x) => sum + Math.abs(amountFrom(x, "debit", "Debit", "net", "Net", "amount", "Amount")), 0);
-  const net = amountFrom(pnl, "net", "Net", "netIncome", "NetIncome", "netSurplus", "NetSurplus") || income - expense;
-  const cashBankRows = balances.length ? balances : balanceSheetAssets;
-  const cashBank = cashBankRows
-    .filter((x) => /cash|bank/i.test(`${x.name || x.Name || x.accountName || x.AccountName || ""} ${x.type || x.Type || ""}`))
-    .reduce((sum, x) => sum + amountFrom(x, "balance", "Balance", "closingBalance", "ClosingBalance", "amount", "Amount"), 0);
+  // ── Prayers ──
+  const prayerWindow = prayerApi?.counts?.[days] || prayerApi?.counts?.[String(days)] || {};
+  const prayerRowsInPeriod = prayerReqs.filter(p => {
+    const d = p.createdAt || p.CreatedAt;
+    return !d || new Date(d) >= new Date(safeDate(days));
+  });
+  const hasResponseData = prayerReqs.some(p => Array.isArray(p.responses ?? p.Responses));
+  const hasPrayerResponse = (p) => {
+    const responses = p.responses ?? p.Responses;
+    if (Array.isArray(responses)) return responses.length > 0;
+    return num(p.responseCount ?? p.ResponseCount ?? p.responsesCount ?? p.ResponsesCount) > 0;
+  };
+  const totalPrayer  = prayerReqs.length || num(prayerApi?.total ?? prayerWindow?.total ?? reports?.prayers?.total);
+  const prayer30     = num(reports?.prayers?.created30d) ||
+    num(prayerWindow?.total) ||
+    prayerRowsInPeriod.length;
+  const pResponded   = hasResponseData
+    ? prayerRowsInPeriod.filter(hasPrayerResponse).length
+    : (num(prayerWindow?.responded) || prayerReqs.filter(p=>/respond|closed|answer|testif/i.test(String(p.status))).length);
+  const prayerReminderTotal = prayerReqs.reduce((s,p)=>s+num(p.reminderCount??p.ReminderCount),0);
+  const prayerReminderToday = prayerReqs.reduce((s,p)=>s+num(p.reminderTodayCount??p.ReminderTodayCount),0);
+  const pReminderTotal = prayerReminderTotal + taskReminderTotal;
+  const pReminderToday = prayerReminderToday + taskReminderToday;
+  const ragRed   = prayerReqs.filter(p=>String(p.ragStatus??p.RagStatus).toLowerCase()==="red").length;
+  const ragAmber = prayerReqs.filter(p=>String(p.ragStatus??p.RagStatus).toLowerCase()==="amber").length;
+  const ragGreen = prayerReqs.filter(p=>{
+    const s=String((p.ragStatus??p.RagStatus)||"").toLowerCase(); return s===""||s==="green";
+  }).length;
+  const ragData  = [
+    { name:"Green 🟢", value:ragGreen||Math.max(0,totalPrayer-ragRed-ragAmber) },
+    { name:"Amber 🟡", value:ragAmber },
+    { name:"Red 🔴",   value:ragRed   },
+  ].filter(x=>x.value>0);
+  const prayerByCategory = countBy(prayerReqs, p=>p.category||p.Category||p.type||p.Type||"General").slice(0,6);
 
-  const attendanceRate = attendance.length && userStats.staff
-    ? Math.min(100, (attendance.length / (Math.max(userStats.staff, 1) * 30)) * 100)
-    : number(overview?.teams?.productivity?.[0]?.attendanceRate);
-  const totalHours = timesheets.reduce((sum, x) => sum + number(x.hours ?? x.Hours), 0);
-  const timesheetUsers = new Set(timesheets.map((x) => x.userId ?? x.UserId ?? x.user?.id ?? x.User?.Id).filter(Boolean)).size;
-  const avgHours = timesheets.length
-    ? totalHours / Math.max(timesheetUsers || userStats.staff || 1, 1)
-    : number(overview?.teams?.productivity?.[0]?.avgHours);
+  // ── Teams ──
+  const teamList = teams.map(t=>({
+    id:   t.id??t.Id??t.teamId,
+    name: t.name??t.Name??t.teamName,
+    memberCount: num(t.memberCount??t.MemberCount??t.members?.length),
+    taskCount:   liveTasks.filter(x=>x.teamId===t.id||x.TeamId===t.Id).length,
+    completed:   liveTasks.filter(x=>(x.teamId===t.id||x.TeamId===t.Id)&&isDone(x)).length,
+  })).slice(0,8);
 
-  const contentMix = countBy(sermons, (x) => x.type || x.resourceType || "Sermon");
-  const reportRoleRows = arrayFrom(reports?.users?.byRole).map((x) => ({ name: roleLabel(x.role ?? x.Role), value: number(x.count ?? x.Count) }));
-  const overviewRoleRows = [
-    { name: "Admin", value: userStats.admins },
-    { name: "Member", value: userStats.members },
-    { name: "Staff", value: userStats.staff },
-    { name: "Volunteer", value: userStats.volunteers },
+  // ── Finance ── primary: accounting P&L; fallback: raw expenses table
+  const expenseRows = arrayFrom(r.expenses?.data);
+  const expenseRows30 = expenseRows.filter(e => {
+    const d = e.date || e.Date || e.createdAt || e.CreatedAt;
+    return !d || new Date(d) >= new Date(safeDate(days));
+  });
+  const rawExpenseTotal = expenseRows30.reduce((s,e) => s + num(e.amount || e.Amount), 0);
+  const expenseByCategory = countBy(expenseRows30, e => e.category || e.Category || "Other").slice(0,8);
+
+  const income  = amtFrom(pnl,"income","Income","totalIncome","TotalIncome");
+  // Use accounting P&L expense if available, else sum expense table directly
+  const expense = amtFrom(pnl,"expense","Expense","totalExpense","TotalExpense") || rawExpenseTotal;
+  const net     = amtFrom(pnl,"net","Net","netSurplus","NetSurplus","netIncome","NetIncome") || (income - expense);
+  const accountFor = (balance) => accounts.find(a => String(a.id ?? a.Id) === String(balance.accountId ?? balance.AccountId));
+  const balanceType = (balance) => balance.type || balance.Type || accountFor(balance)?.type || accountFor(balance)?.Type;
+  const balanceName = (balance) => balance.accountName || balance.AccountName || accountFor(balance)?.name || accountFor(balance)?.Name || "";
+  const cashBank= balances
+    .filter(b => String(balanceType(b)).toUpperCase() === "ASSET" && /cash|bank/i.test(balanceName(b)))
+    .reduce((s,b)=>s+amtFrom(b,"balance","Balance","closingBalance","ClosingBalance","amount","Amount"),0)
+    || amtFrom(balanceSheet,"cashAndBank","cash","bank","totalCash");
+  // Per-category expense breakdown for display
+  const incomeAccounts  = arrayFrom(pnl.incomeAccounts  || pnl.IncomeAccounts);
+  const pnlExpenseAccounts = arrayFrom(pnl.expenseAccounts || pnl.ExpenseAccounts);
+  const balanceExpenseAccounts = balances
+    .filter(b => String(balanceType(b)).toUpperCase() === "EXPENSE" && amtFrom(b,"balance","Balance") > 0)
+    .map(b => ({ accountName: balanceName(b) || "Other", amount: amtFrom(b,"balance","Balance") }))
+    .sort((a,b)=>b.amount-a.amount)
+    .slice(0,6);
+  const expenseAccounts = pnlExpenseAccounts.length
+    ? pnlExpenseAccounts
+    : (balanceExpenseAccounts.length ? balanceExpenseAccounts : expenseByCategory.map(e => ({ accountName: e.name, amount: e.value })));
+
+  // ── Ministry ──
+  const statusOf = x => x.status||x.Status||x.applicationStatus||"Pending";
+  const activeB = baptisms.filter(x=>/pending|progress|active/i.test(statusOf(x))).length;
+  const activeM = marriages.filter(x=>/pending|progress|active/i.test(statusOf(x))).length;
+  const activeC = counselling.filter(x=>/pending|progress|active|open/i.test(statusOf(x))).length;
+  const doneB   = baptisms.filter(x=>/complet|baptis/i.test(statusOf(x))).length;
+  const doneM   = marriages.filter(x=>/complet|married/i.test(statusOf(x))).length;
+  const doneC   = counselling.filter(x=>/complet|closed/i.test(statusOf(x))).length;
+  const pipelines = [
+    { name:"Baptism",     total:baptisms.length,    active:activeB,   done:doneB    },
+    { name:"Marriage",    total:marriages.length,   active:activeM,   done:doneM    },
+    { name:"Counselling", total:counselling.length, active:activeC,   done:doneC    },
+    { name:"Prayers",     total:prayer30,           active:Math.max(0,prayer30-pResponded), done:pResponded },
   ];
-  const usersByRole = positiveRows(reportRoleRows).length
-    ? positiveRows(reportRoleRows)
-    : positiveRows(userRoleRows).length
-      ? positiveRows(userRoleRows)
-      : positiveRows(overviewRoleRows);
 
-  const failed = results.filter((x) => !x.ok);
+  // ── Attendance / Timesheets ──
+  const presentSet = new Set(attendance.filter(a=>!/absent|miss/i.test(String(a.status||""))).map(a=>a.userId||a.UserId||a.user?.id).filter(Boolean));
+  const attendPct  = uStaff ? Math.min(100, (presentSet.size/uStaff)*100) : num(overview?.teams?.productivity?.[0]?.attendanceRate);
+  const totalHrs   = timesheets.reduce((s,x)=>s+num(x.hours??x.Hours),0);
+  const tsUsers    = new Set(timesheets.map(x=>x.userId??x.UserId).filter(Boolean)).size;
+  const avgHrs     = tsUsers ? totalHrs/tsUsers : num(overview?.teams?.productivity?.[0]?.avgHours);
+
+  // ── Health ──
+  const failed    = results.filter(x=>!x.ok);
   const available = results.length - failed.length;
-  const completionRate = taskTotal ? (completedTasks / taskTotal) * 100 : 0;
-  const responseRate = prayer30 ? (prayerResponded30 / prayer30) * 100 : 0;
-  const healthScore = Math.round(
-    Math.min(100, Math.max(0,
-      35 +
-      (available / results.length) * 25 +
-      Math.min(completionRate, 100) * 0.18 +
-      Math.min(responseRate, 100) * 0.12 +
-      (failed.length === 0 ? 10 : 0)
-    ))
-  );
+  const compRate  = taskTotal ? (completed/taskTotal)*100 : 0;
+  const respRate  = prayer30  ? (pResponded/prayer30)*100 : 0;
+  const healthScore = Math.round(Math.min(100, Math.max(0,
+    30 + (available/results.length)*25 + Math.min(compRate,100)*0.18 + Math.min(respRate,100)*0.12 + (failed.length===0?15:0)
+  )));
 
+  // ── Attention cards ──
   const attention = [
-    { label: "Open tasks", value: openTasks, tone: openTasks > 0 ? "amber" : "emerald", detail: `${Math.round(completionRate)}% completed` },
-    { label: "Overdue tasks", value: overdueTasks, tone: overdueTasks > 0 ? "rose" : "emerald", detail: "Needs owner follow-up" },
-    { label: "Prayer follow-ups", value: Math.max(0, prayer30 - prayerResponded30), tone: prayer30 - prayerResponded30 > 0 ? "blue" : "emerald", detail: `${Math.round(responseRate)}% responded` },
-    { label: "Prayer reminders", value: prayerReminderToday, tone: prayerReminderToday > 0 ? "amber" : "emerald", detail: `${prayerReminderTotal} total sent` },
-    { label: "Prayer RAG red", value: prayerRagRed, tone: prayerRagRed > 0 ? "rose" : "emerald", detail: `${prayerRagAmber} amber` },
-    { label: "Module warnings", value: failed.length, tone: failed.length ? "rose" : "emerald", detail: "Unavailable data feeds" },
+    { label:"Open Tasks",          value:openTasks,       tone:openTasks>0?"amber":"emerald",    detail:`${pct(compRate)} completed`,          link:"/home/tasks" },
+    { label:"Overdue Tasks",       value:overdue.length,  tone:overdue.length>0?"rose":"emerald",detail:"Need immediate follow-up",             link:"/home/tasks" },
+    { label:"Prayer Follow-ups",   value:Math.max(0,prayer30-pResponded), tone:prayer30-pResponded>0?"blue":"emerald", detail:`${pct(respRate)} responded`, link:"/home/prayerrequests" },
+    { label:"Reminders Today",     value:pReminderToday,  tone:pReminderToday>0?"amber":"emerald",detail:`${compact(pReminderTotal)} total sent · ${compact(taskReminderTotal)} task`, link:"/home/prayerrequests" },
+    { label:"RAG 🔴 Urgent",       value:ragRed,          tone:ragRed>0?"rose":"emerald",         detail:`${ragAmber} amber · ${ragGreen||Math.max(0,totalPrayer-ragRed-ragAmber)} green`, link:"/home/prayerrequests" },
+    { label:"Module Warnings",     value:failed.length,   tone:failed.length?"rose":"emerald",    detail:"Unavailable data feeds",              link:null },
   ];
 
+  // ── Operations ──
   const operations = [
-    { name: "Users", value: userStats.total, detail: `${userStats.new30} new members in 30d`, icon: Users },
-    { name: "Chats", value: chatStats.total, detail: `${chatStats.messages30} messages in 30d`, icon: MessageSquare },
-    { name: "Teams", value: totalFrom(r.teams?.data, teams) || overview?.teams?.total || 0, detail: `${compactNumber(avgHours)} avg hrs/member`, icon: Layers },
-    { name: "Attendance", value: pct(attendanceRate), detail: `${attendance.length} records in 30d`, icon: CalendarCheck },
-    { name: "Sermons", value: totalFrom(r.sermons?.data, sermons), detail: `${contentMix.length || 0} content categories`, icon: BarChart3 },
-    { name: "Payroll", value: totalFrom(r.payrollRuns?.data, payrollRuns), detail: "Recent salary runs", icon: IndianRupee },
+    { name:"Total Members",  value:uTotal,          detail:`${uNew} new · ${compact(uAdmins)} admin`, icon:Users,         link:"/home/users" },
+    { name:"Active Chats",   value:chatStats.total, detail:`${compact(chatStats.messages)} messages`,  icon:MessageSquare, link:"/home/chat" },
+    { name:"Teams",          value:teams.length,    detail:`${teamList.reduce((s,t)=>s+t.memberCount,0)} total member slots`, icon:Layers, link:"/home/teams" },
+    { name:"Attendance",     value:pct(attendPct),  detail:`${presentSet.size || compact(attendance.length)} recorded`,      icon:CalendarCheck, link:"/home/attendance" },
+    { name:"Content",        value:sermons.length,  detail:`${countBy(sermons,x=>x.type||x.resourceType||"Sermon").length} categories`, icon:BookOpen, link:"/home/sermons" },
+    { name:"Payroll Runs",   value:payroll.length,  detail:"Recent salary runs",                       icon:IndianRupee,   link:"/home/payroll" },
   ];
+
+  const moduleHealth = results.map(x=>({
+    name:  x.key.charAt(0).toUpperCase()+x.key.slice(1),
+    ok:    x.ok,
+    detail:x.ok ? "Live" : (x.error||"Error"),
+  }));
+
+  const rawSnap = reports?.snapshotAt || overview?.snapshotAt;
+  const snapshotAt = rawSnap ? new Date(rawSnap).toLocaleString() : "Live";
+  const chatSafety = r.chatSafety?.data || {};
+  const chatAlerts = arrayFrom(r.chatAlerts?.data);
 
   return {
-    snapshotAt: reports.snapshotAt || overview.snapshotAt || new Date().toISOString(),
-    healthScore,
-    available,
-    failed,
-    userStats,
-    usersByRole,
-    taskStatus,
-    taskPriority,
-    taskTotal,
-    openTasks,
-    completedTasks,
-    overdueTasks,
+    healthScore, snapshotAt, available, failed, moduleHealth,
+    // users
+    uTotal, uMembers, uAdmins, uStaff, uVolunteers, uNew, roleTotal, roleMismatch,
+    usersByRole, recentJoiners,
+    // tasks
+    taskTotal, openTasks, completed, overdueList, upcoming,
+    taskByStatus, taskByPriority,
+    compRate, overdueCnt: overdue.length,
+    // chats
     chatStats,
-    prayer30,
-    prayerResponded30,
-    prayerReminderTotal,
-    prayerReminderToday,
-    prayerRequestsWithReminders,
-    prayerRagRed,
-    prayerRagAmber,
-    prayerRagGreen,
-    responseRate,
-    ministryStatus,
-    income,
-    expense,
-    net,
-    cashBank,
-    attendanceRate,
-    avgHours,
-    totalHours,
-    contentMix,
-    attention,
-    operations,
-    moduleHealth: results.map((x) => ({
-      name: moduleLabels[x.key] || x.key,
-      ok: x.ok,
-      detail: x.ok ? "Live" : x.error,
-    })),
-    dailyRoutines,
-    dailyRoutinesFeed: r.dailyRoutines || { ok: false, error: "Daily routines feed not loaded" },
-    pipelines: [
-      { name: "Baptism", total: totalFrom(r.baptisms?.data, baptisms), active: baptisms.filter((x) => !/complete/i.test(String(x.status))).length },
-      { name: "Marriage", total: totalFrom(r.marriage?.data, marriage), active: marriage.filter((x) => !/complete/i.test(String(x.status))).length },
-      { name: "Counselling", total: totalFrom(r.counselling?.data, counselling), active: counselling.filter((x) => !/complete|closed/i.test(String(x.status))).length },
-      { name: "Prayer", total: prayer30, active: Math.max(0, prayer30 - prayerResponded30) },
-    ],
+    // prayers
+    prayer30, pResponded, pReminderTotal, pReminderToday,
+    ragRed, ragAmber, ragGreen, ragData, prayerByCategory, totalPrayer, respRate,
+    // teams
+    teamList,
+    // finance
+    income, expense, net, cashBank, incomeAccounts, expenseAccounts, rawExpenseTotal,
+    // ministry
+    pipelines,
+    // operations
+    attendPct, avgHrs, totalHrs, operations, attention,
+    // content
+    contentMix: countBy(sermons, x=>x.type||x.resourceType||"Sermon"),
+    dailyRoutines: r.dailyRoutines?.data || {},
+    dailyRoutinesFeed: r.dailyRoutines || { ok:false },
+    chatSafety,
+    chatAlerts,
   };
 }
 
+/* ═══════════════════ PAGE ═══════════════════ */
 export default function AdminDashboard() {
-  const [user] = useState(() => getCurrentUserSync());
-  const roles = useMemo(() => normalizeRoles(user), [user]);
-  const canAccess = Boolean(user && (roles.some((r) => ["admin", "staff"].includes(r)) || hasDashboardPage(user)));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [user]    = useState(getCurrentUser);
+  const roles     = useMemo(()=>normalizeRoles(user),[user]);
+  const canAccess = Boolean(user&&(roles.some(r=>["admin","staff"].includes(r))||hasDashPage(user)));
+  const navigate  = useNavigate();
+
   const [rawResults, setRawResults] = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [error,   setError]         = useState("");
+  const [chatSafetyScanStatus, setChatSafetyScanStatus] = useState("");
+  const [dateRange, setDateRange]   = useState(30);
+  const [countdown, setCountdown]   = useState(AUTO_REFRESH);
+  const timerRef = useRef(null);
 
-  const dashboard = useMemo(() => buildDashboard(rawResults), [rawResults]);
+  const db = useMemo(()=>buildDashboard(rawResults,dateRange),[rawResults,dateRange]);
 
-  async function loadDashboard() {
-    setLoading(true);
-    setError("");
-    const today = safeDate(0);
-    const from30 = safeDate(30);
-
-    const requests = [
-      safeGet("overview", "/analytics/overview"),
-      safeGet("reports", "/analytics/reports"),
-      safeGet("prayers", "/analytics/prayers", { params: { windows: "7,15,30,60,90,180,365" } }),
-      safeGet("users", "/users", { params: { page: 1, limit: 500 } }),
-      safeGet("chats", "/chats"),
-      safeGet("tasks", "/tasks"),
-      safeGet("teams", "/teams"),
-      safeGet("attendance", "/attendance", { params: { from: from30, to: today } }),
-      safeGet("timesheets", "/timesheets", { params: { from: from30, to: today } }),
-      safeGet("pnl", "/accounting/pnl", { params: { fromDate: from30, toDate: today } }),
-      safeGet("balances", "/accounting/balances"),
-      safeGet("balanceSheet", "/accounting/balance-sheet", { params: { toDate: today } }),
-      safeGet("sermons", "/sermons"),
-      safeGet("baptisms", "/baptisms"),
-      safeGet("marriage", "/marriage/admin/applications"),
-      safeGet("counselling", "/counselling/admin/sessions"),
-      safeGet("payrollRuns", "/payroll/runs"),
-      safeGet("prayerRequests", "/prayerrequests", { params: { includeResponses: true } }),
-      safeGet("dailyRoutines", "/admin/daily-routines", { params: { date: today } }),
-    ];
-
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    const today = safeDate(0), from = safeDate(dateRange);
+    const month = monthIsoRange();
     try {
-      setRawResults(await Promise.all(requests));
-    } catch (e) {
-      setError(e?.message || "Unable to load analytics.");
+      setRawResults(await Promise.all([
+        safeGet("overview",      "/analytics/overview"),
+        safeGet("reports",       "/analytics/reports"),
+        safeGet("prayers",       "/analytics/prayers",            { params:{ windows:"7,15,30,60,90" } }),
+        safeGet("users",         "/users",                        { params:{ page:1,limit:500 } }),
+        safeGet("roles",         "/roles"),
+        safeGet("chats",         "/chats"),
+        safeGet("tasks",         "/tasks",                        { params:{ limit:500 } }),
+        safeGet("teams",         "/teams"),
+        safeGet("attendance",    "/attendance",                   { params:{ from, to:today } }),
+        safeGet("timesheets",    "/timesheets",                   { params:{ from, to:today } }),
+        safeGet("costPnl",       "/accounting/pnl",              { params:{ fromDate:month.from, toDate:month.to } }),
+        safeGet("pnl",           "/accounting/pnl",              { params:{ fromDate:from, toDate:today } }),
+        safeGet("accounts",      "/accounting/accounts"),
+        safeGet("balances",      "/accounting/balances"),
+        safeGet("balanceSheet",  "/accounting/balance-sheet",    { params:{ toDate:today } }),
+        safeGet("sermons",       "/sermons"),
+        safeGet("baptisms",      "/baptisms"),
+        safeGet("marriage",      "/marriage/admin/applications"),
+        safeGet("counselling",   "/counselling/admin/sessions"),
+        safeGet("payrollRuns",   "/payroll/runs"),
+        safeGet("prayerRequests","/prayerrequests",              { params:{ includeResponses:true,limit:500 } }),
+        safeGet("expenses",      "/expenses"),
+        safeGet("dailyRoutines", "/admin/daily-routines",        { params:{ date:today } }),
+        safeGet("chatSafety",    "/admin/chat-safety/summary"),
+        safeGet("chatAlerts",    "/admin/chat-safety/alerts",     { params:{ limit:8 } }),
+      ]));
+      setCountdown(AUTO_REFRESH);
+    } catch(e) { setError(e?.message||"Unable to load analytics."); }
+    finally    { setLoading(false); }
+  },[dateRange]);
+
+  useEffect(()=>{ if(canAccess) load(); },[canAccess,load]);
+
+  useEffect(()=>{
+    if(!canAccess) return;
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(()=>{
+      setCountdown(p=>{ if(p<=1){load();return AUTO_REFRESH;} return p-1; });
+    },1000);
+    return ()=>clearInterval(timerRef.current);
+  },[canAccess,load]);
+
+  async function blockUser(uid,reason){ if(!uid||!confirm("Block this user?"))return; try{ await api.post(`/admin/daily-routines/users/${uid}/block`,{reason}); load(); }catch(e){setError(e.message);} }
+  async function unblockUser(uid)    { if(!uid||!confirm("Unblock?"))return;           try{ await api.post(`/admin/daily-routines/users/${uid}/unblock`);        load(); }catch(e){setError(e.message);} }
+  async function scanChatSafety() {
+    try {
+      setLoading(true);
+      setError("");
+      setChatSafetyScanStatus("Full scan started. Checking eligible unscanned chat messages...");
+      const result = await api.post("/admin/chat-safety/scan-now");
+      if (result && typeof result === "object" && "ok" in result && !result.ok) {
+        throw new Error(result.error || result.statusText || "Chat safety scan failed.");
+      }
+      const scanResult = result?.data || result || {};
+      const scanned = num(scanResult?.scanned);
+      const pastorFollowupsSent = num(scanResult?.pastorFollowupsSent);
+      const eligibleBefore = scanResult?.eligibleBefore == null ? null : num(scanResult.eligibleBefore);
+      const eligibleAfter = scanResult?.eligibleAfter == null ? null : num(scanResult.eligibleAfter);
+      const detail = eligibleBefore == null
+        ? ""
+        : ` Eligible before: ${compact(eligibleBefore)}. Eligible after: ${compact(eligibleAfter || 0)}.`;
+      setChatSafetyScanStatus(
+        scanned > 0
+          ? `Full scan completed: ${compact(scanned)} message${scanned === 1 ? "" : "s"} scanned. Pastor follow-ups sent: ${pastorFollowupsSent}.${detail}`
+          : `Full scan completed: no messages were processed.${detail}${scanResult?.message ? ` ${scanResult.message}` : ""}`
+      );
+      await load();
+    } catch(e) {
+      const message = e?.message || "Chat safety scan failed.";
+      setError(message);
+      setChatSafetyScanStatus(`Full scan failed: ${message}`);
     } finally {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    if (canAccess) loadDashboard();
-  }, [canAccess]);
-
-  async function blockRoutineUser(userId, reason = "Blocked by admin from Daily Routines dashboard") {
-    if (!userId) return;
-    const ok = window.confirm("Block this user's access to Mahima App?");
-    if (!ok) return;
-
-    try {
-      await api.post(`/admin/daily-routines/users/${userId}/block`, { reason });
-      await loadDashboard();
-    } catch (e) {
-      setError(e?.message || "Unable to block user.");
-    }
+  async function resolveChatAlert(id) { if(!id)return; try{ await api.post(`/admin/chat-safety/alerts/${id}/resolve`); load(); }catch(e){setError(e.message);} }
+  async function blockChatSafetyUser(userId, reason) {
+    if(!userId || !confirm("Block this user from logging in?")) return;
+    try{ await api.post(`/admin/chat-safety/users/${userId}/block`, { reason }); load(); }catch(e){setError(e.message);}
+  }
+  async function unblockChatSafetyUser(userId) {
+    if(!userId || !confirm("Unblock this user and allow login again?")) return;
+    try{ await api.post(`/admin/chat-safety/users/${userId}/unblock`); load(); }catch(e){setError(e.message);}
   }
 
-  if (!canAccess) {
-    return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="rounded-lg border bg-white p-8 text-center shadow-sm">
-          <ShieldCheck className="w-10 h-10 mx-auto text-slate-400 mb-3" />
-          <h1 className="font-semibold text-slate-900">Access Denied</h1>
-          <p className="text-sm text-slate-500 mt-1">Admin analytics are available to admin and staff roles.</p>
-        </div>
-      </main>
-    );
-  }
+  if(!canAccess) return (
+    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="bg-white border rounded-2xl p-10 text-center shadow-sm max-w-sm w-full">
+        <ShieldCheck className="w-12 h-12 mx-auto text-slate-300 mb-4"/>
+        <h1 className="font-bold text-slate-900">Access Denied</h1>
+        <p className="text-sm text-slate-500 mt-1">Admin and Staff roles only.</p>
+      </div>
+    </main>
+  );
+
+  const mins = Math.floor(countdown/60), secs = String(countdown%60).padStart(2,"0");
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <section className="bg-white border-b border-slate-200">
-        <div className="px-5 py-5 lg:px-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-3 py-1 mb-3">
-              <Sparkles className="w-3.5 h-3.5" />
-              Mahima Command Center
+    <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
+
+      {/* ═════ STICKY HEADER ═════ */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+        <div className="px-5 lg:px-8 py-3 flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow">
+              <Sparkles className="w-4 h-4 text-white"/>
             </div>
-            <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Live operational analytics across ministry, people, finance, care, content, teams, and communication.
-            </p>
+            <div>
+              <h1 className="text-base font-extrabold tracking-tight">Admin Dashboard</h1>
+              <p className="text-[11px] text-slate-400">Snapshot: {db.snapshotAt}</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Download className="w-4 h-4" />
-              Print
-            </button>
-            <button
-              onClick={loadDashboard}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Refreshing" : "Refresh Analytics"}
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <TabGroup options={DATE_RANGES.map(d=>d.label)} active={DATE_RANGES.find(d=>d.v===dateRange)?.label}
+              onSelect={l=>setDateRange(DATE_RANGES.find(d=>d.label===l).v)}/>
+            <Btn icon={Download} label="Export" onClick={()=>window.print()} />
+            <Btn icon={RefreshCw} label={loading?"Loading…":`Refresh · ${mins}:${secs}`}
+              onClick={load} disabled={loading} spin={loading} primary />
           </div>
         </div>
-      </section>
+      </header>
 
-      <section className="px-5 py-5 lg:px-8 space-y-5">
-        {error && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
+      <div className="px-5 lg:px-8 py-5 space-y-5">
+        {error && <ErrorBanner message={error}/>}
 
-        <div className="grid gap-4 2xl:grid-cols-[1.05fr_2fr]">
-          <HeroScore dashboard={dashboard} loading={loading} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3">
-            <MetricCard title="Members" value={dashboard.userStats.members} detail={`${dashboard.userStats.total} total users`} icon={Users} tone="blue" />
-            <MetricCard title="Task Completion" value={pct(dashboard.taskTotal ? (dashboard.completedTasks / dashboard.taskTotal) * 100 : 0)} detail={`${dashboard.openTasks} open tasks`} icon={Target} tone="emerald" />
-            <MetricCard title="Prayer Response" value={pct(dashboard.responseRate)} detail={`${dashboard.prayer30} requests in 30d`} icon={HeartHandshake} tone="violet" />
-            <MetricCard title="Prayer Reminders" value={dashboard.prayerReminderToday} detail={`${dashboard.prayerReminderTotal} total sent`} icon={AlertTriangle} tone={dashboard.prayerReminderToday ? "amber" : "emerald"} />
-            <MetricCard title="Net Position" value={currency(dashboard.net)} detail={`${currency(dashboard.cashBank)} cash/bank`} icon={IndianRupee} tone={dashboard.net >= 0 ? "emerald" : "rose"} />
+        {/* ═════ QUICK ACTIONS ═════ */}
+        <QuickActions navigate={navigate}/>
+
+        {/* ═════ ROW 1: HERO + 5 KPIs ═════ */}
+        <div className="grid gap-4 2xl:grid-cols-[1fr_2.2fr]">
+          <HeroCard db={db} loading={loading}/>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+            <KpiCard title="Total Members"    value={compact(db.uTotal)}         sub={`${compact(db.uNew||0)} new this period`}  tone="blue"    link="/home/users"          navigate={navigate} loading={loading}/>
+            <KpiCard title="Task Completion"  value={pct(db.compRate)}            sub={`${db.openTasks} open · ${db.overdueCnt} overdue`} tone="emerald" link="/home/tasks" navigate={navigate} loading={loading}/>
+            <KpiCard title="Prayer Response"  value={pct(db.respRate)}            sub={`${compact(db.prayer30)} requests · ${compact(db.pReminderTotal)} reminders`} tone="violet" link="/home/prayerrequests" navigate={navigate} loading={loading}/>
+            <KpiCard title="Chats Active"     value={compact(db.chatStats.total)} sub={`${compact(db.chatStats.messages)} msgs in period`} tone="sky"   link="/home/chat" navigate={navigate} loading={loading}/>
+            <KpiCard title="Net Surplus"      value={currency(db.net)}            sub={`${currency(db.cashBank)} cash/bank`}     tone={db.net>=0?"emerald":"rose"} link={null} navigate={navigate} loading={loading}/>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3">
-          {dashboard.attention.map((item) => (
-            <AttentionCard key={item.label} item={item} />
-          ))}
+        {/* ═════ ROW 2: ATTENTION STRIP ═════ */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+          {db.attention.map(a=><AttentionCard key={a.label} item={a} navigate={navigate}/>)}
         </div>
 
-        <DailyRoutinesPanel data={dashboard.dailyRoutines} feed={dashboard.dailyRoutinesFeed} onBlockUser={blockRoutineUser} />
-
+        {/* ═════ ROW 3: CHURCH COMMUNITY + PRAYER ANALYTICS + FINANCE ═════ */}
         <div className="grid gap-5 xl:grid-cols-3">
-          <Panel title="People & Roles" icon={Users} className="xl:col-span-1">
-            <BarChart data={dashboard.usersByRole} barColor={colors.blue} dataKey="value" nameKey="name" />
+          <Panel title="Church Community" icon={Users}>
+            <ChurchCommunity db={db}/>
           </Panel>
-          <Panel title="Financial Pulse" icon={IndianRupee} className="xl:col-span-1">
-            <ComposedFinanceChart income={dashboard.income} expense={dashboard.expense} net={dashboard.net} />
+          <Panel title="Prayer Analytics" icon={HeartHandshake}>
+            <PrayerAnalytics db={db}/>
           </Panel>
-          <Panel title="Ministry Pipeline" icon={HeartHandshake} className="xl:col-span-1">
-            <PipelineChart data={dashboard.pipelines} />
+          <Panel title="Financial Pulse" icon={IndianRupee}>
+            <FinancePanel income={db.income} expense={db.expense} net={db.net} cashBank={db.cashBank}
+            incomeAccounts={db.incomeAccounts} expenseAccounts={db.expenseAccounts}/>
           </Panel>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          <Panel title="Tasks By Status" icon={Target}>
-            <DonutChart data={dashboard.taskStatus} colors={[colors.blue, colors.emerald, colors.rose, colors.amber, colors.violet]} />
+        <ChatSafetyPanel
+          summary={db.chatSafety}
+          alerts={db.chatAlerts}
+          loading={loading}
+          scanStatus={chatSafetyScanStatus}
+          onScan={scanChatSafety}
+          onResolve={resolveChatAlert}
+          onBlockUser={blockChatSafetyUser}
+          onUnblockUser={unblockChatSafetyUser}
+          navigate={navigate}
+        />
+
+        {/* ═════ ROW 4: TASK STATUS + PRIORITY + UPCOMING THIS WEEK ═════ */}
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Panel title="Tasks by Status" icon={Target}>
+            <DonutChart data={db.taskByStatus} colors={[PALETTE.blue,PALETTE.emerald,PALETTE.rose,PALETTE.amber]}/>
           </Panel>
           <Panel title="Priority Load" icon={AlertTriangle}>
-            <BarChart data={dashboard.taskPriority} barColor={colors.amber} dataKey="value" nameKey="name" />
+            <HBarChart data={db.taskByPriority} colorMap={{ Critical:PALETTE.rose, Urgent:PALETTE.orange, High:PALETTE.amber, Normal:PALETTE.blue, Low:PALETTE.slate }}/>
+          </Panel>
+          <Panel title="Upcoming This Week" icon={CalendarDays} badgeCount={db.upcoming.length} badgeTone="blue">
+            <UpcomingList tasks={db.upcoming} navigate={navigate}/>
           </Panel>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-3">
-          <Panel title="Operations Snapshot" icon={Activity} className="xl:col-span-2">
+        {/* ═════ ROW 5: OVERDUE + TEAM PERFORMANCE ═════ */}
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Panel title="Overdue Tasks" icon={AlertTriangle} badgeCount={db.overdueCnt} badgeTone="rose">
+            <OverdueList tasks={db.overdueList} navigate={navigate}/>
+          </Panel>
+          <Panel title="Team Performance" icon={Layers}>
+            <TeamPerformance teams={db.teamList} navigate={navigate}/>
+          </Panel>
+        </div>
+
+        {/* ═════ DAILY ROUTINES ═════ */}
+        <DailyRoutinesPanel data={db.dailyRoutines} feed={db.dailyRoutinesFeed} onBlock={blockUser} onUnblock={unblockUser}/>
+
+        {/* ═════ ROW 6: MINISTRY PIPELINE + OPERATIONS ═════ */}
+        <div className="grid gap-5 xl:grid-cols-[1fr_2fr]">
+          <Panel title="Ministry Pipeline" icon={HeartHandshake}>
+            <MinistryPipeline data={db.pipelines}/>
+          </Panel>
+          <Panel title="Operations Snapshot" icon={Activity}>
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {dashboard.operations.map((item) => (
-                <MiniOperation key={item.name} item={item} />
-              ))}
-            </div>
-          </Panel>
-          <Panel title="Communication" icon={MessageSquare}>
-            <div className="space-y-4">
-              <MiniStat label="Total chats" value={dashboard.chatStats.total} />
-              <MiniStat label="Group chats" value={dashboard.chatStats.groups} />
-              <MiniStat label="Direct chats" value={dashboard.chatStats.direct} />
-              <MiniStat label="Messages in 30 days" value={dashboard.chatStats.messages30} />
+              {db.operations.map(op=><OperationCard key={op.name} item={op} navigate={navigate}/>)}
             </div>
           </Panel>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
-          <Panel title="Care & Content" icon={Sparkles}>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Content Mix</h3>
-                <BarChart data={dashboard.contentMix} barColor={colors.violet} dataKey="value" nameKey="name" height={220} />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Ministry Statuses</h3>
-                <div className="space-y-2">
-                  {dashboard.ministryStatus.length ? dashboard.ministryStatus.map((row) => (
-                    <div key={row.name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                      <span className="truncate pr-3">{row.name}</span>
-                      <span className="font-bold">{row.value}</span>
-                    </div>
-                  )) : <EmptyState text="No ministry pipeline data available yet." />}
-                </div>
-              </div>
-            </div>
+        {/* ═════ ROW 7: RECENT JOINERS + CONTENT + COMMS ═════ */}
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Panel title="Recent Joiners" icon={Users}>
+            <RecentJoiners joiners={db.recentJoiners} navigate={navigate}/>
           </Panel>
-          <Panel title="Data Feed Health" icon={CheckCircle2}>
-            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-              {dashboard.moduleHealth.map((feed) => (
-                <div key={feed.name} className="flex items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2">
-                  <span className={`mt-1 w-2.5 h-2.5 rounded-full ${feed.ok ? "bg-emerald-500" : "bg-rose-500"}`} />
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">{feed.name}</div>
-                    <div className={`text-xs truncate ${feed.ok ? "text-emerald-700" : "text-rose-600"}`}>{feed.detail}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <Panel title="Care & Content" icon={BookOpen}>
+            <DonutChart data={db.contentMix.slice(0,6)} colors={PIE_COLORS} height={200}/>
+          </Panel>
+          <Panel title="Jai Masih Comms" icon={MessageSquare}>
+            <CommsPanel db={db} navigate={navigate}/>
           </Panel>
         </div>
-      </section>
+
+        {/* ═════ ROW 8: DATA FEED HEALTH ═════ */}
+        <Panel title="Data Feed Health" icon={ShieldCheck}>
+          <div className="flex items-center gap-4 mb-4">
+            <FeedBadge label="Live"  count={db.available}                    color="emerald"/>
+            <FeedBadge label="Error" count={db.failed.length}                color="rose"/>
+            <FeedBadge label="Total" count={db.moduleHealth.length}          color="slate"/>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
+            {db.moduleHealth.map(f=>(
+              <div key={f.name} className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 ${f.ok?"border-emerald-100 bg-emerald-50/60":"border-rose-100 bg-rose-50/60"}`}>
+                <span className={`mt-1 shrink-0 w-2 h-2 rounded-full ${f.ok?"bg-emerald-500":"bg-rose-500"}`}/>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-slate-800 capitalize">{f.name}</div>
+                  <div className={`text-[11px] truncate ${f.ok?"text-emerald-700":"text-rose-600"}`}>{f.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
     </main>
   );
 }
 
-function HeroScore({ dashboard, loading }) {
-  const snapshot = dashboard.snapshotAt ? new Date(dashboard.snapshotAt).toLocaleString() : "Live";
+/* ═══════════════════ HERO CARD ═══════════════════ */
+function HeroCard({ db, loading }) {
+  const score = db.healthScore;
+  const R = 44, circ = 2*Math.PI*R;
+  const dash = circ*(1-score/100);
+  const color = score>=75?"#10b981":score>=50?"#f59e0b":"#e11d48";
   return (
-    <div className="rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-700 via-teal-700 to-slate-900 text-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
+    <div className="rounded-2xl bg-gradient-to-br from-emerald-700 via-teal-700 to-slate-900 text-white p-5 shadow-md flex flex-col justify-between min-h-[190px]">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wider text-emerald-100">Operational Health</p>
-          <div className="mt-2 flex items-end gap-3">
-            <span className="text-5xl font-bold">{dashboard.healthScore}</span>
-            <span className="text-sm text-emerald-100 mb-2">/ 100</span>
-          </div>
+          <p className="text-xs uppercase tracking-widest text-emerald-200 font-bold">Operational Health</p>
+          <p className="text-sm text-emerald-100 mt-1">{db.available}/{db.moduleHealth.length} data feeds live</p>
         </div>
-        <div className="rounded-full bg-white/10 border border-white/20 p-3">
-          {loading ? <RefreshCw className="w-7 h-7 animate-spin" /> : <TrendingUp className="w-7 h-7" />}
-        </div>
+        <svg width="108" height="108" viewBox="0 0 108 108" className="shrink-0">
+          <circle cx="54" cy="54" r={R} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="11"/>
+          <circle cx="54" cy="54" r={R} fill="none" stroke={color} strokeWidth="11"
+            strokeDasharray={circ} strokeDashoffset={loading?circ:dash}
+            strokeLinecap="round" transform="rotate(-90 54 54)"
+            style={{transition:"stroke-dashoffset 1s ease"}}/>
+          <text x="54" y="59" textAnchor="middle" fontSize="22" fontWeight="800" fill="white">{score}</text>
+        </svg>
       </div>
-      <div className="grid grid-cols-3 gap-3 mt-6">
-        <HeroMini label="Feeds live" value={`${dashboard.available}/${dashboard.moduleHealth.length}`} />
-        <HeroMini label="Avg hours" value={compactNumber(dashboard.avgHours)} />
-        <HeroMini label="Attendance" value={pct(dashboard.attendanceRate)} />
-      </div>
-      <div className="mt-4 text-xs text-emerald-100 inline-flex items-center gap-2">
-        <Clock3 className="w-3.5 h-3.5" />
-        Snapshot: {snapshot}
+      <div className="grid grid-cols-3 gap-2 mt-1">
+        <HeroMini label="Avg Hrs"    value={compact(db.avgHrs)}  />
+        <HeroMini label="Attendance" value={pct(db.attendPct)}   />
+        <HeroMini label="Sermons"    value={compact(db.contentMix.reduce((s,x)=>s+x.value,0))} />
       </div>
     </div>
   );
 }
-
 function HeroMini({ label, value }) {
   return (
-    <div className="rounded-lg bg-white/10 border border-white/15 px-3 py-2">
+    <div className="rounded-xl bg-white/10 border border-white/15 px-2 py-2 text-center">
       <div className="text-lg font-bold">{value}</div>
-      <div className="text-[11px] text-emerald-100">{label}</div>
+      <div className="text-[10px] text-emerald-100 leading-tight mt-0.5">{label}</div>
     </div>
   );
 }
 
-function MetricCard({ title, value, detail, icon: Icon, tone = "blue" }) {
-  const toneMap = {
-    blue: "bg-blue-50 text-blue-700 border-blue-100",
-    emerald: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    violet: "bg-violet-50 text-violet-700 border-violet-100",
-    rose: "bg-rose-50 text-rose-700 border-rose-100",
-    amber: "bg-amber-50 text-amber-700 border-amber-100",
-  };
+/* ═══════════════════ KPI CARD ═══════════════════ */
+const TONE_MAP = {
+  blue:    "bg-blue-50   border-blue-100   text-blue-700",
+  emerald: "bg-emerald-50 border-emerald-100 text-emerald-700",
+  violet:  "bg-violet-50 border-violet-100 text-violet-700",
+  rose:    "bg-rose-50   border-rose-100   text-rose-700",
+  amber:   "bg-amber-50  border-amber-100  text-amber-700",
+  sky:     "bg-sky-50    border-sky-100    text-sky-700",
+  slate:   "bg-slate-50  border-slate-200  text-slate-700",
+};
+function KpiCard({ title, value, sub, tone="blue", link, navigate, loading }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${toneMap[tone] || toneMap.blue}`}>
-        <Icon className="w-4 h-4" />
+    <div onClick={()=>link&&navigate(link)}
+      className={`min-w-0 rounded-2xl border bg-white p-4 shadow-sm ${link?"cursor-pointer hover:shadow-md transition-shadow":""}`}>
+      <div className={`inline-flex w-8 h-8 rounded-xl border items-center justify-center ${TONE_MAP[tone]||TONE_MAP.blue}`}>
+        <span className="text-xs font-black">#</span>
       </div>
-      <div className="mt-3 truncate text-xl font-bold sm:text-2xl">{typeof value === "number" ? compactNumber(value) : value}</div>
-      <div className="text-sm font-semibold leading-snug text-slate-700">{title}</div>
-      <div className="mt-1 line-clamp-2 text-xs leading-snug text-slate-500">{detail}</div>
+      {loading
+        ? <div className="mt-3 h-8 w-20 bg-slate-100 rounded-lg animate-pulse"/>
+        : <div className="mt-3 text-2xl font-black tracking-tight truncate">{value}</div>}
+      <div className="text-xs font-bold text-slate-800 mt-0.5">{title}</div>
+      <div className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-snug">{sub}</div>
+      {link&&<div className="mt-2 flex items-center gap-1 text-[11px] text-blue-600 font-semibold"><ExternalLink className="w-2.5 h-2.5"/>View</div>}
     </div>
   );
 }
 
-function AttentionCard({ item }) {
-  const tone = {
-    amber: "border-amber-200 bg-amber-50 text-amber-800",
-    rose: "border-rose-200 bg-rose-50 text-rose-800",
-    blue: "border-blue-200 bg-blue-50 text-blue-800",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  }[item.tone] || "border-slate-200 bg-white text-slate-800";
+/* ═══════════════════ ATTENTION CARDS ═══════════════════ */
+const ATN_TONE = {
+  amber:   "border-amber-200   bg-amber-50   text-amber-800",
+  rose:    "border-rose-200    bg-rose-50    text-rose-800",
+  blue:    "border-blue-200    bg-blue-50    text-blue-800",
+  emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+};
+function AttentionCard({ item, navigate }) {
   return (
-    <div className={`min-w-0 rounded-lg border p-4 ${tone}`}>
-      <div className="truncate text-xl font-bold sm:text-2xl">{compactNumber(item.value)}</div>
-      <div className="text-sm font-semibold leading-snug">{item.label}</div>
-      <div className="mt-1 line-clamp-2 text-xs leading-snug opacity-75">{item.detail}</div>
+    <div onClick={()=>item.link&&navigate(item.link)}
+      className={`min-w-0 rounded-2xl border p-3.5 ${ATN_TONE[item.tone]||ATN_TONE.emerald} ${item.link?"cursor-pointer hover:opacity-90 transition":""}`}>
+      <div className="text-2xl font-black">{compact(item.value)}</div>
+      <div className="text-xs font-bold leading-snug mt-0.5">{item.label}</div>
+      <div className="text-[11px] mt-1 leading-snug opacity-70 line-clamp-2">{item.detail}</div>
     </div>
   );
 }
 
-function Panel({ title, icon: Icon, children, className = "" }) {
+/* ═══════════════════ QUICK ACTIONS ═══════════════════ */
+const QA = [
+  { label:"Add Member",  icon:Plus,          link:"/home/users" },
+  { label:"New Task",    icon:Plus,          link:"/home/tasks" },
+  { label:"Prayers",     icon:HeartHandshake,link:"/home/prayerrequests" },
+  { label:"Chat",        icon:MessageSquare, link:"/home/chat" },
+  { label:"Teams",       icon:Layers,        link:"/home/teams" },
+  { label:"Reports",     icon:Activity,      link:"/home/reports" },
+  { label:"Sermons",     icon:BookOpen,      link:"/home/sermons" },
+  { label:"Attendance",  icon:CalendarCheck, link:"/home/attendance" },
+];
+function QuickActions({ navigate }) {
   return (
-    <section className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${className}`}>
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
-          <Icon className="w-4 h-4" />
-        </span>
-        <h2 className="font-bold text-slate-900">{title}</h2>
+    <div className="flex flex-wrap gap-2">
+      {QA.map(q=>{
+        const Icon=q.icon;
+        return (
+          <button key={q.label} onClick={()=>navigate(q.link)}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md transition-all">
+            <Icon className="w-3 h-3 text-slate-400"/>{q.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══════════════════ PANEL WRAPPER ═══════════════════ */
+function Panel({ title, icon:Icon, children, className="", badgeCount, badgeTone }) {
+  return (
+    <section className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2.5">
+          <span className="w-7 h-7 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
+            <Icon className="w-3.5 h-3.5"/>
+          </span>
+          <h2 className="font-bold text-slate-900 text-sm tracking-tight">{title}</h2>
+        </div>
+        {badgeCount!==undefined&&(
+          <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${badgeTone==="rose"?"bg-rose-100 text-rose-700":badgeTone==="blue"?"bg-blue-100 text-blue-700":"bg-slate-100 text-slate-600"}`}>
+            {badgeCount}
+          </span>
+        )}
       </div>
       {children}
     </section>
   );
 }
 
-function DailyRoutinesPanel({ data, feed, onBlockUser }) {
-  const attendance = data?.attendance || {};
-  const siteUsage = data?.siteUsage || {};
-  const security = data?.security || {};
-  const newActivity = data?.newActivity || {};
-  const malpractice = data?.malpractice || {};
-  const blockedUsers = arrayFrom(data?.blockedUsers);
-  const flaggedMessages = arrayFrom(malpractice?.flaggedMessages);
-  const flaggedUploads = arrayFrom(malpractice?.flaggedUploads);
-  const manipulation = arrayFrom(malpractice?.dataManipulationFlags);
-  const cyberEvents = arrayFrom(security?.events);
-  const feedError = feed && feed.ok === false ? feed.error || "Daily routines feed is unavailable." : "";
-
+/* ═══════════════════ CHURCH COMMUNITY ═══════════════════ */
+function ChurchCommunity({ db }) {
+  const roles = arrayFrom(db.usersByRole);
+  const max = Math.max(...roles.map(r=>num(r.value)),1);
+  const assignedTotal = db.roleTotal || roles.reduce((sum,row)=>sum+num(row.value),0);
+  const mismatch = num(db.roleMismatch);
   return (
-    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <span className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
-            <CalendarCheck className="w-4 h-4" />
-          </span>
-          <div>
-            <h2 className="font-bold text-slate-900">Automated Daily Routines</h2>
-            <p className="text-xs text-slate-500">Attendance, site activity, cyber signals, new records, and conduct review for today.</p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        {[["Total",db.uTotal,"slate"],["Role mapped",assignedTotal,"emerald"],["Members",db.uMembers,"blue"],["Admin",db.uAdmins,"violet"]].map(([l,v,t])=>(
+          <div key={l} className={`rounded-xl p-2.5 text-center border ${TONE_MAP[t]||TONE_MAP.slate}`}>
+            <div className="text-xl font-black">{compact(v)}</div>
+            <div className="text-[11px] font-semibold mt-0.5">{l}</div>
           </div>
-        </div>
-        <div className="text-xs rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">
-          Report date: {data?.date || "Today"}
-        </div>
+        ))}
       </div>
-
-      {feedError && (
-        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-          Daily routines feed error: {feedError}
+      <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mismatch===0 ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}>
+        Roles add up to {compact(assignedTotal)} of {compact(db.uTotal)}
+        {mismatch !== 0 ? ` (${mismatch > 0 ? "+" : ""}${compact(mismatch)} difference)` : ""}
+      </div>
+      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Role Breakdown</h3>
+      {roles.length > 0 ? (
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {roles.map((role,i)=>{
+            const value = num(role.value);
+            return (
+              <div key={`${role.name}-${i}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-slate-800 truncate" title={role.name}>{role.name}</span>
+                  <span className="text-xs font-black text-slate-900 shrink-0">{compact(value)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2 rounded-full bg-white overflow-hidden border border-slate-100">
+                    <div className="h-full rounded-full transition-all" style={{ width:`${Math.max(4,(value/max)*100)}%`, backgroundColor:PIE_COLORS[i%PIE_COLORS.length] }}/>
+                  </div>
+                  <span className="w-10 text-right text-[10px] font-bold text-slate-500">{pct(value, db.uTotal)}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
+      ) : (
+        <EmptyState text="No role data available."/>
       )}
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-        <RoutineMetric title="Attendance logged" value={attendance.present} tone="emerald" />
-        <RoutineMetric title="Attendance missing" value={attendance.missing} tone={attendance.missing ? "rose" : "emerald"} />
-        <RoutineMetric title="Site visitors" value={siteUsage.uniqueVisitors} tone="blue" />
-        <RoutineMetric title="Page views" value={siteUsage.pageViews} tone="violet" />
-        <RoutineMetric title="Cyber signals" value={security.cyberSignals} tone={security.cyberSignals ? "rose" : "emerald"} />
-        <RoutineMetric title="Misuse flags" value={malpractice.totalFlags} tone={malpractice.totalFlags ? "amber" : "emerald"} />
+/* ═══════════════════ PRAYER ANALYTICS ═══════════════════ */
+function PrayerAnalytics({ db }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2">
+        {[["Total",db.totalPrayer,"blue"],["Responded",db.pResponded,"emerald"],["Pending",Math.max(0,db.prayer30-db.pResponded),"amber"]].map(([l,v,t])=>(
+          <div key={l} className={`rounded-xl p-2.5 text-center border ${TONE_MAP[t]||TONE_MAP.blue}`}>
+            <div className="text-xl font-black">{compact(v)}</div>
+            <div className="text-[11px] font-semibold mt-0.5">{l}</div>
+          </div>
+        ))}
       </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <RoutineList
-          title="Attendance Present"
-          rows={arrayFrom(attendance.presentUsers)}
-          empty="No attendance logged yet."
-          render={(row) => (
-            <>
-              <span className="font-semibold text-slate-800 truncate">{row.name || row.username || "User"}</span>
-              <span className="text-xs text-slate-500">{row.role || row.detail || ""}</span>
-            </>
-          )}
-        />
-        <RoutineList
-          title="Attendance Missing"
-          rows={arrayFrom(attendance.missingUsers)}
-          empty="Everyone in the attendance population has logged attendance."
-          render={(row) => (
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="font-semibold text-slate-800 truncate">{row.name || row.username || "User"}</div>
-                <div className="text-xs text-slate-500">{row.role || row.detail || ""}</div>
-              </div>
-              {row.userId && (
-                <button
-                  onClick={() => onBlockUser?.(row.userId, "Blocked from attendance exception review")}
-                  className="shrink-0 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                  title="Block user access"
-                >
-                  <Ban className="inline h-3.5 w-3.5 mr-1" />
-                  Block
-                </button>
-              )}
-            </div>
-          )}
-        />
-        <RoutineList
-          title="Top Pages Today"
-          rows={arrayFrom(siteUsage.topPages)}
-          empty="No page visits captured yet. Activity will appear after users navigate pages."
-          render={(row) => (
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold text-slate-800 truncate">{row.path || "Page"}</span>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{row.views || 0}</span>
-            </div>
-          )}
-        />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3 mt-4">
-        <RoutineList
-          title="Cyber Attack Signals"
-          rows={cyberEvents}
-          empty={security.note || "No cyber signals captured today."}
-          render={(row) => (
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-semibold text-slate-800 truncate">{row.eventType || "Security event"}</div>
-                <div className="text-xs text-slate-500 truncate">{row.path || row.details || row.username || "Application security telemetry"}</div>
-              </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${row.severity === "high" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>
-                {row.severity || "watch"}
-              </span>
-            </div>
-          )}
-        />
-        <RoutineList
-          title="New Users, Tasks, Team Members"
-          rows={[
-            ...arrayFrom(newActivity.newUsers).map((x) => ({ kind: "User", label: x.name || x.username, detail: x.role })),
-            ...arrayFrom(newActivity.newTasks).map((x) => ({ kind: "Task", label: x.title, detail: x.status })),
-            ...arrayFrom(newActivity.newTeamMembers).map((x) => ({ kind: "Team", label: x.userName, detail: x.teamName })),
-          ]}
-          empty="No new users, tasks, or team member joins captured today."
-          render={(row) => (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-semibold text-slate-800 truncate">{row.label || "New activity"}</div>
-                <div className="text-xs text-slate-500 truncate">{row.detail || ""}</div>
-              </div>
-              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">{row.kind}</span>
-            </div>
-          )}
-        />
-        <RoutineList
-          title="Misuse & Moderation"
-          rows={[
-            ...flaggedMessages.map((x) => ({ ...x, kind: "Chat", label: x.userName || x.userId, detail: x.preview, userId: x.userId })),
-            ...flaggedUploads.map((x) => ({ ...x, kind: "Upload", label: x.fileName || x.contentType, detail: x.reason, userId: x.userId })),
-            ...manipulation.map((x) => ({ ...x, kind: "Data", label: x.userName || x.userId, detail: `${x.totalChanges} changes`, userId: x.userId })),
-          ]}
-          empty={malpractice.moderationNote || "No misuse flags found today."}
-          render={(row) => (
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="font-semibold text-slate-800 truncate">{row.label || "Flag"}</div>
-                <div className="text-xs text-slate-500 truncate">{row.detail || row.reason || ""}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">{row.kind}</span>
-                {row.userId && (
-                  <button
-                    onClick={() => onBlockUser?.(row.userId, `Blocked after ${row.kind} moderation flag`)}
-                    className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                  >
-                    Block
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        />
-      </div>
-
-      {blockedUsers.length > 0 && (
-        <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50 p-3">
-          <div className="text-sm font-bold text-rose-800 mb-2">Currently Blocked Users</div>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {blockedUsers.slice(0, 9).map((row) => (
-              <div key={row.userId || row.username} className="rounded-md bg-white/80 border border-rose-100 px-3 py-2 text-sm">
-                <div className="font-semibold text-slate-800">{row.name || row.username}</div>
-                <div className="text-xs text-rose-700 truncate">{row.reason || "Blocked"}</div>
+      {db.ragData.length>0?(
+        <>
+          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">RAG Status</h3>
+          <DonutChart data={db.ragData} colors={[PALETTE.emerald,PALETTE.amber,PALETTE.rose]} height={160}/>
+        </>
+      ):<EmptyState text="No RAG status assigned yet."/>}
+      {db.prayerByCategory.length>0&&(
+        <>
+          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-2">By Category</h3>
+          <div className="space-y-1.5">
+            {db.prayerByCategory.map(c=>(
+              <div key={c.name} className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-600 w-24 truncate">{c.name}</span>
+                <div className="flex-1 rounded-full bg-slate-100 h-2 overflow-hidden">
+                  <div className="h-2 rounded-full bg-violet-500 transition-all" style={{width:`${Math.min(100,(c.value/Math.max(db.totalPrayer,1))*100)}%`}}/>
+                </div>
+                <span className="text-[11px] font-bold text-slate-700 w-5 text-right">{c.value}</span>
               </div>
             ))}
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════ FINANCE PANEL ═══════════════════ */
+function FinancePanel({ income, expense, net, cashBank, incomeAccounts = [], expenseAccounts = [] }) {
+  const hasData = Math.abs(income)+Math.abs(expense)+Math.abs(net)+Math.abs(cashBank) > 0;
+  const topExpenses = expenseAccounts.slice(0,6);
+  const topIncome   = incomeAccounts.slice(0,5);
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {[["Income",income,"emerald"],["Expense",expense,"rose"],["Net",net,net>=0?"emerald":"rose"],["Cash/Bank",cashBank,"blue"]].map(([l,v,t])=>(
+          <div key={l} className={`rounded-xl border p-2.5 text-center ${TONE_MAP[t]||TONE_MAP.blue}`}>
+            <div className="text-sm font-black">{currency(v)}</div>
+            <div className="text-[11px] font-semibold mt-0.5">{l}</div>
+          </div>
+        ))}
+      </div>
+      {hasData ? (
+        <>
+          <div className="h-40">
+            <ResponsiveContainer>
+              <BarChart data={[{name:"Income",v:income},{name:"Expense",v:expense},{name:"Net",v:net}]} margin={{left:-16,right:4,top:4,bottom:0}}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+                <XAxis dataKey="name" tick={{fontSize:11}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>compact(v)}/>
+                <Tooltip formatter={v=>currency(v)} contentStyle={{fontSize:12,borderRadius:10}}/>
+                <Bar dataKey="v" name="Amount" radius={[8,8,0,0]}>
+                  {[income,expense,net].map((v,i)=>(
+                    <Cell key={i} fill={i===0?PALETTE.emerald:i===1?PALETTE.rose:(v>=0?PALETTE.teal:PALETTE.orange)}/>
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {topExpenses.length > 0 && (
+            <>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expense Breakdown (Cost Module)</p>
+              <div className="space-y-1.5">
+                {topExpenses.map((e,i) => {
+                  const name = e.accountName || e.name || e.category || e.Category || "Other";
+                  const amt  = num(e.amount || e.Amount || e.value);
+                  const pct  = expense > 0 ? Math.min(100, (amt/expense)*100) : 0;
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-600 w-28 truncate" title={name}>{name}</span>
+                      <div className="flex-1 rounded-full bg-rose-50 h-2 overflow-hidden">
+                        <div className="h-2 rounded-full bg-rose-400 transition-all" style={{width:`${pct}%`}}/>
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-700 w-16 text-right">{currency(amt)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {topIncome.length > 0 && (
+            <>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Income Sources</p>
+              <div className="space-y-1.5">
+                {topIncome.map((e,i) => {
+                  const name = e.accountName || e.name || "Other";
+                  const amt  = num(e.amount || e.Amount || e.value);
+                  const pct  = income > 0 ? Math.min(100, (amt/income)*100) : 0;
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-600 w-28 truncate" title={name}>{name}</span>
+                      <div className="flex-1 rounded-full bg-emerald-50 h-2 overflow-hidden">
+                        <div className="h-2 rounded-full bg-emerald-400 transition-all" style={{width:`${pct}%`}}/>
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-700 w-16 text-right">{currency(amt)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      ) : <EmptyState text="No financial data yet. Add expenses in the Cost module or record journal entries in Accounting."/>}
+    </div>
+  );
+}
+
+/* ═══════════════════ UPCOMING LIST ═══════════════════ */
+function UpcomingList({ tasks, navigate }) {
+  if(!tasks?.length) return <EmptyState text="No tasks due in the next 7 days. 🎉"/>;
+  return (
+    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+      {tasks.map((t,i)=>(
+        <div key={t.id||i} onClick={()=>navigate("/home/tasks")}
+          className="flex items-center gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 cursor-pointer hover:bg-blue-50 hover:border-blue-100 transition group">
+          <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black ${t.daysLeft===0?"bg-rose-100 text-rose-700":t.daysLeft<=2?"bg-amber-100 text-amber-700":"bg-blue-100 text-blue-700"}`}>
+            {t.daysLeft}d
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold text-slate-800 truncate group-hover:text-blue-700">{t.title}</div>
+            <div className="text-[11px] text-slate-500">{new Date(t.due).toLocaleDateString("en-IN")}</div>
+          </div>
+          <PriorityBadge p={t.priority}/>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════ OVERDUE LIST ═══════════════════ */
+function OverdueList({ tasks, navigate }) {
+  if(!tasks?.length) return <EmptyState text="No overdue tasks. Excellent! 🎉"/>;
+  return (
+    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+      {tasks.map((t,i)=>(
+        <div key={t.id||i} onClick={()=>navigate("/home/tasks")}
+          className="flex items-center gap-2.5 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2.5 cursor-pointer hover:bg-rose-50 transition group">
+          <div className="shrink-0 w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center text-xs font-black">
+            -{t.daysAgo}d
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold text-slate-800 truncate">{t.title}</div>
+            <div className="text-[11px] text-rose-600">{new Date(t.due).toLocaleDateString("en-IN")}</div>
+          </div>
+          <PriorityBadge p={t.priority}/>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════ TEAM PERFORMANCE ═══════════════════ */
+function TeamPerformance({ teams, navigate }) {
+  if(!teams?.length) return <EmptyState text="No teams found. Create a team to see stats here."/>;
+  return (
+    <div className="space-y-2 max-h-64 overflow-y-auto">
+      {teams.map(t=>{
+        const rate = t.taskCount ? Math.round((t.completed/t.taskCount)*100) : null;
+        return (
+          <div key={t.id} onClick={()=>navigate("/home/teams")}
+            className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition">
+            <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 text-xs font-black flex items-center justify-center shrink-0">
+              {(t.name||"T")[0]}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-slate-800 truncate">{t.name}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1 rounded-full bg-slate-200 h-1.5 overflow-hidden">
+                  {rate!==null&&<div className="h-1.5 rounded-full bg-emerald-500" style={{width:`${rate}%`}}/>}
+                </div>
+                <span className="text-[10px] text-slate-500 shrink-0">
+                  {rate!==null?`${rate}% done`:"-"}
+                </span>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-xs font-bold text-slate-700">{t.memberCount||"—"}</div>
+              <div className="text-[10px] text-slate-400">members</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══════════════════ MINISTRY PIPELINE ═══════════════════ */
+function MinistryPipeline({ data }) {
+  const hasData = data.some(x=>x.total>0);
+  if(!hasData) return <EmptyState text="No ministry pipeline records yet."/>;
+  return (
+    <div className="space-y-3">
+      {data.map(p=>(
+        <div key={p.name}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-slate-700">{p.name}</span>
+            <span className="text-xs text-slate-500">{p.active} active / {p.total} total</span>
+          </div>
+          <div className="flex gap-1 h-3 rounded-full overflow-hidden bg-slate-100">
+            {p.done>0&&<div className="bg-emerald-500 transition-all" style={{width:`${(p.done/Math.max(p.total,1))*100}%`}}/>}
+            {p.active>0&&<div className="bg-amber-400 transition-all"  style={{width:`${(p.active/Math.max(p.total,1))*100}%`}}/>}
+          </div>
+          <div className="flex gap-3 mt-1 text-[10px] text-slate-500">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block"/>Completed: {p.done}</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400 inline-block"/>Active: {p.active}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════ OPERATION CARD ═══════════════════ */
+function OperationCard({ item, navigate }) {
+  const Icon=item.icon;
+  return (
+    <div onClick={()=>item.link&&navigate(item.link)}
+      className={`rounded-xl border border-slate-100 bg-slate-50 p-3 ${item.link?"cursor-pointer hover:bg-slate-100 transition":""}`}>
+      <div className="flex items-center justify-between mb-2">
+        <Icon className="w-4 h-4 text-slate-400"/>
+        <span className="text-xl font-black text-slate-900">{typeof item.value==="number"?compact(item.value):item.value}</span>
+      </div>
+      <div className="text-xs font-bold text-slate-700">{item.name}</div>
+      <div className="text-[11px] text-slate-500 mt-0.5 leading-tight">{item.detail}</div>
+      {item.link&&<div className="mt-2 flex items-center gap-1 text-[11px] text-blue-600 font-semibold"><ExternalLink className="w-2.5 h-2.5"/>View</div>}
+    </div>
+  );
+}
+
+/* ═══════════════════ RECENT JOINERS ═══════════════════ */
+function RecentJoiners({ joiners, navigate }) {
+  if(!joiners?.length) return <EmptyState text="No recent joiners found. Ensure users have a createdAt date."/>;
+  return (
+    <div className="space-y-2">
+      {joiners.map((j,i)=>(
+        <div key={i} onClick={()=>navigate("/home/users")}
+          className="flex items-center gap-2.5 rounded-xl border border-slate-100 px-3 py-2 cursor-pointer hover:bg-slate-50 transition">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-black shrink-0">
+            {j.initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold text-slate-800 truncate">{j.name}</div>
+            <div className="text-[11px] text-slate-500">{j.role}</div>
+          </div>
+          {j.joined&&<div className="text-[11px] text-slate-400 shrink-0">{new Date(j.joined).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════ COMMS PANEL ═══════════════════ */
+function CommsPanel({ db, navigate }) {
+  return (
+    <div className="space-y-3">
+      {[["Total Chats",db.chatStats.total,"blue"],["Group Chats",db.chatStats.groups,"violet"],["Direct Chats",db.chatStats.direct,"sky"],[`Messages (${db.chatStats.messages??"—"})`,db.chatStats.messages,"emerald"]].map(([l,v,t])=>(
+        <div key={l} className={`flex items-center justify-between rounded-xl border px-3 py-2 ${TONE_MAP[t]||TONE_MAP.blue}`}>
+          <span className="text-xs font-semibold">{l}</span>
+          <span className="font-black">{compact(v||0)}</span>
+        </div>
+      ))}
+      <button onClick={()=>navigate("/home/chat")}
+        className="w-full mt-2 rounded-xl border border-slate-200 bg-slate-50 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-1.5 transition">
+        <ExternalLink className="w-3 h-3"/>Open Jai Masih
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════ DAILY ROUTINES ═══════════════════ */
+function ChatSafetyPanel({ summary, alerts, loading, scanStatus, onScan, onResolve, onBlockUser, onUnblockUser, navigate }) {
+  const rows = arrayFrom(alerts);
+  const open = num(summary?.open);
+  const special = num(summary?.special);
+  const critical = num(summary?.critical);
+  const categoryRows = arrayFrom(summary?.byCategory).slice(0, 5);
+
+  return (
+    <section className={`rounded-2xl border shadow-sm overflow-hidden ${special || critical ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-white"}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between px-5 py-4 border-b border-white/70">
+        <div className="flex items-center gap-3">
+          <span className={`w-9 h-9 rounded-xl flex items-center justify-center border ${special || critical ? "bg-rose-100 text-rose-700 border-rose-200" : "bg-sky-50 text-sky-700 border-sky-100"}`}>
+            <AlertTriangle className="w-4 h-4"/>
+          </span>
+          <div>
+            <h2 className="font-bold text-slate-950 text-sm">Chat Safety Intelligence</h2>
+            <p className="text-xs text-slate-500">AI-assisted moderation, pastoral care, and special user-level alerts</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={onScan} disabled={loading}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+            Full scan now
+          </button>
+          <button onClick={()=>navigate("/home/chat")}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5">
+            <ExternalLink className="w-3 h-3"/>Open chats
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 px-5 pt-4">
+        {[["Open", open, open ? "amber" : "emerald"], ["Special", special, special ? "rose" : "emerald"], ["Critical", critical, critical ? "rose" : "emerald"]].map(([label,value,tone])=>(
+          <div key={label} className={`rounded-xl border p-3 text-center ${TONE_MAP[tone] || TONE_MAP.slate}`}>
+            <div className="text-2xl font-black">{compact(value)}</div>
+            <div className="text-[11px] font-bold mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {categoryRows.length > 0 && (
+        <div className="px-5 pt-3 flex flex-wrap gap-2">
+          {categoryRows.map(c=>(
+            <span key={c.category} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600">
+              {String(c.category || "risk").replace(/_/g, " ")}: {c.count}
+            </span>
+          ))}
         </div>
       )}
+
+      {scanStatus && (
+        <div className="px-5 pt-3">
+          <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+            {scanStatus}
+          </div>
+        </div>
+      )}
+
+      <div className="p-5">
+        {!rows.length ? (
+          <EmptyState text="No unresolved chat safety alerts."/>
+        ) : (
+          <div className="space-y-2">
+            {rows.map(alert=>(
+              <div key={alert.id} className={`rounded-xl border bg-white p-3 ${alert.alertLevel === "special_user" ? "border-rose-200" : "border-slate-100"}`}>
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${alert.alertLevel === "special_user" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                        {String(alert.alertLevel || "admin").replace(/_/g, " ")}
+                      </span>
+                      {alert.securityEscalation && (
+                        <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase bg-red-600 text-white">
+                          Security flag
+                        </span>
+                      )}
+                      <span className="text-xs font-black text-slate-900">{alert.senderName || "Unknown user"}</span>
+                      <span className="text-[11px] text-slate-400">{new Date(alert.createdAtUtc).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 text-xs font-semibold text-slate-700">{alert.summary}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {String(alert.category || "risk").replace(/_/g, " ")} - {alert.severity} - {Math.round(num(alert.confidence) * 100)}%
+                      {alert.pastorFollowupSent ? " - AI Pastor follow-up sent" : ""}
+                    </div>
+                    {alert.evidenceSnippet && (
+                      <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                        <span className="font-black text-slate-700">Flagged line: </span>{alert.evidenceSnippet}
+                      </div>
+                    )}
+                    {alert.conversationSnippet && (
+                      <div className="mt-2 rounded-lg border border-slate-100 bg-white px-3 py-2 text-[11px] text-slate-500 whitespace-pre-wrap max-h-28 overflow-auto">
+                        <div className="font-black text-slate-700 mb-1">Conversation snippet</div>
+                        {alert.conversationSnippet}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-row md:flex-col gap-2">
+                    {(alert.securityEscalation || alert.alertLevel === "special_user") && (
+                      alert.isBlocked ? (
+                        <button onClick={()=>onUnblockUser?.(alert.senderId)}
+                          className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+                          Unblock user
+                        </button>
+                      ) : (
+                        <button onClick={()=>onBlockUser?.(alert.senderId, `Chat safety ${alert.category || "policy"} alert: ${alert.summary || ""}`)}
+                          className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100">
+                          Block user
+                        </button>
+                      )
+                    )}
+                    <button onClick={()=>onResolve(alert.id)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                      Resolve
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
 
-function RoutineMetric({ title, value, tone = "slate" }) {
-  const toneMap = {
-    emerald: "bg-emerald-50 text-emerald-800 border-emerald-100",
-    rose: "bg-rose-50 text-rose-800 border-rose-100",
-    blue: "bg-blue-50 text-blue-800 border-blue-100",
-    violet: "bg-violet-50 text-violet-800 border-violet-100",
-    amber: "bg-amber-50 text-amber-800 border-amber-100",
-    slate: "bg-slate-50 text-slate-800 border-slate-100",
-  };
+const DR_TABS=["Attendance","Site Usage","Security","Malpractice","Blocked"];
+function DailyRoutinesPanel({ data, feed, onBlock, onUnblock }) {
+  const [tab,setTab]=useState("Attendance");
+  const att     = data?.attendance || {};
+  const site    = data?.siteUsage  || {};
+  const sec     = data?.security   || {};
+  const mal     = data?.malpractice|| {};
+  const blocked = arrayFrom(data?.blockedUsers);
+  const feedErr = feed?.ok===false?(feed.error||"Daily routines feed unavailable."):"";
+  const counts  = { Attendance:att.missing||0, Security:sec.cyberSignals||0, Malpractice:mal.totalFlags||0, Blocked:blocked.length };
+
   return (
-    <div className={`rounded-lg border p-3 ${toneMap[tone] || toneMap.slate}`}>
-      <div className="truncate text-xl font-bold sm:text-2xl">{compactNumber(value || 0)}</div>
-      <div className="text-xs font-semibold">{title}</div>
-    </div>
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-5 pt-4 pb-3 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+          <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center">
+            <CalendarCheck className="w-4 h-4"/>
+          </span>
+          <div>
+            <h2 className="font-bold text-slate-900 text-sm">Automated Daily Routines</h2>
+            <p className="text-xs text-slate-400">Attendance · Site · Security · Malpractice · Blocks</p>
+          </div>
+        </div>
+        <span className="text-xs rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-slate-500 font-semibold self-start sm:self-auto">{data?.date||safeDate(0)}</span>
+      </div>
+      {feedErr&&<div className="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700">{feedErr}</div>}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 px-5 pt-3">
+        {[["Present",att.present,"emerald"],["Missing",att.missing||0,att.missing?"rose":"emerald"],["Page Views",site.pageViews,"blue"],["Visitors",site.uniqueVisitors,"violet"],["Cyber",sec.cyberSignals||0,sec.cyberSignals?"rose":"emerald"],["Flags",mal.totalFlags||0,mal.totalFlags?"amber":"emerald"]].map(([l,v,t])=>(
+          <div key={l} className={`rounded-xl border p-2.5 text-center ${TONE_MAP[t]||TONE_MAP.slate}`}>
+            <div className="text-xl font-black">{compact(v||0)}</div>
+            <div className="text-[11px] font-semibold mt-0.5 leading-tight">{l}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1 px-5 mt-4 overflow-x-auto border-b border-slate-100">
+        {DR_TABS.map(t=>(
+          <button key={t} onClick={()=>setTab(t)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition ${tab===t?"border-emerald-600 text-emerald-700":"border-transparent text-slate-400 hover:text-slate-700"}`}>
+            {t}{counts[t]>0&&<span className={`rounded-full text-[10px] px-1.5 py-0.5 font-black ${t==="Blocked"||t==="Security"||t==="Malpractice"?"bg-rose-100 text-rose-700":"bg-slate-100 text-slate-600"}`}>{counts[t]}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="px-5 py-4">
+        {tab==="Attendance"&&(
+          <div className="grid gap-4 md:grid-cols-2">
+            <RoutineList title="Present" rows={arrayFrom(att.presentUsers)} empty="No attendance logged today."
+              render={row=><UserRow row={row} onAction={()=>onBlock(row.userId,"blocked from attendance")} actionLabel="Block" actionTone="rose"/>}/>
+            <RoutineList title="Missing" rows={arrayFrom(att.missingUsers)} empty="Everyone marked present. 🎉"
+              render={row=><UserRow row={row} onAction={()=>onBlock(row.userId,"blocked — absent")} actionLabel="Block" actionTone="rose"/>}/>
+          </div>
+        )}
+        {tab==="Site Usage"&&(
+          <div className="grid gap-4 md:grid-cols-2">
+            <RoutineList title="Top Pages" rows={arrayFrom(site.topPages)} empty="No page visits yet."
+              render={row=><div className="flex justify-between text-xs"><span className="truncate text-slate-700 font-semibold pr-2">{row.path||"Page"}</span><span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">{row.views||0}</span></div>}/>
+            <RoutineList title="Logged In" rows={arrayFrom(site.loggedInToday)} empty="No logins today."
+              render={row=><div className="text-xs"><div className="font-semibold text-slate-800 truncate">{row.name||row.username||"User"}</div><div className="text-slate-400">{row.detail||""}</div></div>}/>
+          </div>
+        )}
+        {tab==="Security"&&(
+          <RoutineList title="Cyber Signals" rows={arrayFrom(sec.events)} empty={sec.note||"No security signals today. ✅"}
+            render={row=>(
+              <div className="flex justify-between gap-2 text-xs">
+                <div className="min-w-0"><div className="font-semibold text-slate-800 truncate">{row.eventType||"Event"}</div><div className="text-slate-500 truncate">{row.path||row.details||""}</div></div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${row.severity==="high"?"bg-rose-100 text-rose-700":"bg-amber-100 text-amber-700"}`}>{row.severity||"watch"}</span>
+              </div>
+            )}/>
+        )}
+        {tab==="Malpractice"&&(
+          <div className="grid gap-4 md:grid-cols-2">
+            <RoutineList title="Flagged Uploads" rows={arrayFrom(mal.flaggedUploads)} empty="No flagged uploads."
+              render={row=><div className="flex justify-between gap-2 text-xs"><div className="min-w-0"><div className="font-semibold text-slate-800 truncate">{row.fileName||"File"}</div><div className="text-slate-500">{row.reason||""}</div></div>{row.userId&&<button onClick={()=>onBlock(row.userId,"upload flag")} className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100"><Ban className="w-2.5 h-2.5 inline mr-0.5"/>Block</button>}</div>}/>
+            <RoutineList title="High Data Activity" rows={arrayFrom(mal.dataManipulationFlags)} empty="No suspicious data activity."
+              render={row=><div className="flex justify-between gap-2 text-xs"><div className="min-w-0"><div className="font-semibold text-slate-800 truncate">{row.userName||"User"}</div><div className="text-slate-500">{row.totalChanges} changes</div></div><div className="flex gap-1.5 shrink-0 items-center"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${row.severity==="high"?"bg-rose-100 text-rose-700":"bg-amber-100 text-amber-700"}`}>{row.severity}</span>{row.userId&&<button onClick={()=>onBlock(row.userId,"data flag")} className="rounded-lg border border-rose-200 bg-rose-50 px-1.5 py-1 text-rose-700 hover:bg-rose-100"><Ban className="w-2.5 h-2.5"/></button>}</div></div>}/>
+          </div>
+        )}
+        {tab==="Blocked"&&(
+          blocked.length===0
+            ?<EmptyState text="No users are currently blocked."/>
+            :<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {blocked.map(row=>(
+                <div key={row.userId||row.username} className="rounded-xl border border-rose-100 bg-rose-50/70 px-3 py-3 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5"><Lock className="w-3 h-3 text-rose-500 shrink-0"/><span className="font-semibold text-slate-800 text-sm truncate">{row.name||row.username}</span></div>
+                    <div className="text-xs text-rose-600 truncate">{row.reason||"Blocked"}</div>
+                  </div>
+                  <button onClick={()=>onUnblock(row.userId)} className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1">
+                    <UnlockKeyhole className="w-3 h-3"/>Unblock
+                  </button>
+                </div>
+              ))}
+            </div>
+        )}
+      </div>
+    </section>
   );
 }
-
-function RoutineList({ title, rows, empty, render }) {
-  const allRows = arrayFrom(rows);
-  const items = allRows.slice(0, 8);
+function UserRow({ row, onAction, actionLabel, actionTone }) {
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-slate-800">{title}</h3>
-        <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-600">{allRows.length}</span>
-      </div>
-      {items.length ? (
-        <div className="space-y-2">
-          {items.map((row, index) => (
-            <div key={row.id || row.userId || row.messageId || row.attachmentId || `${title}-${index}`} className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm">
-              {render(row)}
-            </div>
-          ))}
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-600 text-[10px] font-black flex items-center justify-center shrink-0">
+          {(row.name||row.username||"U")[0].toUpperCase()}
         </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-sm text-slate-500">{empty}</div>
+        <div className="min-w-0"><div className="text-xs font-semibold text-slate-800 truncate">{row.name||row.username||"User"}</div><div className="text-[11px] text-slate-400">{row.role||""}</div></div>
+      </div>
+      {row.userId&&onAction&&(
+        <button onClick={onAction} className={`shrink-0 rounded-lg border text-[11px] font-bold px-2 py-1 flex items-center gap-0.5 ${actionTone==="rose"?"border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100":"border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+          <Ban className="w-2.5 h-2.5"/>{actionLabel}
+        </button>
       )}
     </div>
   );
 }
-
-function MiniOperation({ item }) {
-  const Icon = item.icon;
+function RoutineList({ title, rows, empty, render }) {
+  const all=arrayFrom(rows), items=all.slice(0,10);
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-      <div className="flex items-center justify-between">
-        <Icon className="w-4 h-4 text-slate-500" />
-        <span className="text-lg font-bold">{typeof item.value === "number" ? compactNumber(item.value) : item.value}</span>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h3 className="text-xs font-bold text-slate-700">{title}</h3>
+        <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-600">{all.length}</span>
       </div>
-      <div className="mt-2 text-sm font-semibold">{item.name}</div>
-      <div className="text-xs text-slate-500">{item.detail}</div>
+      {items.length
+        ?<div className="space-y-1.5">{items.map((row,i)=><div key={row.id||row.userId||i} className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm">{render(row)}</div>)}{all.length>10&&<div className="text-center text-xs text-slate-400 pt-1">+{all.length-10} more</div>}</div>
+        :<div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-xs text-slate-500">{empty}</div>}
     </div>
   );
 }
 
-function MiniStat({ label, value }) {
+/* ═══════════════════ CHARTS ═══════════════════ */
+function DonutChart({ data, colors, height=220 }) {
+  if(!data?.length) return <EmptyState text="No data available."/>;
   return (
-    <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className="font-bold">{compactMetric(value)}</span>
+    <div style={{width:"100%",height}}>
+      <ResponsiveContainer>
+        <PieChart>
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="72%" paddingAngle={3}>
+            {data.map((_,i)=><Cell key={i} fill={colors[i%colors.length]}/>)}
+          </Pie>
+          <Tooltip contentStyle={{fontSize:12,borderRadius:10,border:"none",boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}/>
+          <Legend iconSize={10} iconType="circle" wrapperStyle={{fontSize:11}}/>
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+function HBarChart({ data, colorMap }) {
+  if(!data?.length) return <EmptyState text="No priority data."/>;
+  const max = Math.max(...data.map(x=>x.value),1);
+  return (
+    <div className="space-y-2.5">
+      {data.map(d=>(
+        <div key={d.name}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-slate-700">{d.name}</span>
+            <span className="text-xs font-black text-slate-900">{d.value}</span>
+          </div>
+          <div className="rounded-full bg-slate-100 h-3 overflow-hidden">
+            <div className="h-3 rounded-full transition-all duration-700" style={{width:`${(d.value/max)*100}%`,backgroundColor:colorMap[d.name]||PALETTE.blue}}/>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
+/* ═══════════════════ TINY COMPONENTS ═══════════════════ */
+const PRIORITY_COLORS = { Critical:"bg-rose-100 text-rose-700", Urgent:"bg-orange-100 text-orange-700", High:"bg-amber-100 text-amber-700", Normal:"bg-blue-100 text-blue-700", Low:"bg-slate-100 text-slate-500" };
+function PriorityBadge({ p }) {
+  return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${PRIORITY_COLORS[p]||PRIORITY_COLORS.Normal}`}>{p}</span>;
+}
 function EmptyState({ text }) {
-  return <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">{text}</div>;
+  return <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-xs text-slate-400 text-center">{text}</div>;
 }
-
-function BarChart({ data, barColor, dataKey, nameKey, height = 260 }) {
-  if (!data?.length) return <EmptyState text="No chart data available." />;
+function ErrorBanner({ message }) {
   return (
-    <div style={{ width: "100%", height }}>
-      <Recharts.ResponsiveContainer>
-        <Recharts.BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-          <Recharts.CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <Recharts.XAxis dataKey={nameKey} tick={{ fontSize: 11, fill: "#475569" }} />
-          <Recharts.YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#475569" }} />
-          <Recharts.Tooltip />
-          <Recharts.Bar dataKey={dataKey} fill={barColor} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-        </Recharts.BarChart>
-      </Recharts.ResponsiveContainer>
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 flex items-center gap-2">
+      <AlertTriangle className="w-4 h-4 shrink-0"/>{message}
     </div>
   );
 }
-
-function DonutChart({ data, colors: palette }) {
-  if (!data?.length) return <EmptyState text="No task status data available." />;
+function FeedBadge({ label, count, color }) {
+  const cls = { emerald:"bg-emerald-100 text-emerald-700", rose:"bg-rose-100 text-rose-700", slate:"bg-slate-100 text-slate-600" };
   return (
-    <div className="h-72">
-      <Recharts.ResponsiveContainer>
-        <Recharts.PieChart>
-          <Recharts.Pie data={data} dataKey="value" nameKey="name" innerRadius={65} outerRadius={100} paddingAngle={3}>
-            {data.map((_, index) => (
-              <Recharts.Cell key={index} fill={palette[index % palette.length]} />
-            ))}
-          </Recharts.Pie>
-          <Recharts.Tooltip />
-          <Recharts.Legend />
-        </Recharts.PieChart>
-      </Recharts.ResponsiveContainer>
+    <div className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold ${cls[color]}`}>
+      <span className={`w-2 h-2 rounded-full ${color==="emerald"?"bg-emerald-500":color==="rose"?"bg-rose-500":"bg-slate-400"}`}/>
+      {count} {label}
     </div>
   );
 }
-
-function ComposedFinanceChart({ income, expense, net }) {
-  const data = [
-    { name: "Income", amount: income },
-    { name: "Expense", amount: expense },
-    { name: "Net", amount: net },
-  ];
-  const hasAmounts = data.some((row) => Math.abs(number(row.amount)) > 0);
+function TabGroup({ options, active, onSelect }) {
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
-        <MiniStat label="Income" value={currency(income)} />
-        <MiniStat label="Expense" value={currency(expense)} />
-        <MiniStat label="Net" value={currency(net)} />
-      </div>
-      {hasAmounts ? <BarChart data={data} barColor={net >= 0 ? colors.emerald : colors.rose} dataKey="amount" nameKey="name" height={210} /> : <EmptyState text="No income or expense movement in the selected 30-day window." />}
+    <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white shadow-sm">
+      {options.map(o=>(
+        <button key={o} onClick={()=>onSelect(o)}
+          className={`px-3 py-1.5 text-xs font-bold transition-colors ${active===o?"bg-emerald-600 text-white":"text-slate-500 hover:bg-slate-50"}`}>
+          {o}
+        </button>
+      ))}
     </div>
   );
 }
-
-function PipelineChart({ data }) {
-  if (!data?.length) return <EmptyState text="No pipeline data available." />;
+function Btn({ icon:Icon, label, onClick, disabled, spin, primary }) {
   return (
-    <div className="h-72">
-      <Recharts.ResponsiveContainer>
-        <Recharts.BarChart data={data} layout="vertical" margin={{ left: 10, right: 20 }}>
-          <Recharts.CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <Recharts.XAxis type="number" allowDecimals={false} />
-          <Recharts.YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 12 }} />
-          <Recharts.Tooltip />
-          <Recharts.Legend />
-          <Recharts.Bar dataKey="total" name="Total" fill={colors.sky} radius={[0, 6, 6, 0]} isAnimationActive={false} />
-          <Recharts.Bar dataKey="active" name="Active" fill={colors.amber} radius={[0, 6, 6, 0]} isAnimationActive={false} />
-        </Recharts.BarChart>
-      </Recharts.ResponsiveContainer>
-    </div>
+    <button onClick={onClick} disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all disabled:opacity-60 shadow-sm ${
+        primary?"bg-emerald-600 text-white hover:bg-emerald-700":"border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+      }`}>
+      <Icon className={`w-3.5 h-3.5 ${spin?"animate-spin":""}`}/>{label}
+    </button>
   );
 }
-
-
-
-
-
-
-
-
-
-
-

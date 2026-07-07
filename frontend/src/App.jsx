@@ -13,6 +13,7 @@ import CostsPage from "./pages/CostsPage";
 import UsersPage from "./features/users/Page";
 import TeamsPage from "./features/teams/TeamsPage";
 import TasksPage from "./features/tasks/Page";
+import ProjectManagementPage from "./features/projectmanagement/Page";
 import RolesPage from "./features/roles/RolesPage";
 import PagesPage from "./features/pages/PagesPage";
 import PositionsPage from "./features/positions/PositionsPage";
@@ -346,6 +347,19 @@ export default function App() {
           }
         />
 
+        {/* Project Management */}
+        <Route
+          path="project-management"
+          element={
+            <RequireRole
+              allowedRoles={["admin", "staff"]}
+              requiredPage="PROJECT_MANAGEMENT"
+            >
+              <ProjectManagementPage />
+            </RequireRole>
+          }
+        />
+
         {/* Prayer Requests */}
         <Route
           path="prayerrequests"
@@ -435,6 +449,7 @@ export default function App() {
           match if no earlier route did. */}
       <Route path="/users"          element={<Navigate to="/home/users"          replace />} />
       <Route path="/tasks"          element={<Navigate to="/home/tasks"          replace />} />
+      <Route path="/project-management" element={<Navigate to="/home/project-management" replace />} />
       <Route path="/teams"          element={<Navigate to="/home/teams"          replace />} />
       <Route path="/roles"          element={<Navigate to="/home/roles"          replace />} />
       <Route path="/prayerrequests" element={<Navigate to="/home/prayerrequests" replace />} />

@@ -1,0 +1,898 @@
+﻿import React, { useEffect, useMemo, useState } from "react";
+import api from "../../api";
+import {
+  AlertTriangle,
+  BarChart3,
+  Briefcase,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  Download,
+  FileVideo,
+  Flag,
+  Gauge,
+  Megaphone,
+  Milestone,
+  PlayCircle,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Timer,
+  Upload,
+  Users,
+  Volume2,
+  Wallet,
+} from "lucide-react";
+
+const STORAGE_KEY = "mahima_project_management_portfolio_v1";
+
+const PROJECT_TEMPLATES = {
+  construction: {
+    type: "Church Construction",
+    icon: Building2,
+    accent: "#047857",
+    phases: ["Land & approvals", "Design", "Foundation", "Structure", "Interiors", "Handover"],
+    workstreams: ["Civil", "Electrical", "Plumbing", "Permits", "Finance", "Donor reporting", "Safety"],
+    risks: ["Permit delay", "Material escalation", "Contractor capacity", "Rain impact"],
+  },
+  crusade: {
+    type: "Big Crusade Management",
+    icon: Megaphone,
+    accent: "#dc2626",
+    phases: ["Vision", "Venue", "Permissions", "Promotion", "Volunteer mobilization", "Event execution", "Follow-up"],
+    workstreams: ["Venue", "Stage", "Prayer", "Transport", "Media", "Security", "Outreach", "Counselling"],
+    risks: ["Venue approval", "Crowd safety", "Weather", "Volunteer shortfall"],
+  },
+  appDemo: {
+    type: "Mahima Application Demo",
+    icon: FileVideo,
+    accent: "#7c3aed",
+    phases: ["Discovery", "Route capture", "Voice-over scripts", "Review", "Render", "Publish"],
+    workstreams: ["Screenshots", "English voice-over", "Hindi voice-over", "Punjabi voice-over", "MP4 render", "QA"],
+    risks: ["Login state expired", "Page permission gap", "Voice-over review", "Renderer unavailable"],
+  },
+};
+
+const DEMO_ROUTES = [
+  { key: "DASHBOARD", title: "Home dashboard", path: "/home" },
+  { key: "PASTOR", title: "AI Counseller", path: "/home/pastor" },
+  { key: "README", title: "ReadMe image assistant", path: "/home/readme" },
+  { key: "SERMONS", title: "Sermons", path: "/home/sermons" },
+  { key: "PRAYER_REQUESTS", title: "Prayer Requests", path: "/home/prayerrequests" },
+  { key: "TASKS", title: "Tasks", path: "/home/tasks" },
+  { key: "PROJECT_MANAGEMENT", title: "Project Management", path: "/home/project-management" },
+  { key: "USERS", title: "Users", path: "/home/users" },
+  { key: "TEAMS", title: "Teams", path: "/home/teams" },
+  { key: "ROLES", title: "Roles and permissions", path: "/home/roles" },
+  { key: "POSITIONS", title: "Positions", path: "/home/positions" },
+  { key: "ATTENDANCE", title: "Attendance", path: "/home/attendance" },
+  { key: "PAYROLL", title: "Payroll", path: "/home/payroll" },
+  { key: "COSTS", title: "Costs", path: "/home/costs" },
+  { key: "MARRIAGE", title: "Marriage", path: "/home/marriage" },
+  { key: "BAPTISM", title: "Baptism", path: "/home/baptism" },
+  { key: "COUNSELLING", title: "Counselling", path: "/home/counselling" },
+  { key: "MESSAGE_CENTER", title: "Message Center", path: "/home/admin/ministry-automation" },
+  { key: "GOOGLE_DRIVE", title: "Google Drive", path: "/home/admin/google-drive" },
+  { key: "REPORTS", title: "Reports", path: "/home/admin/reports" },
+];
+
+const VOICE_SCRIPTS = {
+  en: "Welcome to Mahima Ministry. This demo walks through the application modules, ministry workflows, reporting, communication, and project controls used by the church operations team.",
+  hi: "Mahima Ministry mein aapka swagat hai. Is demo mein application ke modules, ministry workflows, reporting, communication aur project controls dikhaye jayenge.",
+  pa: "Mahima Ministry vich tuhadda swagat hai. Is demo vich application modules, ministry workflows, reporting, communication ate project controls dikhaye jaan ge.",
+};
+
+const INDIAN_MALE_TTS_INSTRUCTIONS = "Speak like a real Indian male presenter from North India. Use warm Indian English pronunciation with natural pauses, gentle confidence, and a ministry-demo tone. Do not sound robotic, synthetic, theatrical, or like a call-center IVR. Keep it conversational and human.";
+
+const VOICE_OPTIONS = [
+  {
+    key: "indian_male_presenter",
+    label: "Indian man",
+    description: "Warm North Indian presenter",
+    ttsVoice: { en: "onyx", hi: "onyx", pa: "onyx" },
+    ttsInstructions: INDIAN_MALE_TTS_INSTRUCTIONS,
+  },
+  {
+    key: "indian_male_clear",
+    label: "Indian trainer",
+    description: "Clear training voice",
+    ttsVoice: { en: "ash", hi: "ash", pa: "ash" },
+    ttsInstructions: "Speak like a real Indian male software trainer. Use Indian English rhythm, clear articulation, natural pauses, and a calm confident tone. Avoid robotic or announcer-style delivery.",
+  },
+  {
+    key: "indian_male_gentle",
+    label: "Indian gentle",
+    description: "Softer ministry voice",
+    ttsVoice: { en: "echo", hi: "echo", pa: "echo" },
+    ttsInstructions: "Speak like a gentle Indian male ministry presenter. Sound warm, human, respectful, and conversational, with natural pauses and no machine-like cadence.",
+  },
+];
+
+const DEMO_NARRATION = {
+  en: {
+    DASHBOARD: "The home dashboard gives leaders a quick operational view of ministry activity, follow-ups, tasks, and important alerts.",
+    PASTOR: "The AI Counsellor supports pastoral conversations with guided prompts, prayerful responses, and structured care notes.",
+    README: "The ReadMe image assistant helps convert ministry images and documents into clear notes that teams can act on.",
+    SERMONS: "The sermons module organizes messages, media, references, and publishing workflows for church content.",
+    PRAYER_REQUESTS: "Prayer Requests tracks needs, reminders, testimonies, answer status, and the monitoring metrics for follow-up.",
+    TASKS: "Tasks converts ministry events into accountable assignments with owners, reminders, sub tasks, and team notifications.",
+    PROJECT_MANAGEMENT: "Project Management brings construction projects, crusades, governance, risks, budgets, and demo delivery into one PMO workspace.",
+    USERS: "Users centralizes member and staff records, roles, contact information, and access administration.",
+    TEAMS: "Teams helps ministry leaders organize groups, members, ownership, and operational responsibilities.",
+    ROLES: "Roles and permissions control which modules each role can open, keeping the application secure and manageable.",
+    POSITIONS: "Positions defines church-level responsibilities and reporting structure for ministry operations.",
+    ATTENDANCE: "Attendance captures participation and gives leaders visibility into service, team, and event presence.",
+    PAYROLL: "Payroll manages salary runs, accounting entries, and staff payment tracking in a controlled workflow.",
+    COSTS: "Costs tracks expenses, budgets, journals, and financial movement across church operations.",
+    MARRIAGE: "Marriage records help administer pastoral marriage workflows, documents, and ministry follow-up.",
+    BAPTISM: "Baptism records organize candidate information, service planning, and certification steps.",
+    COUNSELLING: "Counselling keeps pastoral care interactions structured, private, and follow-up ready.",
+    MESSAGE_CENTER: "Message Center manages automation, reminders, and ministry communication across users and teams.",
+    GOOGLE_DRIVE: "Google Drive integration connects ministry files with the application for easier document access.",
+    REPORTS: "Reports brings operational, ministry, and administrative insights together for review and decision making.",
+  },
+  hi: {
+    DASHBOARD: "Home dashboard ministry activity, follow-ups, tasks aur important alerts ka quick operational view deta hai.",
+    PASTOR: "AI Counsellor pastoral conversations ke liye guided prompts, prayerful responses aur care notes support karta hai.",
+    README: "ReadMe image assistant ministry images aur documents ko clear action notes mein badalne mein madad karta hai.",
+    SERMONS: "Sermons module messages, media, Bible references aur publishing workflow ko organize karta hai.",
+    PRAYER_REQUESTS: "Prayer Requests needs, reminders, testimonies, answered status aur follow-up metrics track karta hai.",
+    TASKS: "Tasks ministry events ko accountable assignments, owners, reminders, sub tasks aur team notifications mein convert karta hai.",
+    PROJECT_MANAGEMENT: "Project Management construction, crusades, governance, risks, budgets aur demo delivery ko ek PMO workspace mein lata hai.",
+    USERS: "Users member aur staff records, roles, contact details aur access administration ko centralize karta hai.",
+    TEAMS: "Teams ministry leaders ko groups, members, ownership aur responsibilities organize karne mein help karta hai.",
+    ROLES: "Roles and permissions decide karta hai ki kaun sa role kaun sa module open kar sakta hai.",
+    POSITIONS: "Positions church responsibilities aur reporting structure define karta hai.",
+    ATTENDANCE: "Attendance service, team aur event participation capture karta hai.",
+    PAYROLL: "Payroll salary runs, accounting entries aur staff payment tracking manage karta hai.",
+    COSTS: "Costs expenses, budgets, journals aur financial movement track karta hai.",
+    MARRIAGE: "Marriage records pastoral marriage workflows, documents aur follow-up manage karte hain.",
+    BAPTISM: "Baptism records candidate information, service planning aur certification steps organize karte hain.",
+    COUNSELLING: "Counselling pastoral care interactions ko structured aur follow-up ready rakhta hai.",
+    MESSAGE_CENTER: "Message Center automation, reminders aur ministry communication manage karta hai.",
+    GOOGLE_DRIVE: "Google Drive integration ministry files ko application ke saath connect karta hai.",
+    REPORTS: "Reports operational, ministry aur administrative insights ko review ke liye ek jagah lata hai.",
+  },
+  pa: {
+    DASHBOARD: "Home dashboard ministry activity, follow-ups, tasks ate important alerts da quick operational view dinda hai.",
+    PASTOR: "AI Counsellor pastoral conversations lai guided prompts, prayerful responses ate care notes support karda hai.",
+    README: "ReadMe image assistant ministry images ate documents nu clear action notes vich badlan vich madad karda hai.",
+    SERMONS: "Sermons module messages, media, Bible references ate publishing workflow nu organize karda hai.",
+    PRAYER_REQUESTS: "Prayer Requests needs, reminders, testimonies, answered status ate follow-up metrics track karda hai.",
+    TASKS: "Tasks ministry events nu accountable assignments, owners, reminders, sub tasks ate team notifications vich convert karda hai.",
+    PROJECT_MANAGEMENT: "Project Management construction, crusades, governance, risks, budgets ate demo delivery nu ik PMO workspace vich liaunda hai.",
+    USERS: "Users member ate staff records, roles, contact details ate access administration nu centralize karda hai.",
+    TEAMS: "Teams ministry leaders nu groups, members, ownership ate responsibilities organize karan vich help karda hai.",
+    ROLES: "Roles and permissions control karde han ki har role kehra module open kar sakda hai.",
+    POSITIONS: "Positions church responsibilities ate reporting structure define karda hai.",
+    ATTENDANCE: "Attendance service, team ate event participation capture karda hai.",
+    PAYROLL: "Payroll salary runs, accounting entries ate staff payment tracking manage karda hai.",
+    COSTS: "Costs expenses, budgets, journals ate financial movement track karda hai.",
+    MARRIAGE: "Marriage records pastoral marriage workflows, documents ate follow-up manage karde han.",
+    BAPTISM: "Baptism records candidate information, service planning ate certification steps organize karde han.",
+    COUNSELLING: "Counselling pastoral care interactions nu structured ate follow-up ready rakhda hai.",
+    MESSAGE_CENTER: "Message Center automation, reminders ate ministry communication manage karda hai.",
+    GOOGLE_DRIVE: "Google Drive integration ministry files nu application naal connect karda hai.",
+    REPORTS: "Reports operational, ministry ate administrative insights nu review lai ik jagah liaunda hai.",
+  },
+};
+
+function toHashRoute(path) {
+  const clean = String(path || "/home").replace(/^#/, "");
+  return clean.startsWith("/") ? `#${clean}` : `#/${clean}`;
+}
+
+function demoNarration(route, index, language) {
+  const text = DEMO_NARRATION[language]?.[route.key] || DEMO_NARRATION.en[route.key] || route.title;
+  return `Section ${index + 1}. ${text}`;
+}
+
+function routeWaitMs(route) {
+  if (["DASHBOARD", "PASTOR", "PROJECT_MANAGEMENT", "REPORTS"].includes(route.key)) return 3200;
+  if (["MESSAGE_CENTER", "GOOGLE_DRIVE"].includes(route.key)) return 3800;
+  return 2400;
+}
+
+function previewVoiceSample(option, language) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const sample = demoNarration(DEMO_ROUTES[0], 0, language);
+  const utterance = new SpeechSynthesisUtterance(sample);
+  utterance.lang = language === "hi" ? "hi-IN" : language === "pa" ? "pa-IN" : "en-IN";
+  utterance.rate = option.key === "clear_male" ? 0.96 : 0.9;
+  utterance.pitch = option.key === "warm_female" ? 1.08 : option.key === "clear_male" ? 0.92 : 1;
+  window.speechSynthesis.speak(utterance);
+}
+
+
+function seedProjects() {
+  return [
+    makeProject("Church Construction - New Worship Hall", "construction"),
+    makeProject("Punjab Healing Crusade 2026", "crusade"),
+    makeProject("Mahima App 4.0 Guided Demo", "appDemo"),
+  ];
+}
+
+function makeProject(name, templateKey) {
+  const template = PROJECT_TEMPLATES[templateKey] || PROJECT_TEMPLATES.construction;
+  const now = new Date();
+  const finish = new Date(now);
+  finish.setDate(finish.getDate() + (templateKey === "crusade" ? 90 : templateKey === "appDemo" ? 21 : 240));
+  return {
+    id: `${templateKey}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    templateKey,
+    type: template.type,
+    sponsor: templateKey === "construction" ? "Senior Pastor" : templateKey === "crusade" ? "Crusade Director" : "Mahima Product Team",
+    manager: templateKey === "construction" ? "Construction PMO" : templateKey === "crusade" ? "Event PMO" : "Application PMO",
+    status: "Active",
+    health: templateKey === "appDemo" ? "Watch" : "Green",
+    priority: templateKey === "construction" ? "Strategic" : "High",
+    budget: templateKey === "construction" ? 7500000 : templateKey === "crusade" ? 1800000 : 250000,
+    spent: templateKey === "construction" ? 2325000 : templateKey === "crusade" ? 420000 : 55000,
+    progress: templateKey === "construction" ? 34 : templateKey === "crusade" ? 26 : 18,
+    startDate: now.toISOString().slice(0, 10),
+    targetDate: finish.toISOString().slice(0, 10),
+    phases: template.phases.map((phase, index) => ({
+      id: `${templateKey}_phase_${index}`,
+      name: phase,
+      status: index === 0 ? "Done" : index === 1 ? "In progress" : "Planned",
+      owner: index % 2 === 0 ? "PMO" : "Ministry Lead",
+    })),
+    workstreams: template.workstreams.map((name, index) => ({
+      id: `${templateKey}_ws_${index}`,
+      name,
+      owner: index % 2 === 0 ? "Core Team" : "Support Team",
+      completion: Math.max(5, Math.min(90, 18 + index * 8)),
+    })),
+    risks: template.risks.map((risk, index) => ({
+      id: `${templateKey}_risk_${index}`,
+      title: risk,
+      impact: index === 0 ? "High" : "Medium",
+      mitigation: "Assign owner, weekly review, and escalation path.",
+      status: index === 0 ? "Open" : "Monitoring",
+    })),
+    decisions: [
+      { id: `${templateKey}_decision_1`, title: "Approve governance cadence", owner: "Sponsor", due: now.toISOString().slice(0, 10), status: "Pending" },
+      { id: `${templateKey}_decision_2`, title: "Confirm budget baseline", owner: "Finance", due: finish.toISOString().slice(0, 10), status: "Draft" },
+    ],
+  };
+}
+
+function loadPortfolio() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch {}
+  return seedProjects();
+}
+
+function savePortfolio(projects) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects, null, 2));
+}
+
+function currency(value) {
+  return `INR ${Number(value || 0).toLocaleString("en-IN")}`;
+}
+
+function healthClass(health) {
+  return String(health || "").toLowerCase();
+}
+function unwrapApiData(response) {
+  if (response && typeof response === "object" && "data" in response) return response.data;
+  return response;
+}
+
+function buildDemoDownloadUrl(job, language = "en") {
+  if (!job) return "";
+  if (job.status !== "completed" && job.Status !== "completed" && !job.downloadUrl && !job.DownloadUrl) return "";
+  return `/api/projectmanagement/demo-jobs/${encodeURIComponent(job.id)}/download`;
+}
+
+export default function ProjectManagementPage() {
+  const [projects, setProjects] = useState(() => loadPortfolio());
+  const [activeId, setActiveId] = useState(() => loadPortfolio()[0]?.id || "");
+  const [isBackendReady, setIsBackendReady] = useState(false);
+  const [view, setView] = useState("portfolio");
+  const [query, setQuery] = useState("");
+  const [demoLanguage, setDemoLanguage] = useState("en");
+  const [demoVoice, setDemoVoice] = useState("indian_male_presenter");
+  const [demoJob, setDemoJob] = useState(null);
+  const [demoJobs, setDemoJobs] = useState([]);
+  const [isRenderingDemo, setIsRenderingDemo] = useState(false);
+  const [isAnalyzingCaptures, setIsAnalyzingCaptures] = useState(false);
+  const [uploadedCaptureCount, setUploadedCaptureCount] = useState(0);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((project) => `${project.name} ${project.type} ${project.manager} ${project.status}`.toLowerCase().includes(q));
+  }, [projects, query]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.get("/projectmanagement/projects")
+      .then((response) => {
+        const rows = unwrapApiData(response);
+        if (!mounted || !Array.isArray(rows)) return;
+        if (rows.length > 0) {
+          setProjects(rows);
+          savePortfolio(rows);
+          setActiveId((current) => rows.some((project) => project.id === current) ? current : rows[0]?.id || "");
+        }
+        setIsBackendReady(true);
+      })
+      .catch((error) => {
+        console.warn("Project Management backend unavailable; using local portfolio fallback.", error);
+        setIsBackendReady(false);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    loadDemoJobs(demoLanguage);
+  }, [demoLanguage]);
+  const active = projects.find((project) => project.id === activeId) || projects[0];
+  const totals = useMemo(() => {
+    const totalBudget = projects.reduce((sum, p) => sum + Number(p.budget || 0), 0);
+    const totalSpent = projects.reduce((sum, p) => sum + Number(p.spent || 0), 0);
+    const avgProgress = projects.length ? Math.round(projects.reduce((sum, p) => sum + Number(p.progress || 0), 0) / projects.length) : 0;
+    const openRisks = projects.reduce((sum, p) => sum + (p.risks || []).filter((risk) => risk.status !== "Closed").length, 0);
+    return { totalBudget, totalSpent, avgProgress, openRisks };
+  }, [projects]);
+
+  function persistProject(project) {
+    api.post("/projectmanagement/projects", project)
+      .then(() => setIsBackendReady(true))
+      .catch((error) => {
+        setIsBackendReady(false);
+        console.warn("Project Management save stayed local because backend save failed.", error);
+      });
+  }
+
+  function updateProjects(next) {
+    setProjects(next);
+    savePortfolio(next);
+  }
+
+  function addProject(templateKey) {
+    const template = PROJECT_TEMPLATES[templateKey];
+    const project = makeProject(`${template.type} - New Project`, templateKey);
+    const next = [project, ...projects];
+    updateProjects(next);
+    persistProject(project);
+    setActiveId(project.id);
+    setView("control");
+  }
+
+  function updateActive(patch) {
+    if (!active) return;
+    const updated = { ...active, ...patch };
+    updateProjects(projects.map((project) => project.id === active.id ? updated : project));
+    persistProject(updated);
+  }
+
+  async function loadDemoJobs(language = demoLanguage) {
+    try {
+      const response = await api.get("/projectmanagement/demo-jobs", { params: { language } });
+      const rows = unwrapApiData(response);
+      if (Array.isArray(rows)) setDemoJobs(rows);
+    } catch (error) {
+      console.warn("Demo render job history could not be loaded.", error);
+    }
+  }
+  function createDemoJob() {
+    const now = new Date().toISOString();
+    const selectedVoice = VOICE_OPTIONS.find((voice) => voice.key === demoVoice) || VOICE_OPTIONS[0];
+    const job = {
+      id: `demo_${Date.now()}`,
+      name: "Mahima Application Demo Project",
+      status: "queued",
+      requestedAt: now,
+      appBaseUrl: window.location.origin,
+      language: demoLanguage,
+      voiceKey: selectedVoice.key,
+      voiceLabel: selectedVoice.label,
+      ttsVoice: selectedVoice.ttsVoice?.[demoLanguage] || selectedVoice.ttsVoice?.en || "onyx",
+      ttsInstructions: selectedVoice.ttsInstructions || INDIAN_MALE_TTS_INSTRUCTIONS,
+      requireOpenAiSpeech: true,
+      output: `mahima-app-demo-${demoLanguage}.mp4`,
+      frameRate: 30,
+      resolution: "1920x1080",
+      voiceOver: VOICE_SCRIPTS[demoLanguage],
+      captureRoutes: DEMO_ROUTES.map((route, index) => ({
+        ...route,
+        path: toHashRoute(route.path),
+        screenshotName: `${String(index + 1).padStart(2, "0")}-${route.key.toLowerCase()}.png`,
+        narration: demoNarration(route, index, demoLanguage),
+        waitMs: routeWaitMs(route),
+        durationSeconds: index === 0 ? 7 : 6,
+      })),
+      rendererRequirements: [
+        "Authenticated browser session with admin permissions",
+        "Playwright screenshot capture for every route with per-page wait timing",
+        "OpenAI speech voice-over is required; render fails instead of falling back to machine voice",
+        "ffmpeg composition where each segment duration follows the narration length",
+      ],
+    };
+    setDemoJob(job);
+    api.post("/projectmanagement/demo-jobs", job)
+      .then(() => setIsBackendReady(true))
+      .catch((error) => {
+        setIsBackendReady(false);
+        console.warn("Demo render job stayed local because backend save failed.", error);
+      });
+  }
+
+
+  async function analyzeUploadedCaptures(files) {
+    const selectedFiles = Array.from(files || []).filter(Boolean);
+    if (!selectedFiles.length) return;
+    setIsAnalyzingCaptures(true);
+    try {
+      const selectedVoice = VOICE_OPTIONS.find((item) => item.key === demoVoice) || VOICE_OPTIONS[0];
+      const form = new FormData();
+      selectedFiles.forEach((file) => form.append("files", file));
+      form.append("language", demoLanguage);
+      form.append("requireAi", "true");
+      const response = await api.post("/projectmanagement/demo-jobs/analyze-captures", form);
+      const result = unwrapApiData(response) || {};
+      const routes = Array.isArray(result.routes) ? result.routes : [];
+      if (!routes.length) throw new Error("No screenshot routes were generated.");
+
+      const now = new Date().toISOString();
+      const job = {
+        id: `demo_${Date.now()}`,
+        name: "Mahima Application Demo Project - Uploaded Screens",
+        status: "queued",
+        requestedAt: now,
+        appBaseUrl: window.location.origin,
+        captureSetId: result.captureSetId,
+        source: "uploaded-screenshots",
+        language: demoLanguage,
+        voiceKey: selectedVoice.key,
+        voiceLabel: selectedVoice.label,
+        ttsVoice: selectedVoice.ttsVoice?.[demoLanguage] || selectedVoice.ttsVoice?.en || "onyx",
+        ttsInstructions: selectedVoice.ttsInstructions || INDIAN_MALE_TTS_INSTRUCTIONS,
+        requireOpenAiSpeech: true,
+        output: `mahima-app-demo-${demoLanguage}.mp4`,
+        frameRate: 30,
+        resolution: "1920x1080",
+        voiceOver: VOICE_SCRIPTS[demoLanguage],
+        captureRoutes: routes,
+        rendererRequirements: [
+          "Uploaded screenshots are used as the capture source",
+          "OpenAI vision generates narration from each screenshot when configured",
+          "OpenAI speech generates human-like MP3 narration and is required",
+          "ffmpeg composition syncs each screenshot with its generated narration",
+        ],
+      };
+
+      setDemoJob(job);
+      setUploadedCaptureCount(routes.length);
+      await api.post("/projectmanagement/demo-jobs", job);
+      setIsBackendReady(true);
+      loadDemoJobs(demoLanguage);
+    } catch (error) {
+      setIsBackendReady(false);
+      console.warn("Uploaded screenshots could not be analyzed.", error);
+      alert(error?.message || "Uploaded screenshots could not be analyzed.");
+    } finally {
+      setIsAnalyzingCaptures(false);
+    }
+  }
+
+  async function renderDemoMp4() {
+    if (!demoJob?.id) return;
+    setIsRenderingDemo(true);
+    try {
+      const response = await api.post(`/projectmanagement/demo-jobs/${encodeURIComponent(demoJob.id)}/render`, {});
+      const result = unwrapApiData(response) || {};
+      const downloadUrl = result?.downloadUrl || result?.DownloadUrl || result?.url || result?.Url || "";
+      const outputFileName = result?.outputFileName || result?.OutputFileName || result?.output || demoJob.output;
+      setDemoJob((current) => ({
+        ...(current || demoJob),
+        ...result,
+        downloadUrl,
+        outputFileName,
+        status: result?.status || result?.Status || "completed",
+      }));
+      setIsBackendReady(true);
+      loadDemoJobs(demoLanguage);
+    } catch (error) {
+      setDemoJob((current) => ({ ...(current || demoJob), status: "failed", lastError: error?.message || "Render failed" }));
+      console.warn("Demo MP4 render failed.", error);
+    } finally {
+      setIsRenderingDemo(false);
+    }
+  }
+
+  function downloadDemoJob() {
+    if (!demoJob) return;
+    const blob = new Blob([JSON.stringify(demoJob, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${demoJob.id}-mp4-render-job.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="pm-root">
+      <style>{styles}</style>
+
+      <header className="pm-header">
+        <div>
+          <span className="pm-eyebrow"><Briefcase size={14} /> PMO Workspace {isBackendReady ? "• Synced" : "• Local fallback"}</span>
+          <h1>Project Management</h1>
+          <p>Manage church construction, crusades, operational portfolios, and Mahima App demo delivery from one PMO control room.</p>
+        </div>
+        <div className="pm-actions">
+          <button onClick={() => addProject("construction")}><Building2 size={16} /> Construction</button>
+          <button onClick={() => addProject("crusade")}><Megaphone size={16} /> Crusade</button>
+          <button onClick={() => addProject("appDemo")}><FileVideo size={16} /> App Demo</button>
+        </div>
+      </header>
+
+      <section className="pm-metrics">
+        <Metric label="Portfolio budget" value={currency(totals.totalBudget)} icon={<Wallet />} />
+        <Metric label="Actual spend" value={currency(totals.totalSpent)} icon={<BarChart3 />} />
+        <Metric label="Avg progress" value={`${totals.avgProgress}%`} icon={<Gauge />} />
+        <Metric label="Open risks" value={totals.openRisks} icon={<AlertTriangle />} tone={totals.openRisks > 4 ? "watch" : "ok"} />
+      </section>
+
+      <nav className="pm-tabs">
+        {[
+          ["portfolio", "Portfolio"],
+          ["control", "PMO Control"],
+          ["governance", "Governance"],
+          ["demo", "Demo Studio"],
+        ].map(([key, label]) => (
+          <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}>{label}</button>
+        ))}
+      </nav>
+
+      {view === "portfolio" && (
+        <section className="pm-layout">
+          <aside className="pm-list">
+            <div className="pm-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search projects" /></div>
+            {filtered.map((project) => {
+              const Icon = PROJECT_TEMPLATES[project.templateKey]?.icon || Briefcase;
+              return (
+                <button key={project.id} className={`pm-project-row ${active?.id === project.id ? "active" : ""}`} onClick={() => setActiveId(project.id)}>
+                  <Icon size={18} />
+                  <span><strong>{project.name}</strong><em>{project.type}</em></span>
+                  <b className={healthClass(project.health)}>{project.health}</b>
+                </button>
+              );
+            })}
+          </aside>
+          <ProjectOverview project={active} onChange={updateActive} />
+        </section>
+      )}
+
+      {view === "control" && <ControlRoom project={active} onChange={updateActive} />}
+      {view === "governance" && <GovernanceView project={active} />}
+      {view === "demo" && (
+        <DemoStudio
+          language={demoLanguage}
+          setLanguage={setDemoLanguage}
+          demoJob={demoJob}
+          voice={demoVoice}
+          setVoice={setDemoVoice}
+          voiceOptions={VOICE_OPTIONS}
+          onPreviewVoice={(voice) => previewVoiceSample(voice, demoLanguage)}
+          onCreate={createDemoJob}
+          onDownload={downloadDemoJob}
+          onRender={renderDemoMp4}
+          isRendering={isRenderingDemo}
+          onAnalyzeCaptures={analyzeUploadedCaptures}
+          isAnalyzingCaptures={isAnalyzingCaptures}
+          uploadedCaptureCount={uploadedCaptureCount}
+          demoJobs={demoJobs}
+        />
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value, icon, tone = "" }) {
+  return <div className={`pm-metric ${tone}`}>{React.cloneElement(icon, { size: 18 })}<span>{label}</span><strong>{value}</strong></div>;
+}
+
+function ProjectOverview({ project, onChange }) {
+  if (!project) return <div className="pm-panel">No project selected.</div>;
+  const template = PROJECT_TEMPLATES[project.templateKey] || PROJECT_TEMPLATES.construction;
+  const Icon = template.icon;
+  return (
+    <main className="pm-panel">
+      <div className="pm-project-head">
+        <div className="pm-project-icon" style={{ color: template.accent }}><Icon size={24} /></div>
+        <div>
+          <input className="pm-title-input" value={project.name} onChange={(e) => onChange({ name: e.target.value })} />
+          <p>{project.type} • Sponsor: {project.sponsor} • PM: {project.manager}</p>
+        </div>
+        <span className={`pm-health ${healthClass(project.health)}`}>{project.health}</span>
+      </div>
+
+      <div className="pm-form-grid">
+        <Field label="Sponsor" value={project.sponsor} onChange={(value) => onChange({ sponsor: value })} />
+        <Field label="Project Manager" value={project.manager} onChange={(value) => onChange({ manager: value })} />
+        <Field label="Status" value={project.status} onChange={(value) => onChange({ status: value })} />
+        <Field label="Health" value={project.health} onChange={(value) => onChange({ health: value })} />
+        <Field label="Target date" type="date" value={project.targetDate} onChange={(value) => onChange({ targetDate: value })} />
+        <Field label="Progress %" type="number" value={project.progress} onChange={(value) => onChange({ progress: Number(value) })} />
+      </div>
+
+      <div className="pm-progress"><span style={{ width: `${project.progress}%` }} /></div>
+
+      <div className="pm-card-grid">
+        <InfoCard title="Budget baseline" value={currency(project.budget)} icon={<Wallet />} />
+        <InfoCard title="Actual spend" value={currency(project.spent)} icon={<BarChart3 />} />
+        <InfoCard title="Workstreams" value={project.workstreams.length} icon={<ClipboardList />} />
+        <InfoCard title="Risks" value={project.risks.length} icon={<AlertTriangle />} />
+      </div>
+    </main>
+  );
+}
+
+function Field({ label, value, onChange, type = "text" }) {
+  return <label className="pm-field"><span>{label}</span><input type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} /></label>;
+}
+
+function InfoCard({ title, value, icon }) {
+  return <div className="pm-info-card">{React.cloneElement(icon, { size: 18 })}<span>{title}</span><strong>{value}</strong></div>;
+}
+
+function ControlRoom({ project, onChange }) {
+  if (!project) return <div className="pm-panel">No project selected.</div>;
+  return (
+    <section className="pm-control-grid">
+      <div className="pm-panel">
+        <h2><Milestone size={18} /> Phase Gate Plan</h2>
+        <div className="pm-phase-list">
+          {project.phases.map((phase, index) => (
+            <div key={phase.id} className="pm-phase">
+              <b>{index + 1}</b>
+              <span><strong>{phase.name}</strong><em>{phase.owner}</em></span>
+              <small>{phase.status}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="pm-panel">
+        <h2><Target size={18} /> Workstream Tracking</h2>
+        {project.workstreams.map((stream) => (
+          <div key={stream.id} className="pm-stream">
+            <div><strong>{stream.name}</strong><span>{stream.owner}</span></div>
+            <div className="pm-mini-progress"><i style={{ width: `${stream.completion}%` }} /></div>
+            <b>{stream.completion}%</b>
+          </div>
+        ))}
+      </div>
+      <div className="pm-panel">
+        <h2><AlertTriangle size={18} /> RAID Log</h2>
+        {project.risks.map((risk) => (
+          <div key={risk.id} className="pm-risk">
+            <strong>{risk.title}</strong>
+            <span>{risk.impact} impact • {risk.status}</span>
+            <p>{risk.mitigation}</p>
+          </div>
+        ))}
+      </div>
+      <div className="pm-panel">
+        <h2><ShieldCheck size={18} /> PMO Cadence</h2>
+        <ul className="pm-checks">
+          <li><CheckCircle2 size={15} /> Weekly sponsor review</li>
+          <li><CheckCircle2 size={15} /> Budget variance review</li>
+          <li><CheckCircle2 size={15} /> Risk escalation board</li>
+          <li><CheckCircle2 size={15} /> Milestone acceptance sign-off</li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function GovernanceView({ project }) {
+  if (!project) return <div className="pm-panel">No project selected.</div>;
+  return (
+    <section className="pm-panel">
+      <h2><ShieldCheck size={18} /> Governance and PMO Controls</h2>
+      <div className="pm-governance-grid">
+        {[
+          ["Charter", "Purpose, scope, sponsor, success criteria, and funding baseline."],
+          ["Schedule", "Phase gates, dependencies, critical milestones, and delivery forecast."],
+          ["Financials", "Budget, commitments, actuals, variance, and donor reporting."],
+          ["RAID", "Risks, assumptions, issues, dependencies, owners, and escalations."],
+          ["Change Control", "Scope changes, impact assessment, approvals, and audit trail."],
+          ["Benefits", "Spiritual, operational, community, and ministry outcome tracking."],
+        ].map(([title, text]) => (
+          <div key={title} className="pm-governance-card"><Flag size={16} /><strong>{title}</strong><p>{text}</p></div>
+        ))}
+      </div>
+      <h3>Decision Register</h3>
+      <table className="pm-table"><thead><tr><th>Decision</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>{project.decisions.map((d) => <tr key={d.id}><td>{d.title}</td><td>{d.owner}</td><td>{d.due}</td><td>{d.status}</td></tr>)}</tbody></table>
+    </section>
+  );
+}
+
+function DemoStudio({ language, setLanguage, demoJob, demoJobs = [], voice, setVoice, voiceOptions = [], onPreviewVoice, onCreate, onDownload, onRender, isRendering, onAnalyzeCaptures, isAnalyzingCaptures, uploadedCaptureCount }) {
+  const latestCompletedJob = demoJobs.find((job) => buildDemoDownloadUrl(job, language));
+  const currentMp4DownloadUrl = buildDemoDownloadUrl(demoJob, language);
+  const captureSequence = Array.isArray(demoJob?.captureRoutes) && demoJob.captureRoutes.length ? demoJob.captureRoutes : DEMO_ROUTES;
+  const captureSourceLabel = demoJob?.source === "uploaded-screenshots" ? "Uploaded screenshots" : "Live app routes";
+  return (
+    <section className="pm-demo-grid">
+      <div className="pm-panel">
+        <h2><FileVideo size={18} /> Mahima Application Demo Project</h2>
+        <p className="pm-muted">Create a synchronized multilingual demo that captures live protected screens, uses one narration line per module, and renders a true MP4 with matching voice timing.</p>
+        <div className="pm-language-row">
+          {[
+            ["en", "English"],
+            ["hi", "Hindi"],
+            ["pa", "Punjabi"],
+          ].map(([code, label]) => <button key={code} className={language === code ? "active" : ""} onClick={() => setLanguage(code)}>{label}</button>)}
+        </div>
+        <div className="pm-voice-box">
+          <div className="pm-voice-title"><Volume2 size={16} /><strong>Voice sample</strong><span>Select before preparing the MP4 job</span></div>
+          <div className="pm-voice-options">
+            {voiceOptions.map((option) => (
+              <button key={option.key} type="button" className={voice === option.key ? "active" : ""} onClick={() => setVoice(option.key)}>
+                <strong>{option.label}</strong>
+                <span>{option.description}</span>
+                <em>{option.ttsVoice?.[language] || option.ttsVoice?.en || "default"}</em>
+              </button>
+            ))}
+          </div>
+          <button className="pm-preview-voice" type="button" onClick={() => onPreviewVoice?.(voiceOptions.find((option) => option.key === voice) || voiceOptions[0])}>
+            <PlayCircle size={15} /> Preview selected voice
+          </button>
+        </div>
+        <div className="pm-upload-box">
+          <div><strong><Upload size={16} /> Upload screen captures</strong><span>Use this when live capture gets stuck. AI will read each screenshot and write narration dynamically.</span></div>
+          <label className="pm-upload-button">
+            <Upload size={15} /> {isAnalyzingCaptures ? "Analyzing..." : "Choose screenshots"}
+            <input type="file" multiple accept="image/png,image/jpeg,image/webp" disabled={isAnalyzingCaptures} onChange={(event) => onAnalyzeCaptures?.(event.target.files)} />
+          </label>
+          {uploadedCaptureCount > 0 && <em>{uploadedCaptureCount} uploaded screens prepared</em>}
+        </div>
+        <div className="pm-demo-actions">
+          <button className="primary" onClick={onCreate}><Sparkles size={16} /> Prepare live MP4 job</button>
+          <button disabled={!demoJob || isRendering} onClick={onRender}><PlayCircle size={16} /> {isRendering ? "Rendering MP4..." : "Generate MP4"}</button>
+          <button disabled={!demoJob} onClick={onDownload}><Download size={16} /> Download render job</button>
+          {currentMp4DownloadUrl && <a className="pm-download-link current" href={currentMp4DownloadUrl} target="_blank" rel="noreferrer"><Download size={16} /> Download current MP4</a>}
+        </div>
+        <div className="pm-render-note"><AlertTriangle size={16} /> Use uploaded screenshots when live capture repeats one page. OpenAI voice is used when the server key is configured.</div>
+        {latestCompletedJob && <div className="pm-completed-demo"><strong>Latest completed MP4</strong><span>{latestCompletedJob.output || latestCompletedJob.outputFileName || "Mahima demo MP4"}</span><a href={buildDemoDownloadUrl(latestCompletedJob, language)} target="_blank" rel="noreferrer"><Download size={15} /> Open latest MP4</a></div>}
+      </div>
+      <div className="pm-panel">
+        <h2><PlayCircle size={18} /> Dynamic Capture Sequence</h2>
+        <p className="pm-sequence-source">{captureSourceLabel}</p>
+        <div className="pm-route-list">
+          {captureSequence.map((route, index) => <div key={route.key || `${route.title}-${index}`}><b>{String(index + 1).padStart(2, "0")}</b><span>{route.title}</span><em>{route.path || route.source || "uploaded"}</em><small>{((route.waitMs || routeWaitMs(route)) / 1000).toFixed(1)}s wait</small></div>)}
+        </div>
+      </div>
+      <div className="pm-panel wide">
+        <h2><Timer size={18} /> Render Job Status</h2>
+        {demoJob ? (
+          <pre className="pm-job-preview">{JSON.stringify(demoJob, null, 2)}</pre>
+        ) : (
+          <div className="pm-empty">No demo render job prepared yet.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const styles = `
+.pm-root { padding: 24px; color: #102033; background: #f6f8fb; min-height: 100%; }
+.pm-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+.pm-eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #047857; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.pm-header h1 { margin: 8px 0 6px; font-size: 30px; line-height: 1.1; }
+.pm-header p, .pm-muted { margin: 0; color: #617086; max-width: 760px; }
+.pm-actions, .pm-demo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pm-upload-box { border: 1px dashed #94a3b8; border-radius: 8px; padding: 12px; margin: 12px 0; display: grid; gap: 10px; background: #f8fafc; }
+.pm-upload-box div { display: grid; gap: 4px; }
+.pm-upload-box strong { display: flex; align-items: center; gap: 7px; }
+.pm-upload-box span, .pm-upload-box em { color: #617086; font-size: 12px; font-style: normal; }
+.pm-upload-button { width: max-content; border: 1px solid #dfe7ef; background: #fff; border-radius: 8px; padding: 8px 10px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 800; }
+.pm-upload-button input { display: none; }
+.pm-voice-box { border: 1px solid #dfe7ef; border-radius: 8px; padding: 12px; margin: 14px 0; background: #f8fafc; }
+.pm-voice-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pm-voice-title span { color: #617086; font-size: 12px; margin-left: auto; }
+.pm-voice-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pm-voice-options button { border: 1px solid #dfe7ef; background: #fff; border-radius: 8px; padding: 10px; text-align: left; display: grid; gap: 4px; cursor: pointer; }
+.pm-voice-options button.active { border-color: #047857; background: #ecfdf5; box-shadow: inset 0 0 0 1px #047857; }
+.pm-voice-options span, .pm-voice-options em { color: #617086; font-size: 12px; font-style: normal; }
+.pm-preview-voice { margin-top: 10px; border: 1px solid #dfe7ef; background: #fff; border-radius: 8px; padding: 8px 10px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 700; }
+.pm-actions button, .pm-demo-actions button, .pm-demo-actions a, .pm-tabs button, .pm-language-row button { border: 1px solid #dfe7ef; background: #fff; border-radius: 8px; padding: 9px 12px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 700; }
+.pm-actions button:hover, .pm-demo-actions button:hover, .pm-demo-actions a:hover { border-color: #047857; color: #047857; }
+.pm-demo-actions button.primary { background: #047857; color: #fff; border-color: #047857; }
+.pm-download-link { text-decoration: none; color: #102033; }
+.pm-download-link.current { background: #ecfdf5; border-color: #86efac; color: #047857; }
+.pm-demo-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.pm-metrics { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.pm-metric, .pm-info-card { background: #fff; border: 1px solid #dfe7ef; border-radius: 8px; padding: 14px; display: grid; gap: 5px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.pm-metric svg, .pm-info-card svg { color: #047857; }
+.pm-metric span, .pm-info-card span { color: #617086; font-size: 12px; font-weight: 700; }
+.pm-metric strong, .pm-info-card strong { font-size: 20px; }
+.pm-metric.watch svg { color: #f59e0b; }
+.pm-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid #dfe7ef; background: #fff; border-radius: 10px; margin-bottom: 16px; }
+.pm-tabs button { border: none; padding: 8px 14px; }
+.pm-tabs button.active, .pm-language-row button.active { background: #047857; color: #fff; }
+.pm-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; }
+.pm-list, .pm-panel { background: #fff; border: 1px solid #dfe7ef; border-radius: 8px; padding: 14px; box-shadow: 0 10px 24px rgba(15,23,42,.05); }
+.pm-search { display: flex; align-items: center; gap: 8px; border: 1px solid #dfe7ef; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.pm-search input { border: none; outline: none; width: 100%; font: inherit; }
+.pm-project-row { width: 100%; border: none; background: transparent; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 9px; align-items: center; padding: 10px; border-radius: 8px; text-align: left; cursor: pointer; }
+.pm-project-row:hover, .pm-project-row.active { background: #ecfdf5; }
+.pm-project-row span { display: grid; gap: 2px; min-width: 0; }
+.pm-project-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-project-row em { color: #617086; font-size: 12px; font-style: normal; }
+.pm-project-row b, .pm-health { border-radius: 999px; padding: 3px 8px; font-size: 11px; background: #dcfce7; color: #166534; }
+.pm-project-row b.watch, .pm-health.watch { background: #fef3c7; color: #92400e; }
+.pm-project-row b.red, .pm-health.red { background: #fee2e2; color: #991b1b; }
+.pm-project-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.pm-project-icon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 8px; background: #f1f5f9; }
+.pm-title-input { border: none; outline: none; font-size: 22px; font-weight: 800; width: 100%; color: #102033; }
+.pm-project-head p { margin: 3px 0 0; color: #617086; }
+.pm-health { margin-left: auto; text-transform: uppercase; font-weight: 800; }
+.pm-form-grid { display: grid; grid-template-columns: repeat(3, minmax(150px,1fr)); gap: 10px; }
+.pm-field { display: grid; gap: 5px; }
+.pm-field span { color: #617086; font-size: 12px; font-weight: 800; }
+.pm-field input { border: 1px solid #dfe7ef; border-radius: 8px; padding: 9px 10px; font: inherit; }
+.pm-progress, .pm-mini-progress { height: 9px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin: 16px 0; }
+.pm-progress span, .pm-mini-progress i { display: block; height: 100%; background: #047857; border-radius: inherit; }
+.pm-card-grid { display: grid; grid-template-columns: repeat(4, minmax(130px,1fr)); gap: 10px; }
+.pm-control-grid, .pm-demo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pm-panel h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; }
+.pm-phase, .pm-stream, .pm-risk, .pm-route-list div { border: 1px solid #eef2f7; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.pm-sequence-source { margin: -6px 0 10px; color: #047857; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.pm-route-list { max-height: 620px; overflow: auto; padding-right: 4px; }
+.pm-route-list div { display: grid; grid-template-columns: 42px minmax(150px,1fr) minmax(120px, 220px) 70px; gap: 10px; align-items: center; }
+.pm-route-list span, .pm-route-list em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-route-list small { color: #047857; font-size: 12px; font-weight: 800; text-align: right; }
+.pm-phase { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; }
+.pm-phase b { width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; background: #ecfdf5; color: #047857; }
+.pm-phase span, .pm-stream div { display: grid; gap: 2px; }
+.pm-phase em, .pm-stream span, .pm-risk span, .pm-route-list em { color: #617086; font-size: 12px; font-style: normal; }
+.pm-stream { display: grid; grid-template-columns: 1fr 140px 44px; gap: 10px; align-items: center; }
+.pm-mini-progress { margin: 0; height: 7px; }
+.pm-risk strong { display: block; margin-bottom: 4px; }
+.pm-risk p { margin: 6px 0 0; color: #617086; font-size: 13px; }
+.pm-checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+.pm-checks li { display: flex; align-items: center; gap: 8px; color: #334155; }
+.pm-governance-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
+.pm-governance-card { border: 1px solid #dfe7ef; border-radius: 8px; padding: 12px; }
+.pm-governance-card svg { color: #047857; }
+.pm-governance-card strong { display: block; margin: 6px 0; }
+.pm-governance-card p { margin: 0; color: #617086; font-size: 13px; }
+.pm-table { width: 100%; border-collapse: collapse; }
+.pm-table th, .pm-table td { text-align: left; border-bottom: 1px solid #eef2f7; padding: 10px; }
+.pm-language-row { display: flex; gap: 8px; margin: 16px 0; }
+.pm-render-note { display: flex; gap: 8px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; padding: 10px; margin-top: 12px; font-size: 13px; }
+.pm-completed-demo { margin-top: 10px; border: 1px solid #bbf7d0; background: #f0fdf4; border-radius: 8px; padding: 10px; display: grid; gap: 4px; }
+.pm-completed-demo span { color: #617086; font-size: 13px; }
+.pm-completed-demo a { color: #047857; display: inline-flex; align-items: center; gap: 6px; font-weight: 800; text-decoration: none; }
+.pm-route-list b { color: #047857; }
+.pm-panel.wide { grid-column: 1 / -1; }
+.pm-job-preview { max-height: 360px; overflow: auto; background: #0f172a; color: #d1fae5; border-radius: 8px; padding: 14px; font-size: 12px; }
+.pm-empty { border: 1px dashed #cbd5e1; color: #64748b; padding: 24px; border-radius: 8px; text-align: center; }
+@media (max-width: 1050px) { .pm-layout, .pm-control-grid, .pm-demo-grid { grid-template-columns: 1fr; } .pm-metrics, .pm-card-grid, .pm-governance-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 720px) { .pm-root { padding: 14px; } .pm-header { flex-direction: column; } .pm-metrics, .pm-card-grid, .pm-form-grid, .pm-governance-grid { grid-template-columns: 1fr; } .pm-stream, .pm-route-list div { grid-template-columns: 34px 1fr; } .pm-route-list em, .pm-route-list small { grid-column: 2; text-align: left; } }
+`;
+
+
+
+
+
+
+
+
+
+
+

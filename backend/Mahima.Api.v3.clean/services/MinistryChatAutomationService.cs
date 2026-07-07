@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -101,17 +102,31 @@ namespace Mahima.Api.v3.clean.Services
             if (!GetBool(settings, "BirthdayGreetingEnabled", true))
                 return;
 
-            var users = await db.Users
-                .AsNoTracking()
-                .Where(u => u.Birthday.HasValue)
-                .Select(u => new { u.Id, u.DisplayName, u.Username, u.Birthday })
-                .ToListAsync(ct);
+            var birthdayUsers = new List<(Guid Id, string? DisplayName, string? Username)>();
+            var conn = db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync(ct);
 
-            var birthdayUsers = users
-                .Where(u => u.Birthday.HasValue
-                    && u.Birthday.Value.Month == nowLocal.Month
-                    && u.Birthday.Value.Day == nowLocal.Day)
-                .ToList();
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT id, displayname, username, ""Birthday""
+FROM public.users
+WHERE ""Birthday"" IS NOT NULL";
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    if (reader.IsDBNull(0) || reader.IsDBNull(3)) continue;
+                    var birthday = reader.GetDateTime(3);
+                    if (birthday.Month == nowLocal.Month && birthday.Day == nowLocal.Day)
+                    {
+                        birthdayUsers.Add((
+                            reader.GetGuid(0),
+                            reader.IsDBNull(1) ? null : reader.GetString(1),
+                            reader.IsDBNull(2) ? null : reader.GetString(2)));
+                    }
+                }
+            }
 
             foreach (var user in birthdayUsers)
             {
@@ -214,7 +229,10 @@ namespace Mahima.Api.v3.clean.Services
 
             var deliveryWindowMinutes = Math.Clamp(GetInt(settings, "DeliveryWindowMinutes", 90), 1, 720);
             var scheduledAt = nowLocal.Date.Add(schedule.LocalTime);
-            return nowLocal >= scheduledAt && nowLocal <= scheduledAt.AddMinutes(deliveryWindowMinutes);
+            if (nowLocal < scheduledAt) return false;
+            if (string.Equals(schedule.Key, "daily-word", StringComparison.OrdinalIgnoreCase))
+                return nowLocal.Date == scheduledAt.Date;
+            return nowLocal <= scheduledAt.AddMinutes(deliveryWindowMinutes);
         }
 
         private DateTime GetLocalNow(IReadOnlyDictionary<string, string> settings)

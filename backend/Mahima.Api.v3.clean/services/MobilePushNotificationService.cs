@@ -20,6 +20,7 @@ namespace Mahima.Api.v3.clean.Services
     public interface IMobilePushNotificationService
     {
         Task NotifyChatMessageAsync(Guid chatId, Guid senderId, IEnumerable<Guid> memberIds, MessageDto message);
+        Task NotifyIncomingCallAsync(Guid chatId, Guid callerId, IEnumerable<Guid> memberIds, string callType);
     }
 
     /// <summary>
@@ -119,6 +120,53 @@ namespace Mahima.Api.v3.clean.Services
 
         // ── FCM V1 send ──────────────────────────────────────────────────────
 
+        public async Task NotifyIncomingCallAsync(
+            Guid chatId, Guid callerId, IEnumerable<Guid> memberIds, string callType)
+        {
+            var projectId = ResolveFirebaseProjectId();
+            if (string.IsNullOrWhiteSpace(projectId))
+            {
+                _logger.LogWarning("Skipping incoming call push: Firebase project id is not configured.");
+                return;
+            }
+
+            var recipientIds = memberIds
+                .Where(id => id != Guid.Empty && id != callerId)
+                .Distinct()
+                .ToList();
+            if (recipientIds.Count == 0) return;
+
+            var tokens = await ReadTokensAsync(recipientIds);
+            if (tokens.Count == 0)
+            {
+                _logger.LogWarning("Skipping incoming call push: no registered device tokens for {RecipientCount} recipient(s).", recipientIds.Count);
+                return;
+            }
+
+            var callerName = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == callerId)
+                .Select(u => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName : u.Username)
+                .FirstOrDefaultAsync() ?? "Jai Masih";
+
+            string? accessToken;
+            try
+            {
+                accessToken = await GetAccessTokenAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FCM V1: could not obtain access token for incoming call push.");
+                return;
+            }
+
+            var normalizedType = string.Equals(callType, "video", StringComparison.OrdinalIgnoreCase) ? "video" : "audio";
+            var tasks = tokens.Select(token =>
+                SendIncomingCallFcmV1Async(projectId, accessToken, token, callerName, chatId, callerId, normalizedType));
+
+            await Task.WhenAll(tasks);
+        }
+
         private async Task SendFcmV1Async(
             string projectId, string accessToken, string deviceToken,
             string senderName, string preview, Guid chatId, MessageDto message)
@@ -194,6 +242,69 @@ namespace Mahima.Api.v3.clean.Services
         }
 
         // ── OAuth2 access token via service account ──────────────────────────
+
+        private async Task SendIncomingCallFcmV1Async(
+            string projectId, string accessToken, string deviceToken,
+            string callerName, Guid chatId, Guid callerId, string callType)
+        {
+            var url = $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send";
+            var title = callType == "video" ? "Incoming video call" : "Incoming audio call";
+
+            var payload = new
+            {
+                message = new
+                {
+                    token = deviceToken,
+                    notification = new
+                    {
+                        title,
+                        body = $"{callerName} is calling you"
+                    },
+                    android = new
+                    {
+                        priority = "HIGH",
+                        notification = new
+                        {
+                            channel_id = "jai-masih",
+                            sound = "default",
+                            icon = "ic_stat_jai_masih",
+                            color = "#047857",
+                            tag = $"call-{chatId}"
+                        }
+                    },
+                    data = new Dictionary<string, string>
+                    {
+                        ["kind"] = "call",
+                        ["chatId"] = chatId.ToString(),
+                        ["callerId"] = callerId.ToString(),
+                        ["callerName"] = callerName,
+                        ["callType"] = callType
+                    }
+                }
+            };
+
+            var client = _httpClientFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+            try
+            {
+                using var response = await client.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning("FCM V1 incoming call push failed for token ...{Suffix}: {Status} {Body}",
+                        deviceToken.Length > 8 ? deviceToken[^8..] : deviceToken,
+                        response.StatusCode, body);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FCM V1 incoming call push HTTP request failed.");
+            }
+        }
 
         private async Task<string> GetAccessTokenAsync()
         {

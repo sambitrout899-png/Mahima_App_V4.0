@@ -9,8 +9,7 @@
 //
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Loader2, MessageSquarePlus, AlertCircle, Users, Check, ArrowRight } from "lucide-react";
-import { getToken } from "../utils/auth";
-import { API_BASE } from "../api";
+import { apiFetchJson } from "../utils/fetch-auth-shim";
 
 const colorFromId = (id) => {
   const palette = [
@@ -38,6 +37,18 @@ function totalFrom(data, fallback = null) {
   const total = data?.total ?? data?.Total ?? data?.count ?? data?.Count;
   const parsed = Number(total);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isDeletedUser(u) {
+  const deletedFlag = u?.isDeleted ?? u?.IsDeleted ?? u?.deleted ?? u?.Deleted;
+  if (deletedFlag === true || String(deletedFlag).toLowerCase() === "true") return true;
+  const username = String(u?.username ?? u?.userName ?? "").trim().toLowerCase();
+  const displayName = String(u?.displayName ?? u?.name ?? "").trim().toLowerCase();
+  const email = String(u?.email ?? "").trim().toLowerCase();
+  return username.startsWith("deleted_") ||
+    email.startsWith("deleted_") ||
+    displayName === "deleted user" ||
+    displayName.startsWith("deleted duplicate user");
 }
 
 export default function NewChatModal({
@@ -69,37 +80,25 @@ export default function NewChatModal({
     (async () => {
       setLoadingUsers(true);
       try {
-        const token = getToken();
-        const headers = {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        };
         const pageSize = 500;
         let page = 1;
         let total = null;
         const allUsers = [];
-        const contactUrl = (p) => `${API_BASE}/chats/contacts?page=${p}&limit=${pageSize}`;
-        const usersUrl = (p) => `${API_BASE}/users?page=${p}&limit=${pageSize}`;
-        let source = "contacts";
+        const usersUrl = (p) => `/users?page=${p}&limit=${pageSize}`;
 
         while (!cancelled) {
-          let res = await fetch(source === "contacts" ? contactUrl(page) : usersUrl(page), { headers });
-          if (!res.ok && source === "contacts") {
-            source = "users";
-            page = 1;
-            total = null;
-            allUsers.length = 0;
-            res = await fetch(usersUrl(page), { headers });
-          }
-          if (!res.ok) {
-            if (!cancelled) {
-              setError(`Failed to load users (${res.status})`);
-              setUsers([]);
-            }
-            return;
+          const res = await apiFetchJson(usersUrl(page), {
+            method: "GET",
+            timeoutMs: 15000,
+          });
+          if (!res?.ok) {
+            const err = new Error(res?.error || res?.statusText || "Failed to load users");
+            err.status = res?.status;
+            err.statusText = res?.statusText;
+            throw err;
           }
 
-          const json = await res.json();
+          const json = res.data;
           const pageItems = itemsFrom(json);
           allUsers.push(...pageItems);
           total = totalFrom(json, total);
@@ -108,11 +107,13 @@ export default function NewChatModal({
           page += 1;
         }
 
-        if (!cancelled) setUsers(allUsers);
+        if (!cancelled) setUsers(allUsers.filter((u) => !isDeletedUser(u)));
       } catch (err) {
         console.error("Failed to load users:", err);
         if (!cancelled) {
-          setError("Failed to load users");
+          const status = err?.status ? ` (${err.status})` : "";
+          const detail = err?.statusText && err.statusText !== "ERROR" ? `: ${err.statusText}` : "";
+          setError(`Failed to load users${status}${detail}`);
           setUsers([]);
         }
       } finally {
@@ -138,6 +139,7 @@ export default function NewChatModal({
       .filter((u) => {
         const id = u.id ?? u.userId ?? u._id ?? u.uuid;
         if (currentUserId && String(id) === String(currentUserId)) return false;
+        if (isDeletedUser(u)) return false;
         if (!t) return true;
         const hay = [
           u.displayName, u.name, u.username, u.userName,
@@ -338,7 +340,7 @@ export default function NewChatModal({
           )}
           {!loadingUsers && filtered.length === 0 && !error && (
             <div className="px-4 py-10 text-center text-sm text-slate-500">
-              {q ? `No users match "${q}".` : "No users found."}
+              {q ? `No users match "${q}".` : "No active users returned by the server."}
             </div>
           )}
           {filtered.map((u) => {

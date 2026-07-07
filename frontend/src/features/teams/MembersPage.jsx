@@ -1070,6 +1070,64 @@ export default function MembersPage() {
             transform: translateX(-50%) translateY(0);
           }
         }
+
+        .mm-page {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96), rgba(246,248,251,.96)),
+            radial-gradient(circle at 100% 0%, rgba(4,120,87,.08), transparent 28rem) !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .mm-header,
+        .mm-stat,
+        .mm-card,
+        .mm-modal,
+        .mm-search-wrap {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius-lg, 12px) !important;
+          background: var(--enterprise-surface, #ffffff) !important;
+          box-shadow: var(--enterprise-shadow-sm, 0 1px 2px rgba(15,23,42,.05)) !important;
+        }
+        .mm-title,
+        .mm-name,
+        .mm-modal-title {
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .mm-subtitle,
+        .mm-meta,
+        .mm-field label {
+          color: var(--enterprise-muted, #617086) !important;
+        }
+        .mm-input {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius, 10px) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .mm-input:focus {
+          border-color: rgba(4,120,87,.68) !important;
+          box-shadow: 0 0 0 4px rgba(4,120,87,.12) !important;
+        }
+        .mm-icon-btn-primary,
+        .mm-action-btn-primary {
+          border-color: transparent !important;
+          background: linear-gradient(180deg, var(--enterprise-primary, #047857), var(--enterprise-primary-strong, #065f46)) !important;
+          color: #ffffff !important;
+          box-shadow: 0 8px 20px rgba(4,120,87,.18) !important;
+        }
+        .mm-icon-btn-soft,
+        .mm-icon-btn-neutral,
+        .mm-action-btn-secondary,
+        .mm-icon-btn {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .mm-badge,
+        .mm-avatar {
+          border-color: rgba(4,120,87,.22) !important;
+          background: var(--enterprise-primary-soft, #ecfdf5) !important;
+          color: var(--enterprise-primary-strong, #065f46) !important;
+        }
       `}</style>
 
       <div className="mm-header">

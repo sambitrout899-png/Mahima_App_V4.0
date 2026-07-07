@@ -94,6 +94,11 @@ const embedUrlFromId = (id, opts = { autoplay: false, mute: true, controls: 1 })
 
 const HARDCODED_ADMIN_ID = "ae9dfc94-07d8-469a-a8f6-a4c5aedcf3a9";
 const tryParseJSON = (s) => { try { return JSON.parse(s); } catch { return null; } };
+const normalizeAccessName = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const canManageMediaRole = (value) => {
+  const role = normalizeAccessName(value);
+  return ["admin", "administrator", "superadmin", "superadministrator", "mediamanager"].includes(role);
+};
 const decodeJwtPayload = (token) => {
   try {
     const [, p] = token.split(".");
@@ -119,6 +124,14 @@ function useAdminDetection() {
 
     const roles = [user?.role, user?.Role, user?.roleName, user?.RoleName]
       .filter(Boolean).map(String);
+    [user?.roles, user?.Roles, user?.positions, user?.Positions].forEach((list) => {
+      if (Array.isArray(list)) {
+        list.forEach((item) => roles.push(String(item?.name ?? item?.Name ?? item?.role ?? item?.Role ?? item)));
+      }
+    });
+    [user?.position, user?.Position, user?.positionName, user?.PositionName, user?.primaryPosition, user?.PrimaryPosition]
+      .filter(Boolean)
+      .forEach((item) => roles.push(String(item?.name ?? item?.Name ?? item)));
 
     const token = localStorage.getItem("mahima_token") || localStorage.getItem("token");
     if (token) {
@@ -132,7 +145,7 @@ function useAdminDetection() {
     }
 
     const byId = ids.some((x) => String(x) === HARDCODED_ADMIN_ID);
-    const byRole = roles.some((r) => String(r).toLowerCase() === "admin");
+    const byRole = roles.some(canManageMediaRole);
     setIsAdminUser(byId || byRole);
   }, []);
 
@@ -498,7 +511,7 @@ export default function SermonsPage() {
       return false;
     }
     if (!adminMode) {
-      toastError("Enable Admin mode first.");
+      toastError("Enable management mode first.");
       return false;
     }
     return true;
@@ -760,7 +773,7 @@ function targetHasDigitalFile(form) {
                 }`}
               >
                 {adminMode ? <ShieldCheck className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
-                Admin {adminMode ? "ON" : "OFF"}
+                Manage {adminMode ? "ON" : "OFF"}
               </button>
             )}
             {isAdminUser && adminMode && (

@@ -43,7 +43,7 @@ const INITIAL_SUMMARY = {
   allowances: 0, deductions: 0, grossAmount: 0, netAmount: 0,
   payrollAdvance: 0, fines: 0,
   previousArrears: 0, payableAmount: 0, paidAmount: 0, balanceAmount: 0,
-  paymentStatus: "UNPAID", paymentNotes: "",
+  paymentStatus: "UNPAID", paymentNotes: "", calculated: false,
 };
 const INITIAL_SETTINGS = {
   userId: "", hourlyRate: 0, monthlyFixedAmount: 0,
@@ -272,6 +272,7 @@ export default function PayrollPage() {
 
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingSlip, setLoadingSlip]       = useState(false);
+  const [savingRun, setSavingRun]           = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
 
   const [history, setHistory] = useState([]);             // selected user
@@ -339,6 +340,46 @@ export default function PayrollPage() {
     reloadGlobalRuns();
   }, [reloadGlobalRuns]);
 
+  const sameSelectedPeriod = useCallback((run) => {
+    if (!run) return false;
+    return dayjs(run.from || run.From).format("YYYY-MM-DD") === dayjs(fromDate).format("YYYY-MM-DD") &&
+           dayjs(run.to || run.To).format("YYYY-MM-DD") === dayjs(toDate).format("YYYY-MM-DD");
+  }, [fromDate, toDate]);
+
+  const applySavedRun = useCallback((run) => {
+    const normalized = normalizePayrollRun(run);
+    if (!normalized) return;
+    const payable = safeNum(normalized.payableAmount, safeNum(normalized.netAmount) + safeNum(normalized.previousArrears));
+    const paid = safeNum(normalized.paidAmount);
+    const balance = safeNum(normalized.balanceAmount, Math.max(0, payable - paid));
+    setSummary({
+      ...INITIAL_SUMMARY,
+      ...normalized,
+      userId: normalized.userId || normalized.UserId || selectedUserId,
+      displayName: normalized.displayName || normalized.DisplayName || selectedStaff?.displayName || selectedStaff?.username || selectedUserId,
+      from: normalized.from || normalized.From || fromDate,
+      to: normalized.to || normalized.To || toDate,
+      totalHours: safeNum(normalized.totalHours ?? normalized.TotalHours),
+      hourlyRate: safeNum(normalized.hourlyRate ?? normalized.HourlyRate),
+      fixedAmount: safeNum(normalized.fixedAmount ?? normalized.FixedAmount),
+      hourlyAmount: safeNum(normalized.hourlyAmount ?? normalized.HourlyAmount),
+      allowances: safeNum(normalized.allowances ?? normalized.Allowances),
+      deductions: safeNum(normalized.deductions ?? normalized.Deductions),
+      grossAmount: safeNum(normalized.grossAmount ?? normalized.GrossAmount),
+      netAmount: safeNum(normalized.netAmount ?? normalized.NetAmount),
+      previousArrears: safeNum(normalized.previousArrears ?? normalized.PreviousArrears),
+      payableAmount: payable,
+      paidAmount: paid,
+      balanceAmount: balance,
+      paymentStatus: normalized.paymentStatus || normalized.PaymentStatus || paymentStatus(paid, balance, payable),
+      paymentNotes: normalized.paymentNotes || normalized.PaymentNotes || "",
+      calculated: true,
+    });
+    setPaidAmount(paid);
+    setPaymentNotes(normalized.paymentNotes || normalized.PaymentNotes || "");
+    setCurrentRunId(normalized.id ?? normalized.Id ?? null);
+  }, [fromDate, toDate, selectedStaff, selectedUserId]);
+
   /* ------------ when selection changes --------------------------- */
   useEffect(() => {
     if (!selectedUserId) {
@@ -350,6 +391,10 @@ export default function PayrollPage() {
       setPaymentNotes("");
       return;
     }
+    setSummary({ ...INITIAL_SUMMARY, userId: selectedUserId, from: fromDate, to: toDate });
+    setCurrentRunId(null);
+    setPaidAmount(0);
+    setPaymentNotes("");
     let cancelled = false;
     (async () => {
       try {
@@ -370,12 +415,17 @@ export default function PayrollPage() {
       setLoadingHistory(true);
       try {
         const res = await api.get("/payroll/runs", { params: { userId: selectedUserId } });
-        if (!cancelled) setHistory(arrayFrom(res?.data).map(normalizePayrollRun));
+        if (!cancelled) {
+          const runs = arrayFrom(res?.data).map(normalizePayrollRun);
+          setHistory(runs);
+          const selectedPeriodRun = runs.find(sameSelectedPeriod);
+          if (selectedPeriodRun) applySavedRun(selectedPeriodRun);
+        }
       } catch { if (!cancelled) setHistory([]); }
       finally  { if (!cancelled) setLoadingHistory(false); }
     })();
     return () => { cancelled = true; };
-  }, [selectedUserId, allSettings]);
+  }, [selectedUserId, allSettings, fromDate, toDate, sameSelectedPeriod, applySavedRun]);
 
   const reloadHistory = async () => {
     if (!selectedUserId) return;
@@ -451,8 +501,9 @@ export default function PayrollPage() {
       totalHours, hourlyRate, fixedAmount, hourlyAmount, allowances,
       deductions: totalDeductions, grossAmount, netAmount, payrollAdvance, fines,
       previousArrears, payableAmount, paidAmount: 0,
-      balanceAmount: payableAmount, paymentStatus: paymentStatus(0, payableAmount, payableAmount),
-    };
+        balanceAmount: payableAmount, paymentStatus: paymentStatus(0, payableAmount, payableAmount),
+        calculated: true,
+      };
   }, [fromDate, toDate, allSettings, staffList]);
 
   const persistRun = useCallback(async (s) => {
@@ -491,21 +542,49 @@ export default function PayrollPage() {
         paymentNotes,
       };
       setSummary(result);
-      const created = await persistRun(result);
-      if (created?.id != null || created?.Id != null) {
-        setSummary({ ...result, ...created });
-        setCurrentRunId(created.id ?? created.Id);
-        await reloadHistory();
-        await reloadGlobalRuns();
-      } else {
-        toast.info("Calculated, but couldn't store run history.");
-      }
-      toast.success("Payroll calculated.");
+      setCurrentRunId(null);
+      toast.success("Payroll calculated. Review it, then press Save run.");
     } catch (err) {
       console.error(err);
       toast.error(errMsg(err, "Failed to calculate payroll."));
     } finally {
       setLoadingSummary(false);
+    }
+  };
+
+  const handleSaveRun = async () => {
+    if (!selectedUserId) { toast.error("Select a staff member first."); return; }
+    if (!summary?.calculated || !summary?.userId || summary.userId !== selectedUserId || !summary.from || !summary.to) {
+      toast.error("Calculate payroll before saving this run.");
+      return;
+    }
+    setSavingRun(true);
+    try {
+      const payable = safeNum(summary.payableAmount, summary.netAmount + summary.previousArrears);
+      const paid = Math.min(Math.max(0, safeNum(paidAmount)), payable);
+      const balance = Math.max(0, payable - paid);
+      const result = {
+        ...summary,
+        paidAmount: paid,
+        balanceAmount: balance,
+        paymentStatus: paymentStatus(paid, balance, payable),
+        paymentNotes,
+      };
+      const created = await persistRun(result);
+      if (created?.id != null || created?.Id != null) {
+        setSummary({ ...result, ...created, calculated: true });
+        setCurrentRunId(created.id ?? created.Id);
+        await reloadHistory();
+        await reloadGlobalRuns();
+        toast.success("Payroll run saved.");
+      } else {
+        toast.error("Could not save payroll run.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(errMsg(err, "Failed to save payroll run."));
+    } finally {
+      setSavingRun(false);
     }
   };
 
@@ -856,11 +935,13 @@ export default function PayrollPage() {
                   toDate={toDate}
                   loadingSummary={loadingSummary}
                   loadingSlip={loadingSlip}
+                  savingRun={savingRun}
                   paidAmount={paidAmount}
                   setPaidAmount={setPaidAmount}
                   paymentNotes={paymentNotes}
                   setPaymentNotes={setPaymentNotes}
                   onCalculate={handleCalculate}
+                  onSaveRun={handleSaveRun}
                   onDownload={handleDownloadSlip}
                   onOpenSetup={() => setTab("setup")}
                   prevMonthRuns={prevMonthRuns}
@@ -965,9 +1046,9 @@ function EmptyHero() {
 
 function CalculateTab({
   staff, summary, preview, fromDate, toDate,
-  loadingSummary, loadingSlip,
+  loadingSummary, loadingSlip, savingRun,
   paidAmount, setPaidAmount, paymentNotes, setPaymentNotes,
-  onCalculate, onDownload, onOpenSetup, prevMonthRuns,
+  onCalculate, onSaveRun, onDownload, onOpenSetup, prevMonthRuns,
 }) {
   const setupComplete = preview.rate > 0 || preview.fixed > 0;
   const prevRun = prevMonthRuns.find(r => (r.userId || r.UserId) === (staff?.id || staff?.userId));
@@ -978,6 +1059,8 @@ function CalculateTab({
   const payableAmount = safeNum(summary.payableAmount, currentNet + previousArrears) || currentNet + previousArrears;
   const paidNow = Math.min(Math.max(0, safeNum(paidAmount)), payableAmount);
   const balanceAmount = Math.max(0, payableAmount - paidNow);
+  const savedRunLoaded = Boolean(summary?.id || summary?.Id);
+  const canSaveRun = Boolean(summary?.calculated && !savedRunLoaded && summary?.userId && summary.userId === (staff?.id || staff?.userId) && summary.from && summary.to);
 
   return (
     <div className="space-y-4">
@@ -1039,7 +1122,7 @@ function CalculateTab({
             <span className="text-base font-bold text-rose-600 tabular-nums">− {formatINR(summary.deductions || preview.totalDed)}</span>
           </div>
           <div className="border-t border-slate-100 pt-3 flex items-center gap-2 justify-between">
-            <span className="text-sm text-slate-700 font-medium">Balance</span>
+            <span className="text-sm text-slate-700 font-medium">Current unpaid balance</span>
             <span className="text-base font-bold text-amber-700 tabular-nums">{formatINR(balanceAmount)}</span>
           </div>
         </div>
@@ -1060,7 +1143,7 @@ function CalculateTab({
             />
           </div>
           <p className="mt-1 text-[11px] font-semibold text-amber-800">
-            Payable {formatINR(payableAmount)}. Balance {formatINR(balanceAmount)} will carry as arrears.
+            Payable {formatINR(payableAmount)}. Current unpaid balance {formatINR(balanceAmount)} will become arrears only if this saved run remains unpaid or partial.
           </p>
         </div>
         <div>
@@ -1094,7 +1177,7 @@ function CalculateTab({
           <BreakdownRow icon={ArrowRight} accent="slate" label="Previous arrears" value={formatINR(previousArrears)} />
           <BreakdownRow icon={IndianRupee} accent="indigo" label="Total payable" value={formatINR(payableAmount)} bold />
           <BreakdownRow icon={CheckCircle2} accent="emerald" label="Paid" value={formatINR(paidNow)} />
-          <BreakdownRow icon={AlertCircle} accent="rose" label="Carry forward balance" value={formatINR(balanceAmount)} bold highlight />
+          <BreakdownRow icon={AlertCircle} accent="rose" label="Current unpaid balance" value={formatINR(balanceAmount)} bold highlight />
         </div>
       </div>
 
@@ -1103,7 +1186,12 @@ function CalculateTab({
         <button onClick={onCalculate} disabled={loadingSummary}
           className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-3 text-sm font-semibold shadow-sm">
           {loadingSummary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
-          {loadingSummary ? "Calculating..." : "Calculate & save"}
+          {loadingSummary ? "Calculating..." : "Calculate"}
+        </button>
+        <button onClick={onSaveRun} disabled={savingRun || !canSaveRun}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-3 text-sm font-semibold shadow-sm">
+          {savingRun ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {savingRun ? "Saving..." : savedRunLoaded ? "Saved run loaded" : "Save run"}
         </button>
         <button onClick={onDownload} disabled={loadingSlip}
           className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-3 text-sm font-semibold">

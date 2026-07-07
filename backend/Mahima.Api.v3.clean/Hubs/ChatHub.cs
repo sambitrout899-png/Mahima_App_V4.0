@@ -16,16 +16,19 @@ namespace Mahima.Api.v3.clean.Hubs
     public class ChatHub : Hub
     {
         private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> OnlineConnections = new();
+        private static readonly ConcurrentDictionary<Guid, ActiveCallOffer> ActiveCallOffers = new();
 
         private readonly ILogger<ChatHub> _logger;
         private readonly IChatService _chatService;
         private readonly IMobilePushNotificationService? _mobilePush;
+        private readonly IPastorBotService _pastorBot;
 
-        public ChatHub(ILogger<ChatHub> logger, IChatService chatService, IEnumerable<IMobilePushNotificationService> mobilePushServices)
+        public ChatHub(ILogger<ChatHub> logger, IChatService chatService, IEnumerable<IMobilePushNotificationService> mobilePushServices, IPastorBotService pastorBot)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
             _mobilePush = mobilePushServices?.FirstOrDefault();
+            _pastorBot = pastorBot ?? throw new ArgumentNullException(nameof(pastorBot));
         }
 
         public override async Task OnConnectedAsync()
@@ -118,6 +121,23 @@ namespace Mahima.Api.v3.clean.Hubs
             {
                 _logger.LogWarning(ex, "Mobile push failed for chat {ChatId}", payload.ChatId);
             }
+
+            try
+            {
+                var pastorMessages = await _pastorBot.TryReplyInChatAsync(payload.ChatId, userId, payload.Text, Context.ConnectionAborted);
+                foreach (var pastorMessage in pastorMessages)
+                {
+                    var updatedMembers = (await _chatService.GetChatMemberIdsAsync(pastorMessage.ChatId)).Distinct().ToList();
+                    await Clients.Users(UserIds(updatedMembers)).SendAsync("ReceiveMessage", pastorMessage);
+                    if (_mobilePush != null)
+                        await _mobilePush.NotifyChatMessageAsync(pastorMessage.ChatId, pastorMessage.SenderId, updatedMembers, pastorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI Pastor reply failed for chat {ChatId}", payload.ChatId);
+            }
+
             return created;
         }
 
@@ -131,8 +151,16 @@ namespace Mahima.Api.v3.clean.Hubs
             await Clients.Users(UserIds(members.Where(id => id != userId))).SendAsync("UserTyping", new { chatId = p.ChatId, fromUserId = userId, at = DateTime.UtcNow });
         }
 
-        public class CallOffer { public Guid ChatId { get; set; } public string Sdp { get; set; } = string.Empty; }
+        public class CallOffer { public Guid ChatId { get; set; } public string Sdp { get; set; } = string.Empty; public string Type { get; set; } = "audio"; }
         public class CallSignalMsg { public Guid ChatId { get; set; } public string Type { get; set; } = "ice"; public string Data { get; set; } = string.Empty; }
+        private sealed class ActiveCallOffer
+        {
+            public Guid ChatId { get; init; }
+            public Guid CallerId { get; init; }
+            public string Sdp { get; init; } = string.Empty;
+            public string Type { get; init; } = "audio";
+            public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+        }
 
         public async Task StartCall(CallOffer offer)
         {
@@ -147,7 +175,33 @@ namespace Mahima.Api.v3.clean.Hubs
                 throw new HubException(ex.Message);
             }
 
-            await Clients.Users(UserIds(members.Where(id => id != userId))).SendAsync("IncomingCall", new { chatId = offer.ChatId, fromUserId = userId, sdp = offer.Sdp, at = DateTime.UtcNow });
+            var callType = string.Equals(offer.Type, "video", StringComparison.OrdinalIgnoreCase) ? "video" : "audio";
+            ActiveCallOffers[offer.ChatId] = new ActiveCallOffer
+            {
+                ChatId = offer.ChatId,
+                CallerId = userId,
+                Sdp = offer.Sdp,
+                Type = callType,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            await Clients.Users(UserIds(members.Where(id => id != userId))).SendAsync("IncomingCall", new { chatId = offer.ChatId, fromUserId = userId, sdp = offer.Sdp, type = callType, at = DateTime.UtcNow });
+            if (_mobilePush != null)
+                await _mobilePush.NotifyIncomingCallAsync(offer.ChatId, userId, members, callType);
+        }
+
+        public async Task<object?> GetActiveCall(Guid chatId)
+        {
+            var userId = GetUserId();
+            var members = await RequireChatMembershipAsync(chatId, userId);
+            if (!ActiveCallOffers.TryGetValue(chatId, out var active)) return null;
+            if (active.CallerId == userId) return null;
+            if (!members.Contains(active.CallerId)) return null;
+            if (DateTime.UtcNow - active.CreatedAtUtc > TimeSpan.FromSeconds(75))
+            {
+                ActiveCallOffers.TryRemove(chatId, out _);
+                return null;
+            }
+            return new { chatId = active.ChatId, fromUserId = active.CallerId, sdp = active.Sdp, type = active.Type, at = active.CreatedAtUtc };
         }
 
         public async Task CallSignal(CallSignalMsg s)
@@ -170,6 +224,7 @@ namespace Mahima.Api.v3.clean.Hubs
         {
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(chatId, userId);
+            ActiveCallOffers.TryRemove(chatId, out _);
             await Clients.Users(UserIds(members.Where(id => id != userId))).SendAsync("CallEnded", new { chatId, fromUserId = userId });
         }
 

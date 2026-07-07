@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Mahima.Api.v3.clean.Dtos
 {
@@ -28,6 +29,7 @@ namespace Mahima.Api.v3.clean.Dtos
         public string Persona { get; set; } = "english-evangelist";
         public Guid? ChatId { get; set; }
         public Guid? MessageId { get; set; }
+        public List<MessageDto>? SharedMessages { get; set; }
     }
 
     public class PastorBotMessageDto

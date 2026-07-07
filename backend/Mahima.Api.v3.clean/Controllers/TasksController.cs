@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Mahima.Api.v3.clean.Hubs;
 using Mahima.Api.v3.clean.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -91,11 +92,27 @@ ALTER TABLE public.""TaskAssignees""
     ADD COLUMN IF NOT EXISTS ""AssignedByUserId"" uuid NULL,
     ADD COLUMN IF NOT EXISTS ""AssignedByPositionId"" bigint NULL;
 
+CREATE TABLE IF NOT EXISTS public.""TaskAutomationQueue"" (
+    ""Id"" bigserial PRIMARY KEY,
+    ""TaskId"" bigint NOT NULL REFERENCES public.""Tasks""(""Id"") ON DELETE CASCADE,
+    ""AutomationKey"" text NOT NULL,
+    ""ScheduledAtUtc"" timestamp with time zone NOT NULL,
+    ""Message"" text NOT NULL,
+    ""Status"" text NOT NULL DEFAULT 'pending',
+    ""SentAtUtc"" timestamp with time zone NULL,
+    ""AttemptCount"" integer NOT NULL DEFAULT 0,
+    ""LastError"" text NULL,
+    ""CreatedAtUtc"" timestamp with time zone NOT NULL DEFAULT now(),
+    ""UpdatedAtUtc"" timestamp with time zone NULL
+);
+
 CREATE INDEX IF NOT EXISTS ix_task_activity_log_task_created ON public.""TaskActivityLog"" (""TaskId"", ""CreatedAt"" DESC);
 CREATE INDEX IF NOT EXISTS ix_tasks_parent_task ON public.""Tasks"" (""ParentTaskId"");
 CREATE INDEX IF NOT EXISTS ix_tasks_type_stage ON public.""Tasks"" (""TaskType"", ""ProcessStage"");
 CREATE INDEX IF NOT EXISTS ix_tasks_owner_user ON public.""Tasks"" (""CreatedById"");
-CREATE INDEX IF NOT EXISTS ix_tasks_owner_position ON public.""Tasks"" (""OwnerPositionId"");";
+CREATE INDEX IF NOT EXISTS ix_tasks_owner_position ON public.""Tasks"" (""OwnerPositionId"");
+CREATE UNIQUE INDEX IF NOT EXISTS ux_task_automation_queue_task_key ON public.""TaskAutomationQueue"" (""TaskId"", ""AutomationKey"");
+CREATE INDEX IF NOT EXISTS ix_task_automation_queue_due ON public.""TaskAutomationQueue"" (""Status"", ""ScheduledAtUtc"");";
 
             await using var cmd = new NpgsqlCommand(sql, conn);
             await cmd.ExecuteNonQueryAsync();
@@ -124,10 +141,82 @@ CREATE INDEX IF NOT EXISTS ix_tasks_owner_position ON public.""Tasks"" (""OwnerP
             return allowed.Contains(v) ? v : "intake";
         }
 
+        private static (int Status, string ProcessStage) NormalizeStatusAndStage(int? requestedStatus, string? requestedStage)
+        {
+            var stage = NormalizeProcessStage(requestedStage);
+            var status = requestedStatus ?? 0;
+            if (status < 0 || status > 3) status = 0;
+
+            if (stage == "done") status = 2;
+            if (status == 2) stage = "done";
+
+            return (status, stage);
+        }
+
 
         private static bool IsPositionAncestorOrSelf(PositionVisibilityContext visibility, long? ownerPositionId)
         {
             return ownerPositionId.HasValue && visibility.PositionTreeIds.Any(id => id == ownerPositionId.Value);
+        }
+
+        private static bool LooksLikeAdminRole(string? value)
+        {
+            var normalized = new string((value ?? "")
+                .Trim()
+                .ToLowerInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+
+            return normalized == "admin"
+                || normalized == "administrator"
+                || normalized == "superadmin"
+                || normalized.Contains("admin");
+        }
+
+        private async Task<bool> IsAdminUserAsync(NpgsqlConnection conn)
+        {
+            var roleClaims = User.Claims
+                .Where(c =>
+                    string.Equals(c.Type, ClaimTypes.Role, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Type, "role", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Type, "roles", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.Type, "Role", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(c => (c.Value ?? "").Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries))
+                .Select(v => v.Trim());
+
+            if (roleClaims.Any(LooksLikeAdminRole)) return true;
+
+            var currentUserId = GetCurrentUserId();
+            if (currentUserId == Guid.Empty) return false;
+
+            await using var cmd = new NpgsqlCommand(@"
+SELECT COALESCE(r.name, u.role)
+FROM public.users u
+LEFT JOIN public.roles r
+  ON u.role ~ '^[0-9]+$'
+ AND r.id = u.role::integer
+WHERE u.id = @user_id
+LIMIT 1;", conn);
+            cmd.Parameters.AddWithValue("user_id", NpgsqlDbType.Uuid, currentUserId);
+            var dbRole = await cmd.ExecuteScalarAsync();
+            return LooksLikeAdminRole(dbRole?.ToString());
+        }
+
+        private static DateTime? ResolveFlushCutoffUtc(string? range)
+        {
+            var now = DateTime.UtcNow;
+            return (range ?? "").Trim().ToLowerInvariant() switch
+            {
+                "1d" or "1day" or "day" => now.AddDays(-1),
+                "3d" or "3days" => now.AddDays(-3),
+                "7d" or "7days" or "week" => now.AddDays(-7),
+                "15d" or "15days" => now.AddDays(-15),
+                "30d" or "30days" or "month" => now.AddDays(-30),
+                "3m" or "3months" => now.AddMonths(-3),
+                "6m" or "6months" => now.AddMonths(-6),
+                "12m" or "12months" or "1y" or "1year" => now.AddMonths(-12),
+                _ => null
+            };
         }
 
         private static async Task<bool> HasDirectTaskAssignmentAsync(NpgsqlConnection conn, long taskId, Guid userId)
@@ -146,8 +235,10 @@ SELECT EXISTS (
             return Convert.ToBoolean(await cmd.ExecuteScalarAsync());
         }
 
-        private static async Task<bool> CanModifyTaskAsync(NpgsqlConnection conn, long taskId, PositionVisibilityContext visibility)
+        private async Task<bool> CanModifyTaskAsync(NpgsqlConnection conn, long taskId, PositionVisibilityContext visibility)
         {
+            if (await IsAdminUserAsync(conn)) return true;
+
             await using var cmd = new NpgsqlCommand(@"
 SELECT ""CreatedById"", ""OwnerPositionId""
 FROM public.""Tasks""
@@ -181,6 +272,61 @@ VALUES (@taskId, @action, @details, @createdById, now());", conn, tx);
             await cmd.ExecuteNonQueryAsync();
         }
 
+        private static string? ExtractAutomationKey(string? description)
+        {
+            var match = Regex.Match(description ?? string.Empty, @"^Automation:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return match.Success ? match.Groups[1].Value.Trim() : null;
+        }
+
+        private static bool IsAutomationTaskDto(TaskDto dto) => !string.IsNullOrWhiteSpace(ExtractAutomationKey(dto.Description));
+
+        private static string? ExtractAutomationMessage(TaskDto dto)
+        {
+            if (!string.IsNullOrWhiteSpace(dto.FollowUpNotes)) return dto.FollowUpNotes.Trim();
+            var match = Regex.Match(dto.Description ?? string.Empty, @"^JaiMasihMessage:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return match.Success ? match.Groups[1].Value.Trim() : null;
+        }
+
+        private static async Task UpsertTaskAutomationQueueAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long taskId, TaskDto dto, bool replacePending)
+        {
+            var key = ExtractAutomationKey(dto.Description);
+            if (string.IsNullOrWhiteSpace(key)) return;
+
+            if (replacePending)
+            {
+                await using var clear = new NpgsqlCommand(@"
+DELETE FROM public.""TaskAutomationQueue""
+WHERE ""TaskId"" = @taskId
+  AND ""Status"" IN ('pending', 'processing');", conn, tx);
+                clear.Parameters.AddWithValue("taskId", taskId);
+                await clear.ExecuteNonQueryAsync();
+            }
+
+            if (!dto.DueDate.HasValue || dto.Status == 2 || dto.Status == 3) return;
+            var scheduledAtUtc = dto.DueDate.Value.Kind == DateTimeKind.Utc
+                ? dto.DueDate.Value
+                : DateTime.SpecifyKind(dto.DueDate.Value, DateTimeKind.Local).ToUniversalTime();
+
+            if (scheduledAtUtc <= DateTime.UtcNow) return;
+
+            var message = ExtractAutomationMessage(dto);
+            if (string.IsNullOrWhiteSpace(message)) return;
+
+            await using var cmd = new NpgsqlCommand(@"
+INSERT INTO public.""TaskAutomationQueue"" (""TaskId"", ""AutomationKey"", ""ScheduledAtUtc"", ""Message"", ""Status"", ""CreatedAtUtc"")
+VALUES (@taskId, @automationKey, @scheduledAtUtc, @message, 'pending', now())
+ON CONFLICT (""TaskId"", ""AutomationKey"") DO UPDATE
+SET ""ScheduledAtUtc"" = EXCLUDED.""ScheduledAtUtc"",
+    ""Message"" = EXCLUDED.""Message"",
+    ""Status"" = CASE WHEN public.""TaskAutomationQueue"".""Status"" IN ('sent', 'skipped') THEN public.""TaskAutomationQueue"".""Status"" ELSE 'pending' END,
+    ""LastError"" = NULL,
+    ""UpdatedAtUtc"" = now();", conn, tx);
+            cmd.Parameters.AddWithValue("taskId", taskId);
+            cmd.Parameters.AddWithValue("automationKey", key);
+            cmd.Parameters.AddWithValue("scheduledAtUtc", NpgsqlDbType.TimestampTz, scheduledAtUtc);
+            cmd.Parameters.AddWithValue("message", message);
+            await cmd.ExecuteNonQueryAsync();
+        }
         // ============================
         // GET ALL TASKS
         // ============================
@@ -193,6 +339,7 @@ VALUES (@taskId, @action, @details, @createdById, now());", conn, tx);
             await conn.OpenAsync();
             await EnsureProcessSchemaAsync(conn);
             var visibility = await PositionVisibilityService.ResolveAsync(HttpContext, conn);
+            var isAdmin = await IsAdminUserAsync(conn);
             var visibleTeamIds = visibility.IsMyTeams ? await LoadCurrentUserTeamIdsAsync(conn, visibility.UserId) : new List<long>();
             var visiblePositionIds = visibility.PositionTreeIds.Count > 0
                 ? visibility.PositionTreeIds.ToArray()
@@ -382,15 +529,17 @@ ORDER BY ""CreatedAt"" DESC;", conn);
                 var isAssigned = assignedUserIdsByTask.TryGetValue(id, out var assignedUsers) && assignedUsers.Contains(visibility.UserId.ToString());
                 var isLeader = IsPositionAncestorOrSelf(visibility, ownerPositionId) && ownerPositionId != visibility.PositionId;
                 var isSamePosition = visibility.PositionId.HasValue && ownerPositionId.HasValue && visibility.PositionId.Value == ownerPositionId.Value;
-                var canUpdate = visibility.IsChurchLevel || isOwner || (!visibility.IsMemberPosition && (isAssigned || isLeader));
+                var canUpdate = isAdmin || visibility.IsChurchLevel || isOwner || (!visibility.IsMemberPosition && (isAssigned || isLeader));
                 var visibilityReason = isOwner
                     ? "owner"
                     : isAssigned
                         ? (visibility.IsMemberPosition ? "member-assigned-readonly" : "assigned")
-                        : isLeader
+                    : isLeader
                             ? (visibility.IsMemberPosition ? "member-position-readonly" : "position-leader")
                             : isSamePosition
                                 ? "same-position-readonly"
+                                : isAdmin
+                                    ? "admin"
                                 : visibility.IsChurchLevel
                                     ? "church-level"
                                     : visibility.IsMemberPosition
@@ -440,7 +589,8 @@ ORDER BY ""CreatedAt"" DESC;", conn);
                 var visibility = await PositionVisibilityService.ResolveAsync(HttpContext, conn);
                 await using var tx = await conn.BeginTransactionAsync();
 
-                int status = dto.Status ?? 0;
+                var statusStage = NormalizeStatusAndStage(dto.Status, dto.ProcessStage);
+                int status = statusStage.Status;
                 int priority = dto.Priority ?? 1;
 
                 var sql = @"
@@ -459,7 +609,7 @@ RETURNING ""Id"";";
                     cmd.Parameters.AddWithValue("dd", (object?)dto.DueDate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("parentTaskId", (object?)dto.ParentTaskId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("taskType", NormalizeTaskType(dto.TaskType));
-                    cmd.Parameters.AddWithValue("processStage", NormalizeProcessStage(dto.ProcessStage));
+                    cmd.Parameters.AddWithValue("processStage", statusStage.ProcessStage);
                     cmd.Parameters.AddWithValue("followUpDate", (object?)dto.FollowUpDate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("followUpNotes", string.IsNullOrWhiteSpace(dto.FollowUpNotes) ? DBNull.Value : dto.FollowUpNotes.Trim());
                     cmd.Parameters.AddWithValue("createdById", visibility.UserId == Guid.Empty ? DBNull.Value : (object)visibility.UserId);
@@ -473,11 +623,13 @@ RETURNING ""Id"";";
                 }
 
                 await WriteAssigneesAsync(conn, tx, newId, dto.Assignees, replaceExisting: false, visibility);
-                await LogTaskActivityAsync(conn, tx, newId, dto.ParentTaskId.HasValue ? "subtask-created" : "task-created", $"Type: {NormalizeTaskType(dto.TaskType)}; Stage: {NormalizeProcessStage(dto.ProcessStage)}");
+                await LogTaskActivityAsync(conn, tx, newId, dto.ParentTaskId.HasValue ? "subtask-created" : "task-created", $"Type: {NormalizeTaskType(dto.TaskType)}; Status: {status}; Stage: {statusStage.ProcessStage}");
+                await UpsertTaskAutomationQueueAsync(conn, tx, newId, dto, replacePending: false);
 
                 await tx.CommitAsync();
 
-                await NotifyTaskAssigneesAsync(dto, newId, isUpdate: false);
+                if (!IsAutomationTaskDto(dto))
+                    await NotifyTaskAssigneesAsync(dto, newId, isUpdate: false);
 
                 return Ok(new { id = newId });
             }
@@ -502,7 +654,8 @@ RETURNING ""Id"";";
                 if (!await CanModifyTaskAsync(conn, id, visibility)) return Forbid();
                 await using var tx = await conn.BeginTransactionAsync();
 
-                int status = dto.Status ?? 0;
+                var statusStage = NormalizeStatusAndStage(dto.Status, dto.ProcessStage);
+                int status = statusStage.Status;
                 int priority = dto.Priority ?? 1;
 
                 var sql = @"
@@ -531,7 +684,7 @@ UPDATE public.""Tasks""
                     cmd.Parameters.AddWithValue("dd", (object?)dto.DueDate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("parentTaskId", (object?)dto.ParentTaskId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("taskType", NormalizeTaskType(dto.TaskType));
-                    cmd.Parameters.AddWithValue("processStage", NormalizeProcessStage(dto.ProcessStage));
+                    cmd.Parameters.AddWithValue("processStage", statusStage.ProcessStage);
                     cmd.Parameters.AddWithValue("followUpDate", (object?)dto.FollowUpDate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("followUpNotes", string.IsNullOrWhiteSpace(dto.FollowUpNotes) ? DBNull.Value : dto.FollowUpNotes.Trim());
                     cmd.Parameters.AddWithValue("updatedById", visibility.UserId == Guid.Empty ? DBNull.Value : (object)visibility.UserId);
@@ -542,11 +695,13 @@ UPDATE public.""Tasks""
                 if (rows == 0) { await tx.RollbackAsync(); return NotFound(); }
 
                 await WriteAssigneesAsync(conn, tx, id, dto.Assignees, replaceExisting: true, visibility);
-                await LogTaskActivityAsync(conn, tx, id, "task-updated", $"Status: {status}; Stage: {NormalizeProcessStage(dto.ProcessStage)}");
+                await LogTaskActivityAsync(conn, tx, id, "task-updated", $"Status: {status}; Stage: {statusStage.ProcessStage}");
+                await UpsertTaskAutomationQueueAsync(conn, tx, id, dto, replacePending: true);
 
                 await tx.CommitAsync();
 
-                await NotifyTaskAssigneesAsync(dto, id, isUpdate: true);
+                if (!IsAutomationTaskDto(dto))
+                    await NotifyTaskAssigneesAsync(dto, id, isUpdate: true);
 
                 return Ok(new { message = "Updated" });
             }
@@ -559,6 +714,87 @@ UPDATE public.""Tasks""
         // ============================
         // DELETE
         // ============================
+        [HttpDelete("flush")]
+        public async Task<IActionResult> FlushTasks([FromQuery] string range)
+        {
+            var cutoffUtc = ResolveFlushCutoffUtc(range);
+            if (!cutoffUtc.HasValue)
+            {
+                return BadRequest(new
+                {
+                    message = "Unsupported range. Use one of: 1d, 3d, 7d, 15d, 30d, 3m, 6m, 12m."
+                });
+            }
+
+            await using var conn = new NpgsqlConnection(_connStr);
+            await conn.OpenAsync();
+            await EnsureProcessSchemaAsync(conn);
+            if (!await IsAdminUserAsync(conn)) return Forbid();
+
+            await using var tx = await conn.BeginTransactionAsync();
+            await using var cmd = new NpgsqlCommand(@"
+WITH RECURSIVE target AS (
+    SELECT ""Id""
+    FROM public.""Tasks""
+    WHERE ""CreatedAt"" >= @cutoff
+    UNION
+    SELECT child.""Id""
+    FROM public.""Tasks"" child
+    INNER JOIN target parent ON child.""ParentTaskId"" = parent.""Id""
+),
+target_count AS (
+    SELECT COUNT(*)::bigint AS count FROM target
+),
+assignee_delete AS (
+    DELETE FROM public.""TaskAssignees""
+    WHERE ""TaskId"" IN (SELECT ""Id"" FROM target)
+    RETURNING 1
+),
+log_delete AS (
+    DELETE FROM public.""TaskActivityLog""
+    WHERE ""TaskId"" IN (SELECT ""Id"" FROM target)
+    RETURNING 1
+),
+task_delete AS (
+    DELETE FROM public.""Tasks""
+    WHERE ""Id"" IN (SELECT ""Id"" FROM target)
+    RETURNING 1
+)
+SELECT
+    (SELECT count FROM target_count) AS matched,
+    (SELECT COUNT(*)::bigint FROM assignee_delete) AS assignees_deleted,
+    (SELECT COUNT(*)::bigint FROM log_delete) AS activity_logs_deleted,
+    (SELECT COUNT(*)::bigint FROM task_delete) AS tasks_deleted;", conn, tx);
+
+            cmd.Parameters.AddWithValue("cutoff", NpgsqlDbType.TimestampTz, cutoffUtc.Value);
+
+            long matched = 0;
+            long assigneesDeleted = 0;
+            long activityLogsDeleted = 0;
+            long tasksDeleted = 0;
+            await using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                if (await reader.ReadAsync())
+                {
+                    matched = reader.GetInt64(0);
+                    assigneesDeleted = reader.GetInt64(1);
+                    activityLogsDeleted = reader.GetInt64(2);
+                    tasksDeleted = reader.GetInt64(3);
+                }
+            }
+
+            await tx.CommitAsync();
+            return Ok(new
+            {
+                range,
+                cutoffUtc = cutoffUtc.Value,
+                matched,
+                tasksDeleted,
+                assigneesDeleted,
+                activityLogsDeleted
+            });
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTask(long id)
         {

@@ -6,6 +6,8 @@
 /var/www/mahima-api/publish/appsettings.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.deps.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.runtimeconfig.json
+/var/www/mahima-api/Scripts/DemoRenderer/package-lock.json
+/var/www/mahima-api/Scripts/DemoRenderer/package.json
 /var/www/mahima-api/services/Ai/scripture_pack.json
 /var/www/mahima-api/LatoFont/Lato-Black.ttf
 /var/www/mahima-api/LatoFont/Lato-BlackItalic.ttf

@@ -1,4 +1,4 @@
-﻿// src/features/users/UsersPage.CathedralAdvanced.jsx
+// src/features/users/UsersPage.CathedralAdvanced.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   Smartphone,
   Trash2,
+  UnlockKeyhole,
   UserPlus,
   Users,
   X,
@@ -92,6 +93,17 @@ function formatDate(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().split("T")[0];
+}
+
+function calculateAge(value) {
+  if (!value) return "";
+  const birthday = new Date(value);
+  if (Number.isNaN(birthday.getTime())) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birthday.getFullYear();
+  const monthDelta = today.getMonth() - birthday.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthday.getDate())) age -= 1;
+  return age >= 0 && age < 130 ? String(age) : "";
 }
 
 function normalizeResponse(res) {
@@ -187,6 +199,8 @@ const phoneOf = (user) => valueOf(user?.phone ?? user?.Phone);
 const userCodeOf = (user) => valueOf(user?.UserCode ?? user?.userCode);
 const profilePhotoUrlOf = (user) =>
   valueOf(user?.profilePhotoUrl ?? user?.ProfilePhotoUrl ?? user?.avatarUrl ?? user?.AvatarUrl ?? user?.photoUrl ?? user?.PhotoUrl);
+const isBlockedOf = (user) => Boolean(user?.isBlocked ?? user?.IsBlocked);
+const blockReasonOf = (user) => valueOf(user?.blockReason ?? user?.BlockReason);
 
 const resolveMediaUrl = (url) => {
   const value = valueOf(url).trim();
@@ -546,6 +560,7 @@ export default function UsersPageCathedralAdvanced() {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [unblockingId, setUnblockingId] = useState(null);
   const [sending, setSending] = useState(false);
 
   const [error, setError] = useState("");
@@ -754,7 +769,11 @@ export default function UsersPageCathedralAdvanced() {
   }, [allUsers, fetchSearchDataset]);
 
   const setField = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "birthday") next.age = calculateAge(value);
+      return next;
+    });
   };
 
   const uploadProfilePhoto = async (file) => {
@@ -862,7 +881,7 @@ export default function UsersPageCathedralAdvanced() {
       baptismDate: formatDate(user.baptismDate ?? user.BaptismDate),
       isBornAgain: Boolean(user.isBornAgain ?? user.IsBornAgain),
       isBeliever: Boolean(user.isBeliever ?? user.IsBeliever),
-      age: user.age ?? user.Age ?? "",
+      age: calculateAge(user.birthday ?? user.Birthday) || user.age || user.Age || "",
       aadharNumber: user.aadharNumber ?? user.AadharNumber ?? "",
       homeAddress: user.homeAddress ?? user.HomeAddress ?? "",
       currentAddress: user.currentAddress ?? user.CurrentAddress ?? "",
@@ -945,7 +964,7 @@ export default function UsersPageCathedralAdvanced() {
         BaptismDate: form.baptismDate || null,
         IsBornAgain: form.isBornAgain ?? null,
         IsBeliever: form.isBeliever ?? null,
-        Age: form.age === "" ? null : Number(form.age),
+        Age: calculateAge(form.birthday) === "" ? (form.age === "" ? null : Number(form.age)) : Number(calculateAge(form.birthday)),
         AadharNumber: form.aadharNumber || null,
         HomeAddress: form.homeAddress || null,
         CurrentAddress: form.currentAddress || null,
@@ -1007,6 +1026,23 @@ export default function UsersPageCathedralAdvanced() {
       alert("Delete failed: " + (err?.response?.data?.message || err?.message || String(err)));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const unblockUser = async (id) => {
+    if (!id || !window.confirm("Unblock this user and allow login again?")) return;
+
+    setUnblockingId(id);
+
+    try {
+      await api.post(`/admin/chat-safety/users/${id}/unblock`);
+      setSearchUsers(null);
+      setAllUsers(null);
+      await refreshCurrentView();
+    } catch (err) {
+      alert("Unblock failed: " + (err?.response?.data?.message || err?.message || String(err)));
+    } finally {
+      setUnblockingId(null);
     }
   };
 
@@ -1170,6 +1206,7 @@ export default function UsersPageCathedralAdvanced() {
   }, [debouncedSearch, filters, roles]);
 
   const totalVisible = powerSearchActive ? filteredSearchUsers.length : meta.total;
+  const blockedVisible = (powerSearchActive ? filteredSearchUsers : users).filter(isBlockedOf).length;
   const currentPage = powerSearchActive ? clientPage : meta.page;
   const start = totalVisible === 0 ? 0 : (currentPage - 1) * meta.limit + 1;
   const end = Math.min(totalVisible, currentPage * meta.limit);
@@ -1367,6 +1404,11 @@ export default function UsersPageCathedralAdvanced() {
           box-shadow: 0 8px 24px rgba(80, 60, 28, 0.08);
         }
 
+        .user-card-blocked {
+          border-color: #fecaca;
+          background: #fff7f7;
+        }
+
         .user-card-main {
           display: flex;
           align-items: center;
@@ -1470,6 +1512,12 @@ export default function UsersPageCathedralAdvanced() {
           border: 1px solid #eadfca;
           font-size: 12px;
           font-weight: 900;
+        }
+
+        .user-badge-blocked {
+          border-color: #fecaca;
+          background: #fff1f2;
+          color: #be123c;
         }
 
         .user-actions {
@@ -1850,6 +1898,94 @@ export default function UsersPageCathedralAdvanced() {
             transform: translateX(-50%) translateY(0);
           }
         }
+
+        .users-page {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96), rgba(246,248,251,.96)),
+            radial-gradient(circle at 100% 0%, rgba(4,120,87,.08), transparent 28rem) !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .users-shell,
+        .users-toolbar,
+        .users-stat-card,
+        .user-card,
+        .users-modal,
+        .users-search-panel,
+        .users-filter-chip,
+        .users-page-count,
+        .recipient-row {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius-lg, 12px) !important;
+          background: var(--enterprise-surface, #ffffff) !important;
+          box-shadow: var(--enterprise-shadow-sm, 0 1px 2px rgba(15,23,42,.05)) !important;
+        }
+        .users-title,
+        .user-name,
+        .users-modal-title {
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .users-subtitle,
+        .user-meta,
+        .users-section-label,
+        .users-page-count {
+          color: var(--enterprise-muted, #617086) !important;
+        }
+        .users-input,
+        .users-select,
+        .users-textarea,
+        .users-search-wrap {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          border-radius: var(--enterprise-radius, 10px) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .users-input:focus,
+        .users-select:focus,
+        .users-textarea:focus {
+          border-color: rgba(4,120,87,.68) !important;
+          box-shadow: 0 0 0 4px rgba(4,120,87,.12) !important;
+        }
+        .users-button-primary,
+        .users-action-btn.primary,
+        .users-icon-btn.primary {
+          border-color: transparent !important;
+          background: linear-gradient(180deg, var(--enterprise-primary, #047857), var(--enterprise-primary-strong, #065f46)) !important;
+          color: #ffffff !important;
+          box-shadow: 0 8px 20px rgba(4,120,87,.18) !important;
+        }
+        .users-button-soft,
+        .users-button-ghost,
+        .users-icon-btn,
+        .users-filter-chip {
+          border-color: var(--enterprise-border, #dfe7ef) !important;
+          background: #ffffff !important;
+          color: var(--enterprise-ink, #102033) !important;
+        }
+        .users-button-danger,
+        .users-icon-btn.danger {
+          background: var(--enterprise-danger, #dc2626) !important;
+          color: #ffffff !important;
+        }
+        .user-badge,
+        .users-filter-chip.active {
+          border-color: rgba(4,120,87,.22) !important;
+          background: var(--enterprise-primary-soft, #ecfdf5) !important;
+          color: var(--enterprise-primary-strong, #065f46) !important;
+        }
+        .user-card-blocked {
+          border-color: #fecaca !important;
+          background: #fff7f7 !important;
+        }
+        .user-badge-blocked {
+          border-color: #fecaca !important;
+          background: #fff1f2 !important;
+          color: #be123c !important;
+        }
+        .user-avatar,
+        .user-photo-preview {
+          background: linear-gradient(180deg, var(--enterprise-primary-soft, #ecfdf5), #ffffff) !important;
+          color: var(--enterprise-primary-strong, #065f46) !important;
+        }
       `}</style>
 
       <div className="users-shell">
@@ -1936,6 +2072,10 @@ export default function UsersPageCathedralAdvanced() {
             <Shield size={18} />
             Roles: {rolesLoading ? "..." : roles.length}
           </div>
+          <div className="users-stat">
+            <UnlockKeyhole size={18} />
+            Blocked: {blockedVisible}
+          </div>
         </div>
 
         {error && (
@@ -1974,9 +2114,12 @@ export default function UsersPageCathedralAdvanced() {
               const primaryPosition = primaryPositionOfUser(user);
               const photoUrl = resolveMediaUrl(profilePhotoUrlOf(user));
               const deleting = deletingId === id;
+              const blocked = isBlockedOf(user);
+              const unblocking = unblockingId === id;
+              const blockReason = blockReasonOf(user);
 
               return (
-                <article className="user-card" key={id} role="listitem">
+                <article className={`user-card ${blocked ? "user-card-blocked" : ""}`} key={id} role="listitem">
                   <div className="user-card-main">
                     <div className="user-avatar">
                       {photoUrl ? (
@@ -2008,6 +2151,12 @@ export default function UsersPageCathedralAdvanced() {
                         )}
                         <span className="user-badge">{t("page.users.joined")}: <span data-no-ui-translate>{formatFriendlyDate(user.joinDate)}</span></span>
                         <span className="user-badge">{t("page.users.primaryPosition")}: <span data-no-ui-translate>{primaryPosition}</span></span>
+                        {blocked && (
+                          <span className="user-badge user-badge-blocked" title={blockReason || "Access blocked"} data-no-ui-translate>
+                            <Shield size={14} />
+                            BLOCKED{blockReason ? `: ${blockReason}` : ""}
+                          </span>
+                        )}
                         {userCodeOf(user) && (
                           <span className="user-badge" data-no-ui-translate>
                             <IdCard size={14} />
@@ -2020,6 +2169,16 @@ export default function UsersPageCathedralAdvanced() {
 
                   <div className="user-actions">
                     <IconButton icon={Edit3} label={t("page.users.editUser")} onClick={() => openEdit(user)} variant="neutral" />
+                    {blocked && (
+                      <IconButton
+                        icon={UnlockKeyhole}
+                        label="Unblock user"
+                        onClick={() => unblockUser(id)}
+                        loading={unblocking}
+                        disabled={Boolean(unblockingId && unblockingId !== id)}
+                        variant="soft"
+                      />
+                    )}
                     <IconButton
                       icon={Trash2}
                       label={t("common.delete")}
@@ -2342,7 +2501,14 @@ export default function UsersPageCathedralAdvanced() {
                 <div className="users-form-grid">
                   <div className="users-field">
                     <label>{t("form.birthday")}</label>
-                    <input className="users-input" type="date" value={form.birthday} onChange={(event) => setField("birthday", event.target.value)} />
+                    <input
+                      className="users-input"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="YYYY-MM-DD"
+                      value={form.birthday}
+                      onChange={(event) => setField("birthday", event.target.value)}
+                    />
                   </div>
 
                   <div className="users-field">
@@ -2367,7 +2533,7 @@ export default function UsersPageCathedralAdvanced() {
 
                   <div className="users-field">
                     <label>{t("form.age")}</label>
-                    <input className="users-input" type="number" min="0" value={form.age} onChange={(event) => setField("age", event.target.value)} />
+                    <input className="users-input" type="number" min="0" value={form.age} readOnly title="Automatically calculated from birthday" />
                   </div>
 
                   <div className="users-field">
@@ -2582,6 +2748,3 @@ export default function UsersPageCathedralAdvanced() {
     </div>
   );
 }
-
-
-

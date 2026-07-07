@@ -171,7 +171,15 @@ builder.Services.AddScoped<Mahima.Api.v3.clean.Services.Ai.ILlmProvider,
                             Mahima.Api.v3.clean.Services.Ai.OpenAiCompatibleLlmProvider>();
 builder.Services.AddScoped<IPastorBotService, PastorBotService>();
 builder.Services.AddHostedService<MinistryChatAutomationService>();
+builder.Services.AddHostedService<TaskAutomationQueueService>();
 builder.Services.AddHostedService<PrayerIntelligenceMonitorService>();
+builder.Services.AddSingleton<ChatSafetyMonitorService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ChatSafetyMonitorService>());
+builder.Services.AddHttpClient("LinkPreview", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(6);
+    client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en");
+});
 
 
 // -------------------------------------------------------

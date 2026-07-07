@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login, register } from "../../utils/fetch-auth-shim";
+import { googleLogin, login, register } from "../../utils/fetch-auth-shim";
 import { API_BASE } from "../../api";
 import mahimaLogo from "../../assets/mahima-logo.png";
 import { initNativeApp, flushPendingFcmToken, ensurePushTokenRegistered } from "../../utils/initNativeApp";
 import { registerMobilePushNotifications } from "../../utils/mobilePushNotifications";
 
 const REMEMBER_LOGIN_KEY = "mahima_remember_login";
+const GOOGLE_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 
 function isMobileAppMode() {
   try {
@@ -31,6 +32,12 @@ function readRememberedLogin() {
 export default function Login() {
   const navigate = useNavigate();
   const autoLoginStarted = useRef(false);
+  const googleButtonRef = useRef(null);
+  const runtimeGoogleClientId = typeof window !== "undefined" ? (window.__GOOGLE_CLIENT_ID__ || window.__GOOGLE_WEB_CLIENT_ID__ || "") : "";
+  const runtimeGoogleAndroidClientId = typeof window !== "undefined" ? (window.__GOOGLE_ANDROID_CLIENT_ID__ || "") : "";
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || runtimeGoogleClientId;
+  const googleAndroidClientId = import.meta.env.VITE_GOOGLE_ANDROID_CLIENT_ID || runtimeGoogleAndroidClientId;
+  const googleWebClientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || runtimeGoogleClientId || googleClientId;
 
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
@@ -43,6 +50,19 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState("");
+  const [googleReady, setGoogleReady] = useState(false);
+  const [nativeGoogleReady, setNativeGoogleReady] = useState(false);
+
+  function persistAuthSession(token, user = null) {
+    localStorage.setItem("authToken", token);
+    localStorage.setItem("mahima_token", token);
+    localStorage.setItem("token", token);
+
+    if (user) {
+      localStorage.setItem("mahima_user", JSON.stringify(user));
+      localStorage.setItem("user", JSON.stringify(user));
+    }
+  }
 
   useEffect(() => {
     if (getStoredToken()) {
@@ -61,6 +81,157 @@ export default function Login() {
     autoLoginStarted.current = true;
     performLogin(remembered.username, remembered.password, true);
   }, []);
+
+  useEffect(() => {
+    setGoogleReady(false);
+    if (mode !== "login" || !googleWebClientId || !googleButtonRef.current || isMobileAppMode()) return;
+
+    let cancelled = false;
+
+    loadGoogleIdentityScript()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) return;
+
+        window.google.accounts.id.initialize({
+          client_id: googleWebClientId,
+          callback: handleGoogleCredential,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        googleButtonRef.current.innerHTML = "";
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline",
+          size: "large",
+          type: "standard",
+          shape: "rectangular",
+          text: "signin_with",
+          width: 320,
+        });
+        setGoogleReady(true);
+      })
+      .catch((err) => {
+        console.warn("[login] Google sign-in script failed", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, googleWebClientId]);
+
+  function loadGoogleIdentityScript() {
+    return new Promise((resolve, reject) => {
+      if (window.google?.accounts?.id) {
+        resolve();
+        return;
+      }
+
+      const existing = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = GOOGLE_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+  useEffect(() => {
+    if (mode !== "login" || !isMobileAppMode()) {
+      setNativeGoogleReady(false);
+      return;
+    }
+
+    const plugins = window.Capacitor?.Plugins || {};
+    setNativeGoogleReady(Boolean(plugins.GoogleAuth?.signIn || plugins.FirebaseAuthentication?.signInWithGoogle));
+  }, [mode]);
+
+  function extractGoogleIdToken(result) {
+    return (
+      result?.authentication?.idToken ||
+      result?.credential?.idToken ||
+      result?.idToken ||
+      result?.serverAuthCodeIdToken ||
+      result?.user?.authentication?.idToken ||
+      result?.result?.credential?.idToken ||
+      ""
+    );
+  }
+
+  async function signInWithNativeGoogle() {
+    const plugins = window.Capacitor?.Plugins || {};
+
+    if (plugins.GoogleAuth?.initialize) {
+      await plugins.GoogleAuth.initialize({
+        clientId: googleWebClientId || undefined,
+        serverClientId: googleWebClientId || undefined,
+        androidClientId: googleAndroidClientId || undefined,
+        scopes: ["profile", "email"],
+        grantOfflineAccess: false,
+      }).catch(() => {});
+    }
+
+    if (plugins.GoogleAuth?.signIn) {
+      return plugins.GoogleAuth.signIn();
+    }
+
+    if (plugins.FirebaseAuthentication?.signInWithGoogle) {
+      return plugins.FirebaseAuthentication.signInWithGoogle({
+        mode: "popup",
+      });
+    }
+
+    throw new Error("Native Google sign-in plugin is not installed in this app build.");
+  }
+
+  async function handleGoogleButtonClick() {
+    setError("");
+
+    if (isMobileAppMode()) {
+      setLoading(true);
+      try {
+        const result = await signInWithNativeGoogle();
+        const idToken = extractGoogleIdToken(result);
+        if (!idToken) throw new Error("Google sign-in did not return an ID token from the app.");
+        await handleGoogleCredential({ credential: idToken });
+      } catch (err) {
+        setError(err.message || "Google sign-in failed in the app.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!googleWebClientId) {
+      setError("Google sign-in is not configured. Set VITE_GOOGLE_CLIENT_ID in the frontend and GoogleAuth:ClientIds in the API.");
+      return;
+    }
+
+    try {
+      await loadGoogleIdentityScript();
+      if (!window.google?.accounts?.id) throw new Error("Google Identity Services did not load.");
+      window.google.accounts.id.initialize({
+        client_id: googleWebClientId,
+        callback: handleGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      window.google.accounts.id.prompt((notification) => {
+        const blocked = notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.();
+        if (blocked && !googleReady) {
+          setError("Google sign-in could not be displayed. Check the Google client ID and authorized JavaScript origin.");
+        }
+      });
+    } catch (err) {
+      setError(err.message || "Google sign-in could not start.");
+    }
+  }
 
   function switchMode(nextMode) {
     setMode(nextMode);
@@ -176,15 +347,8 @@ export default function Login() {
         );
       }
 
-      localStorage.setItem("authToken", token);
-      localStorage.setItem("mahima_token", token);
-      localStorage.setItem("token", token);
+      persistAuthSession(token, user);
       saveRememberedLogin(cleanUsername, cleanPassword);
-
-      if (user) {
-        localStorage.setItem("mahima_user", JSON.stringify(user));
-        localStorage.setItem("user", JSON.stringify(user));
-      }
 
       await syncNativePushAfterAuth(user);
       navigate("/home", { replace: true });
@@ -241,20 +405,49 @@ export default function Login() {
         return;
       }
 
-      localStorage.setItem("authToken", token);
-      localStorage.setItem("mahima_token", token);
-      localStorage.setItem("token", token);
+      persistAuthSession(token, user);
       saveRememberedLogin(cleanUsername, password);
-
-      if (user) {
-        localStorage.setItem("mahima_user", JSON.stringify(user));
-        localStorage.setItem("user", JSON.stringify(user));
-      }
 
       await syncNativePushAfterAuth(user);
       navigate("/home", { replace: true });
     } catch (err) {
       setError(err.message || "Account creation failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleCredential(response) {
+    setError("");
+
+    if (!response?.credential) {
+      setError("Google sign-in did not return a login token.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await googleLogin({ idToken: response.credential });
+      if (!res?.ok) {
+        throw new Error(res?.error || "Google login failed");
+      }
+
+      const data = res.data || {};
+      const token = data?.token || data?.accessToken || data?.data?.token;
+      const user = data?.user || data?.data?.user;
+
+      if (!token) {
+        throw new Error("Google login did not return a Mahima token.");
+      }
+
+      persistAuthSession(token, user);
+      localStorage.removeItem(REMEMBER_LOGIN_KEY);
+
+      await syncNativePushAfterAuth(user);
+      navigate("/home", { replace: true });
+    } catch (err) {
+      setError(err.message || "Google login failed");
     } finally {
       setLoading(false);
     }
@@ -329,6 +522,47 @@ export default function Login() {
               Create Account
             </button>
           </div>
+        )}
+
+        {mode === "login" && googleWebClientId && !isMobileAppMode() && (
+          <>
+            <div ref={googleButtonRef} style={googleButtonSlot} />
+            {!googleReady && (
+              <button type="button" style={googleFallbackButton} disabled={loading} onClick={handleGoogleButtonClick}>
+                Continue with Google
+              </button>
+            )}
+            <div style={dividerRow}>
+              <span style={dividerLine} />
+              <span style={dividerText}>or</span>
+              <span style={dividerLine} />
+            </div>
+          </>
+        )}
+
+        {mode === "login" && (!googleWebClientId || isMobileAppMode()) && (
+          <>
+            <button
+              type="button"
+              style={{
+                ...googleFallbackButton,
+                opacity: (!googleWebClientId && !nativeGoogleReady) ? 0.72 : 1,
+                cursor: (!googleWebClientId && !nativeGoogleReady) ? "not-allowed" : "pointer",
+              }}
+              disabled={loading || (!googleWebClientId && !nativeGoogleReady)}
+              title={isMobileAppMode() && !nativeGoogleReady ? "Native Google sign-in plugin is not installed in this APK." : "Continue with Google"}
+              onClick={handleGoogleButtonClick}
+            >
+              {isMobileAppMode()
+                ? nativeGoogleReady ? "Continue with Google" : "Google sign-in needs app plugin"
+                : googleWebClientId ? "Continue with Google" : "Google sign-in not configured"}
+            </button>
+            <div style={dividerRow}>
+              <span style={dividerLine} />
+              <span style={dividerText}>or</span>
+              <span style={dividerLine} />
+            </div>
+          </>
         )}
 
         <form
@@ -453,7 +687,7 @@ const page = {
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
-  background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
+  background: "linear-gradient(180deg, #f8fafc 0%, #f6f8fb 52%, #eef4f1 100%)",
   padding: 16,
   boxSizing: "border-box",
 };
@@ -462,9 +696,10 @@ const card = {
   width: "100%",
   maxWidth: 380,
   padding: 30,
-  borderRadius: 16,
+  borderRadius: 12,
   background: "#fff",
-  boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
+  border: "1px solid #dfe7ef",
+  boxShadow: "0 24px 54px rgba(15,23,42,0.12)",
   textAlign: "center",
   boxSizing: "border-box",
 };
@@ -485,7 +720,7 @@ const title = {
 };
 
 const subtitle = {
-  color: "#666",
+  color: "#617086",
   marginBottom: 20,
   fontSize: 18,
 };
@@ -499,7 +734,7 @@ const tabRow = {
 const activeTab = {
   flex: 1,
   padding: 10,
-  background: "#f59e0b",
+  background: "linear-gradient(180deg, #047857, #065f46)",
   color: "#fff",
   border: "none",
   borderRadius: 8,
@@ -511,13 +746,53 @@ const activeTab = {
 const tab = {
   flex: 1,
   padding: 10,
-  background: "#eee",
-  color: "#111",
-  border: "none",
+  background: "#fff",
+  color: "#102033",
+  border: "1px solid #dfe7ef",
   borderRadius: 8,
   cursor: "pointer",
   fontWeight: "bold",
   fontSize: 16,
+};
+
+const googleButtonSlot = {
+  display: "flex",
+  justifyContent: "center",
+  minHeight: 44,
+  marginBottom: 14,
+};
+
+const googleFallbackButton = {
+  width: "100%",
+  minHeight: 44,
+  marginBottom: 14,
+  border: "1px solid #dfe7ef",
+  borderRadius: 8,
+  background: "#fff",
+  color: "#102033",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 15,
+};
+
+const dividerRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  margin: "0 0 14px",
+};
+
+const dividerLine = {
+  flex: 1,
+  height: 1,
+  background: "#dfe7ef",
+};
+
+const dividerText = {
+  color: "#617086",
+  fontSize: 13,
+  fontWeight: 700,
+  textTransform: "uppercase",
 };
 
 const input = {
@@ -525,7 +800,7 @@ const input = {
   padding: 12,
   marginBottom: 12,
   borderRadius: 8,
-  border: "1px solid #ddd",
+  border: "1px solid #dfe7ef",
   fontSize: 16,
   outline: "none",
   boxSizing: "border-box",
@@ -544,7 +819,7 @@ const eyeButton = {
   background: "transparent",
   cursor: "pointer",
   fontSize: 13,
-  color: "#2563eb",
+  color: "#047857",
 };
 
 const row = {
@@ -560,10 +835,10 @@ const rememberRow = {
   textAlign: "left",
   margin: "0 0 12px",
   padding: "10px 12px",
-  border: "1px solid #fde68a",
+  border: "1px solid rgba(4,120,87,0.22)",
   borderRadius: 10,
-  background: "#fffbeb",
-  color: "#78350f",
+  background: "#ecfdf5",
+  color: "#065f46",
   fontWeight: 700,
   fontSize: 14,
 };
@@ -571,20 +846,20 @@ const rememberRow = {
 const rememberCheck = {
   width: 18,
   height: 18,
-  accentColor: "#f59e0b",
+  accentColor: "#047857",
   flex: "0 0 auto",
 };
 
 const rememberHint = {
   display: "block",
   marginTop: 2,
-  color: "#92400e",
+  color: "#047857",
   fontWeight: 500,
   fontSize: 11,
 };
 
 const linkButton = {
-  color: "#2563eb",
+  color: "#047857",
   cursor: "pointer",
   fontSize: 14,
   border: "none",
@@ -595,7 +870,7 @@ const linkButton = {
 const button = {
   width: "100%",
   padding: 12,
-  background: "#f59e0b",
+  background: "linear-gradient(180deg, #047857, #065f46)",
   color: "#fff",
   border: "none",
   borderRadius: 8,

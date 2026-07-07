@@ -1,0 +1,13 @@
+﻿{
+  "name": "mahima-demo-renderer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mahima App Demo Studio MP4 renderer",
+  "main": "render-demo.js",
+  "scripts": {
+    "install-browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.54.0"
+  }
+}

@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { CloudSun, ExternalLink, MapPin, Newspaper, Quote, Radio, RefreshCw, ShieldAlert, Sparkles, Zap } from "lucide-react";
+import { CalendarDays, CloudSun, ExternalLink, Globe2, MapPin, Megaphone, Newspaper, Quote, Radio, RefreshCw, ShieldAlert, Sparkles, Zap } from "lucide-react";
 import { apiFetch } from "../utils/fetch-auth-shim";
 
 const CACHE_KEY = "mahima_today_update_v2";
@@ -76,6 +76,21 @@ function articleUrl(article) {
 
 function articleSource(article) {
   return String(article?.source || article?.Source || "").trim();
+}
+
+function articleCategory(article) {
+  return String(article?.category || article?.Category || "").trim();
+}
+
+function articleTone(article) {
+  const tone = String(article?.tone || article?.Tone || "").trim().toLowerCase();
+  if (tone) return tone;
+  const category = articleCategory(article).toLowerCase();
+  if (category.includes("sensitive")) return "alert";
+  if (category.includes("meeting")) return "meeting";
+  if (category.includes("word")) return "faith";
+  if (category.includes("global")) return "global";
+  return "news";
 }
 
 export default function TodayUpdateCorner() {
@@ -182,14 +197,16 @@ export default function TodayUpdateCorner() {
       });
     });
 
-    articles.slice(0, 6).forEach((article, index) => {
+    articles.slice(0, 12).forEach((article, index) => {
       const title = articleTitle(article);
       if (!title) return;
       const source = articleSource(article);
+      const category = articleCategory(article);
+      const tone = articleTone(article);
       items.push({
         key: `article-${index}`,
-        tone: "news",
-        label: `${title}${source ? ` - ${source}` : ""}`,
+        tone,
+        label: `${category ? `${category}: ` : ""}${title}${source ? ` - ${source}` : ""}`,
         url: articleUrl(article),
       });
     });
@@ -227,7 +244,23 @@ export default function TodayUpdateCorner() {
         <div className="today-ribbon__viewport">
           <div className="today-ribbon__track">
             {marqueeItems.map((item, index) => {
-              const Icon = item.tone === "weather" ? CloudSun : item.tone === "news" ? Newspaper : item.tone === "israel" ? ShieldAlert : item.tone === "quote" ? Quote : item.tone === "alert" ? Zap : Sparkles;
+              const Icon = item.tone === "weather"
+                ? CloudSun
+                : item.tone === "news"
+                  ? Newspaper
+                  : item.tone === "global"
+                    ? Globe2
+                    : item.tone === "meeting"
+                      ? CalendarDays
+                      : item.tone === "faith"
+                        ? Megaphone
+                        : item.tone === "israel"
+                          ? ShieldAlert
+                          : item.tone === "quote"
+                            ? Quote
+                            : item.tone === "alert"
+                              ? ShieldAlert
+                              : Sparkles;
               const content = (
                 <>
                   <span className={`today-ribbon__icon today-ribbon__icon--${item.tone}`}>
