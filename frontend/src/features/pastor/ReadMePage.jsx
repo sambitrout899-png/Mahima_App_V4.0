@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   Camera,
@@ -19,19 +19,19 @@ const modes = {
   en: {
     label: "English",
     lang: "en-IN",
-    placeholder: "Tell the AI Pastor what you want help with...",
+    placeholder: "Tell the AI Counseller what you want help with...",
     intro: "Share a camera frame and a short note. ReadMe will give biblical counsel without identifying, judging, or diagnosing you.",
   },
   hi: {
     label: "Hindi",
     lang: "hi-IN",
-    placeholder: "AI Pastor ko batayein ki aap kis baat par salah chahte hain...",
+    placeholder: "AI Counseller ko batayein ki aap kis baat par salah chahte hain...",
     intro: "Camera frame aur chhota note share karein. ReadMe bina pehchan ya diagnosis ke biblical salah dega.",
   },
   pa: {
     label: "Punjabi",
     lang: "pa-IN",
-    placeholder: "AI Pastor nu daso tusi kis gal te salah chaunde ho...",
+    placeholder: "AI Counseller nu daso tusi kis gal te salah chaunde ho...",
     intro: "Camera frame ate chhota note share karo. ReadMe bina pehchan ya diagnosis de biblical salah devega.",
   },
 };
@@ -219,7 +219,7 @@ export default function ReadMePage() {
                     <Eye className="h-8 w-8 text-amber-200" />
                   </div>
                   <div>
-                    <p className="text-sm font-black uppercase tracking-[0.35em] text-amber-200">AI Pastor</p>
+                    <p className="text-sm font-black uppercase tracking-[0.35em] text-amber-200">AI Counseller</p>
                     <h1 className="text-4xl font-black tracking-tight sm:text-5xl">ReadMe</h1>
                   </div>
                 </div>
@@ -336,7 +336,7 @@ export default function ReadMePage() {
                       onChange={(event) => setConsentAccepted(event.target.checked)}
                       className="mt-1 h-4 w-4 accent-emerald-600"
                     />
-                    <span>I consent to share this captured frame and note with the AI Pastor for biblical counselling.</span>
+                    <span>I consent to share this captured frame and note with the AI Counseller for biblical counselling.</span>
                   </label>
 
                   <button

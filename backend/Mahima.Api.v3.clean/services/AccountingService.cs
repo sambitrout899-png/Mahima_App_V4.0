@@ -14,7 +14,7 @@ public class AccountingService
         _db = db;
     }
 
-    public async Task CreateExpenseEntry(CreateUpdateExpenseDto dto)
+    public async Task CreateExpenseEntry(Guid tenantId, CreateUpdateExpenseDto dto)
     {
         // 🔹 Find expense account
         var expenseAccountName = dto.Category switch
@@ -26,15 +26,16 @@ public class AccountingService
         };
 
         var expenseAccount = await _db.Accounts
-            .FirstAsync(a => a.Name == expenseAccountName);
+            .FirstAsync(a => a.TenantId == tenantId && a.Name == expenseAccountName);
 
         var bankAccount = await _db.Accounts
-            .FirstAsync(a => a.Name == "Bank");
+            .FirstAsync(a => a.TenantId == tenantId && a.Name == "Bank");
 
         // 🔹 Create Journal Entry
         var entry = new Mahima.Api.v3.clean.Models.JournalEntry
 	//var entry = new JournalEntry
         {
+            TenantId = tenantId,
             Date = dto.Date,
             Description = dto.Description
         };

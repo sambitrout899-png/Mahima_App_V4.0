@@ -16,6 +16,7 @@ namespace Mahima.Api.v3.clean.Services
     {
         private readonly MahimaDbContext _db;
         private readonly ILogger<ChatService> _logger;
+<<<<<<< HEAD
         private readonly IDataProtector _messageProtector;
         private const string ProtectedContentPrefix = "dp:v1:";
 
@@ -25,14 +26,34 @@ namespace Mahima.Api.v3.clean.Services
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _messageProtector = (dataProtectionProvider ?? throw new ArgumentNullException(nameof(dataProtectionProvider)))
                 .CreateProtector("Mahima.Api.Chat.MessageContent.v1");
+=======
+        private readonly ITenantContextService _tenantContext;
+
+        public ChatService(MahimaDbContext db, ILogger<ChatService> logger, ITenantContextService tenantContext)
+        {
+            _db = db ?? throw new ArgumentNullException(nameof(db));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         }
 
         // ---------- helpers ----------
         private async Task<bool> IsUserParticipantAsync(Guid chatId, Guid userId)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             return await _db.ChatMembers
                 .AsNoTracking()
-                .AnyAsync(cm => cm.ChatId == chatId && cm.UserId == userId);
+                .AnyAsync(cm =>
+                    cm.ChatId == chatId &&
+                    cm.UserId == userId &&
+                    cm.Chat.TenantId == tenantId &&
+                    cm.User.TenantId == tenantId);
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            return tenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
         }
 
         private Task<bool> IsUserAdminAsync(Guid userId)
@@ -97,6 +118,8 @@ namespace Mahima.Api.v3.clean.Services
 
         public async Task<IEnumerable<ChatSummaryDto>> GetUserChatsAsync(Guid userId)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
+
             // get chat ids for the user (ChatId is Guid)
             var chatIds = await _db.ChatMembers
                 .AsNoTracking()
@@ -109,8 +132,12 @@ namespace Mahima.Api.v3.clean.Services
 
             var chats = await _db.Chats
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(c => chatIds.Contains(c.Id))
                 .Where(c => c.IsGroup || c.Members.Count == 2)
+=======
+                .Where(c => chatIds.Contains(c.Id) && c.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .OrderByDescending(c => c.CreatedAt)
                 .ToListAsync();
 
@@ -177,6 +204,13 @@ namespace Mahima.Api.v3.clean.Services
         {
             if (page < 1) page = 1;
             if (size < 1) size = 50;
+
+            var tenantId = await GetCurrentTenantIdAsync();
+            var chatExists = await _db.Chats
+                .AsNoTracking()
+                .AnyAsync(c => c.Id == chatId && c.TenantId == tenantId);
+            if (!chatExists)
+                return new PaginatedResult<MessageDto>(new List<MessageDto>(), 0, page, size);
 
             var baseQuery = _db.Messages
                 .AsNoTracking()
@@ -259,6 +293,10 @@ namespace Mahima.Api.v3.clean.Services
         // Matches IChatService exactly (Guid, Guid, Guid)
         public async Task MarkReadAsync(Guid chatId, Guid userId, Guid lastMessageId)
         {
+            var isMember = await IsUserParticipantAsync(chatId, userId);
+            if (!isMember)
+                throw new UnauthorizedAccessException("User is not a member of the chat.");
+
             // lastMessageId corresponds to Message.Id (Guid)
             var lastMessage = await _db.Messages
                 .AsNoTracking()
@@ -322,12 +360,14 @@ namespace Mahima.Api.v3.clean.Services
             if (string.IsNullOrWhiteSpace(usernameOrEmail))
                 throw new ArgumentException("usernameOrEmail is required", nameof(usernameOrEmail));
 
+            var tenantId = await GetCurrentTenantIdAsync();
             var normalized = usernameOrEmail.Trim().ToLowerInvariant();
             if (Guid.TryParse(normalized, out var parsedUserId))
                 return await CreateOrGetDirectChatAsync(userId, parsedUserId);
 
             var other = await _db.Users
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(u =>
                     (u.Username != null && u.Username.ToLower() == normalized) ||
                     (u.Email != null && u.Email.ToLower() == normalized) ||
@@ -341,6 +381,14 @@ namespace Mahima.Api.v3.clean.Services
                     u.Email
                 })
                 .FirstOrDefaultAsync();
+=======
+                .FirstOrDefaultAsync(u =>
+                    u.TenantId == tenantId &&
+                    ((u.Username != null && u.Username.ToLower() == normalized) ||
+                     (u.Email != null && u.Email.ToLower() == normalized) ||
+                     (u.Phone != null && u.Phone.ToLower() == normalized) ||
+                     (u.DisplayName != null && u.DisplayName.ToLower() == normalized)));
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             if (other == null)
                 throw new ArgumentException($"User not found: {usernameOrEmail}");
@@ -350,8 +398,12 @@ namespace Mahima.Api.v3.clean.Services
 
             var existingChat = await _db.Chats
                 .Include(c => c.Members)
+<<<<<<< HEAD
                 .Where(c => !c.IsGroup)
                 .Where(c => c.Members.Count == 2)
+=======
+                .Where(c => c.TenantId == tenantId && !c.IsGroup)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .Where(c => c.Members.Any(cm => cm.UserId == userId))
                 .Where(c => c.Members.Any(cm => cm.UserId == other.Id))
                 .FirstOrDefaultAsync();
@@ -378,6 +430,7 @@ namespace Mahima.Api.v3.clean.Services
             {
                 Name = $"{other.Username ?? other.Email}",
                 IsGroup = false,
+                TenantId = tenantId,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -404,8 +457,10 @@ namespace Mahima.Api.v3.clean.Services
             if (userA == userB)
                 throw new ArgumentException("Cannot create a chat with yourself.");
 
+            var tenantId = await GetCurrentTenantIdAsync();
             var otherUser = await _db.Users
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(u => u.Id == userB)
                 .Select(u => new
                 {
@@ -415,6 +470,9 @@ namespace Mahima.Api.v3.clean.Services
                     u.Email
                 })
                 .FirstOrDefaultAsync();
+=======
+                .FirstOrDefaultAsync(u => u.Id == userB && u.TenantId == tenantId);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             if (otherUser == null)
                 throw new ArgumentException("User not found.");
 
@@ -423,8 +481,12 @@ namespace Mahima.Api.v3.clean.Services
 
             var existing = await _db.Chats
                 .Include(c => c.Members)
+<<<<<<< HEAD
                 .Where(c => !c.IsGroup)
                 .Where(c => c.Members.Count == 2)
+=======
+                .Where(c => c.TenantId == tenantId && !c.IsGroup)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .Where(c => c.Members.Any(m => m.UserId == smaller))
                 .Where(c => c.Members.Any(m => m.UserId == larger))
                 .FirstOrDefaultAsync();
@@ -472,6 +534,7 @@ namespace Mahima.Api.v3.clean.Services
                     {
                         Name = otherUser.DisplayName ?? otherUser.Username ?? otherUser.Email,
                         IsGroup = false,
+                        TenantId = tenantId,
                         CreatedBy = userA,
                         CreatedAt = DateTime.UtcNow
                     };
@@ -502,6 +565,7 @@ namespace Mahima.Api.v3.clean.Services
 
         public async Task<IEnumerable<Guid>> GetChatMemberIdsAsync(Guid chatId)
         {
+<<<<<<< HEAD
             var chat = await _db.Chats
                 .AsNoTracking()
                 .Where(c => c.Id == chatId)
@@ -517,9 +581,12 @@ namespace Mahima.Api.v3.clean.Services
                 return Array.Empty<Guid>();
             }
 
+=======
+            var tenantId = await GetCurrentTenantIdAsync();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             var list = await _db.ChatMembers
                 .AsNoTracking()
-                .Where(cm => cm.ChatId == chatId)
+                .Where(cm => cm.ChatId == chatId && cm.Chat.TenantId == tenantId && cm.User.TenantId == tenantId)
                 .Select(cm => cm.UserId)
                 .ToListAsync();
 
@@ -531,13 +598,14 @@ namespace Mahima.Api.v3.clean.Services
             if (chatId == Guid.Empty || userId == Guid.Empty)
                 throw new UnauthorizedAccessException("Unauthorized");
 
-            var chat = await _db.Chats.AsNoTracking().FirstOrDefaultAsync(c => c.Id == chatId);
+            var tenantId = await GetCurrentTenantIdAsync();
+            var chat = await _db.Chats.AsNoTracking().FirstOrDefaultAsync(c => c.Id == chatId && c.TenantId == tenantId);
             if (chat == null)
                 throw new ArgumentException("Chat not found", nameof(chatId));
 
             var memberIds = await _db.ChatMembers
                 .AsNoTracking()
-                .Where(cm => cm.ChatId == chatId)
+                .Where(cm => cm.ChatId == chatId && cm.Chat.TenantId == tenantId && cm.User.TenantId == tenantId)
                 .Select(cm => cm.UserId)
                 .ToListAsync();
 
@@ -612,10 +680,24 @@ namespace Mahima.Api.v3.clean.Services
 
         public async Task<Chat> CreateGroupChatAsync(Guid userId, string name, Guid[] memberIds)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
+            var requestedIds = new HashSet<Guid>(memberIds ?? Array.Empty<Guid>());
+            requestedIds.Add(userId);
+
+            var validMemberIds = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId && requestedIds.Contains(u.Id))
+                .Select(u => u.Id)
+                .ToListAsync();
+
+            if (!validMemberIds.Contains(userId))
+                throw new UnauthorizedAccessException("Current user is not valid for this church.");
+
             var chat = new Chat
             {
                 Name = name,
                 IsGroup = true,
+                TenantId = tenantId,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -624,10 +706,7 @@ namespace Mahima.Api.v3.clean.Services
             await _db.SaveChangesAsync();
 
             // Replace collection-initializer (can cause parse errors in some contexts)
-            var ids = new HashSet<Guid>(memberIds ?? Array.Empty<Guid>());
-            ids.Add(userId);
-
-            var members = ids.Select(id => new ChatMember
+            var members = validMemberIds.Distinct().Select(id => new ChatMember
             {
                 ChatId = chat.Id,
                 UserId = id,

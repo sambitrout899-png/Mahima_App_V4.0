@@ -13,7 +13,11 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
+<<<<<<< HEAD
 [assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f3f55ccb24ccaa1adf8952963be3c40d4f8baca4")]
+=======
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ae6c741aa9bf5a881fc4cdede2c3914426b40663")]
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 [assembly: System.Reflection.AssemblyProductAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Mahima.Api.v3.clean")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -22,6 +22,7 @@ namespace Mahima.Api.Controllers
     {
         private readonly MahimaDbContext _db;
         private readonly IWebHostEnvironment _env;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         // Keep the payslip text ASCII-only so every PDF viewer renders it reliably.
         private const string RUPEE = "Rs.";
@@ -36,6 +37,11 @@ namespace Mahima.Api.Controllers
         private string? GetActorIdString() =>
             User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirst("sub")?.Value;
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         private bool IsAdmin()
         {
@@ -57,6 +63,7 @@ namespace Mahima.Api.Controllers
         {
             _db.AuditLogs.Add(new AuditLog
             {
+                TenantId   = GetCurrentTenantId(),
                 Action     = action,
                 EntityType = entityType,
                 EntityId   = entityId,
@@ -71,7 +78,8 @@ namespace Mahima.Api.Controllers
             var toDate   = to.Date;
             return _db.Timesheets
                       .AsNoTracking()
-                      .Where(x => x.UserId == userId &&
+                       .Where(x => x.TenantId == GetCurrentTenantId() &&
+                                  x.UserId == userId &&
                                   x.Date >= fromDate &&
                                   x.Date <= toDate);
         }
@@ -80,7 +88,7 @@ namespace Mahima.Api.Controllers
         {
             return await _db.StaffPayrollSettings
                             .AsNoTracking()
-                            .FirstOrDefaultAsync(x => x.UserId == userId && x.IsActive);
+                            .FirstOrDefaultAsync(x => x.TenantId == GetCurrentTenantId() && x.UserId == userId && x.IsActive);
         }
 
         private async Task EnsurePayrollPaymentColumnsAsync()
@@ -154,7 +162,7 @@ namespace Mahima.Api.Controllers
 
                 var user = await _db.Users
                                     .AsNoTracking()
-                                    .FirstOrDefaultAsync(u => u.Id == userGuid);
+                                    .FirstOrDefaultAsync(u => u.Id == userGuid && u.TenantId == GetCurrentTenantId());
                 if (user == null) return userId;
 
                 // Common name fields — fall through whichever is populated.
@@ -411,6 +419,7 @@ namespace Mahima.Api.Controllers
         public async Task<IActionResult> GetSettings()
         {
             var list = await _db.StaffPayrollSettings
+                                .Where(x => x.TenantId == GetCurrentTenantId())
                                 .OrderBy(x => x.UserId)
                                 .ToListAsync();
             return Ok(list);
@@ -428,11 +437,12 @@ namespace Mahima.Api.Controllers
                 return BadRequest("Amounts cannot be negative.");
 
             var existing = await _db.StaffPayrollSettings
-                                    .FirstOrDefaultAsync(x => x.UserId == dto.UserId);
+                                    .FirstOrDefaultAsync(x => x.TenantId == GetCurrentTenantId() && x.UserId == dto.UserId);
 
             if (existing == null)
             {
                 dto.Id = 0;
+                dto.TenantId = GetCurrentTenantId();
                 _db.StaffPayrollSettings.Add(dto);
                 AddAudit("Payroll.Settings.Create", "StaffPayrollSetting", dto.UserId, dto);
             }
@@ -481,8 +491,12 @@ namespace Mahima.Api.Controllers
         [HttpGet("~/api/payroll/runs")]
         public async Task<IActionResult> GetRuns([FromQuery] string? userId)
         {
+<<<<<<< HEAD
             await EnsurePayrollPaymentColumnsAsync();
             var query = _db.PayrollRuns.AsQueryable();
+=======
+            var query = _db.PayrollRuns.Where(r => r.TenantId == GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             if (!string.IsNullOrWhiteSpace(userId))
                 query = query.Where(r => r.UserId == userId);
 
@@ -506,7 +520,7 @@ namespace Mahima.Api.Controllers
             {
                 nameMap = await _db.Users
                     .AsNoTracking()
-                    .Where(u => idGuids.Contains(u.Id))
+                    .Where(u => u.TenantId == GetCurrentTenantId() && idGuids.Contains(u.Id))
                     .ToDictionaryAsync(
                         u => u.Id.ToString(),
                         u => (string?)(NotBlank(u.DisplayName) ?? NotBlank(u.Username) ?? NotBlank(u.Email))
@@ -541,6 +555,7 @@ namespace Mahima.Api.Controllers
                 dto.GrossAmount < 0 || dto.NetAmount < 0 || dto.PaidAmount < 0)
                 return BadRequest("Amounts cannot be negative.");
 
+<<<<<<< HEAD
             await EnsurePayrollPaymentColumnsAsync();
             var previousArrears = await GetPreviousArrearsAsync(dto.UserId, dto.From);
             var payable = Math.Max(0m, dto.NetAmount + previousArrears);
@@ -550,6 +565,11 @@ namespace Mahima.Api.Controllers
             var run = new PayrollRun
             {
                 Id          = Guid.NewGuid(),
+=======
+            var run = new PayrollRun
+            {
+                TenantId = GetCurrentTenantId(),
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 UserId      = dto.UserId,
                 StaffName   = dto.DisplayName,
                 From        = DateTime.SpecifyKind(dto.From.Date, DateTimeKind.Utc),
@@ -620,8 +640,12 @@ namespace Mahima.Api.Controllers
         [HttpDelete("~/api/payroll/runs/{id:guid}")]
         public async Task<IActionResult> DeleteRun(Guid id)
         {
+<<<<<<< HEAD
             await EnsurePayrollPaymentColumnsAsync();
             var run = await _db.PayrollRuns.FindAsync(id);
+=======
+            var run = await _db.PayrollRuns.FirstOrDefaultAsync(r => r.Id == id && r.TenantId == GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             if (run == null) return NotFound();
 
             await DeletePayrollRunFinanceAsync(run.Id);
@@ -659,8 +683,12 @@ namespace Mahima.Api.Controllers
         [HttpGet("~/api/payroll/runs/{id:guid}/slip")]
         public async Task<IActionResult> GetRunSlip(Guid id)
         {
+<<<<<<< HEAD
             await EnsurePayrollPaymentColumnsAsync();
             var run = await _db.PayrollRuns.FindAsync(id);
+=======
+            var run = await _db.PayrollRuns.FirstOrDefaultAsync(r => r.Id == id && r.TenantId == GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             if (run == null) return NotFound();
 
             var identity = await ResolvePayrollIdentityAsync(run.UserId);

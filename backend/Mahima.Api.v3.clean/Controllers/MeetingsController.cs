@@ -1,12 +1,12 @@
 using Mahima.Api.v3.clean.Data;
-﻿using Microsoft.AspNetCore.Authorization;
+using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
-using Mahima.Api.v3.clean.Models;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -16,21 +16,31 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         private readonly MahimaDbContext _db;
         private readonly ILogger<MeetingsController> _logger;
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-        public MeetingsController(MahimaDbContext db, ILogger<MeetingsController> logger)
+        public MeetingsController(MahimaDbContext db, ILogger<MeetingsController> logger, ITenantContextService tenantContext)
         {
             _db = db;
             _logger = logger;
+            _tenantContext = tenantContext;
         }
 
-        // GET api/meetings
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            return tenant?.Id ?? RootTenantId;
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             try
             {
+                var tenantId = await GetCurrentTenantIdAsync();
                 var meetings = await _db.Meetings
                     .AsNoTracking()
+                    .Where(m => m.TenantId == tenantId)
                     .OrderBy(m => m.StartTime)
                     .ToListAsync();
 
@@ -43,13 +53,16 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // GET api/meetings/{id}
         [HttpGet("{id:long}")]
         public async Task<IActionResult> Get(long id)
         {
             try
             {
-                var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id);
+                var tenantId = await GetCurrentTenantIdAsync();
+                var meeting = await _db.Meetings
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId);
+
                 if (meeting == null) return NotFound();
                 return Ok(meeting);
             }
@@ -60,8 +73,6 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // POST api/meetings
-        // Create a meeting — require auth for creation
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> Create([FromBody] MeetingCreateDto dto)
@@ -72,6 +83,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var entity = new Meeting
             {
+                TenantId = await GetCurrentTenantIdAsync(),
                 Title = dto.Title.Trim(),
                 Description = dto.Description,
                 Location = dto.Location,
@@ -88,7 +100,6 @@ namespace Mahima.Api.v3.clean.Controllers
                 await _db.SaveChangesAsync();
 
                 _logger.LogInformation("Meeting {Id} created", entity.Id);
-
                 return CreatedAtAction(nameof(Get), new { id = entity.Id }, entity);
             }
             catch (Exception ex)
@@ -98,8 +109,6 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // PUT api/meetings/{id}
-        // Update entire meeting record (idempotent)
         [HttpPut("{id:long}")]
         [Authorize]
         public async Task<IActionResult> Update(long id, [FromBody] MeetingUpdateDto dto)
@@ -110,7 +119,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
             try
             {
-                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id);
+                var tenantId = await GetCurrentTenantIdAsync();
+                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId);
                 if (meeting == null) return NotFound();
 
                 meeting.Title = dto.Title.Trim();
@@ -134,8 +144,6 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // PATCH api/meetings/{id}
-        // Partial update: only provided fields will be changed
         [HttpPatch("{id:long}")]
         [Authorize]
         public async Task<IActionResult> Patch(long id, [FromBody] MeetingPatchDto dto)
@@ -144,10 +152,10 @@ namespace Mahima.Api.v3.clean.Controllers
 
             try
             {
-                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id);
+                var tenantId = await GetCurrentTenantIdAsync();
+                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId);
                 if (meeting == null) return NotFound();
 
-                // Apply only provided fields
                 if (dto.Title != null) meeting.Title = dto.Title.Trim();
                 if (dto.Description != null) meeting.Description = dto.Description;
                 if (dto.Location != null) meeting.Location = dto.Location;
@@ -169,14 +177,14 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // DELETE api/meetings/{id}
         [HttpDelete("{id:long}")]
         [Authorize]
         public async Task<IActionResult> Delete(long id)
         {
             try
             {
-                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id);
+                var tenantId = await GetCurrentTenantIdAsync();
+                var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId);
                 if (meeting == null) return NotFound();
 
                 _db.Meetings.Remove(meeting);
@@ -192,9 +200,6 @@ namespace Mahima.Api.v3.clean.Controllers
             }
         }
 
-        // -----------------------
-        // DTOs
-        // -----------------------
         public class MeetingCreateDto
         {
             public string Title { get; set; } = "";
@@ -207,17 +212,7 @@ namespace Mahima.Api.v3.clean.Controllers
             public bool RsvpRequired { get; set; } = false;
         }
 
-        public class MeetingUpdateDto
-        {
-            public string Title { get; set; } = "";
-            public string? Description { get; set; }
-            public string? Location { get; set; }
-            public decimal? LocationLat { get; set; }
-            public decimal? LocationLng { get; set; }
-            public DateTime StartTime { get; set; }
-            public DateTime? EndTime { get; set; }
-            public bool RsvpRequired { get; set; } = false;
-        }
+        public class MeetingUpdateDto : MeetingCreateDto { }
 
         public class MeetingPatchDto
         {

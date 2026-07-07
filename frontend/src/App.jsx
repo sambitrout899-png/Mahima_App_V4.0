@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import Layout from "./components/Layout";
 import Login from "./features/auth/Login";
 import ResetPassword from "./features/auth/ResetPassword";
@@ -25,8 +25,13 @@ import EmailClientPage from "./features/admin/EmailClientPage";
 import GoogleDrivePage from "./features/admin/GoogleDrivePage";
 import AdminLanguages from "./features/admin/AdminLanguages";
 import ServerFilesPage from "./features/admin/ServerFilesPage";
+<<<<<<< HEAD
 import ReportsPage from "./features/admin/ReportsPage";
 import AuditTrailPage from "./features/admin/AuditTrailPage";
+=======
+import MultiTenantAdminPage from "./features/admin/MultiTenantAdminPage";
+import TenantLandingEditorPage from "./features/admin/TenantLandingEditorPage";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 import PastorPage from "./features/pastor/PastorPage";
 import ReadMePage from "./features/pastor/ReadMePage";
 import AppDownloadsPage from "./features/downloads/AppDownloadsPage";
@@ -37,6 +42,10 @@ import { getToken } from "./features/auth/authService";
 import { setAuthToken } from "./api";
 import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import { getCurrentUser } from "./features/auth/permissionService";
+import { fetchTenantEntitlements, pageIsLicensed } from "./licensing";
+import SaasLandingPage from "./features/saas/SaasLandingPage";
+import SubscriptionsPage from "./features/saas/SubscriptionsPage";
+import BillingCenterPage from "./features/saas/BillingCenterPage";
 
 /* ---------------- AUTH ---------------- */
 function RequireAuth({ children }) {
@@ -72,23 +81,45 @@ function LandingRoute() {
   return <HomeLanding />;
 }
 
+function TenantLandingRoute() {
+  const { tenantSlug } = useParams();
+  useEffect(() => {
+    if (tenantSlug) {
+      localStorage.setItem("mahima_tenant_slug", tenantSlug);
+      localStorage.setItem("tenantSlug", tenantSlug);
+    }
+  }, [tenantSlug]);
+
+  return <HomeLanding />;
+}
+
 /* ROLE + PAGE PERMISSION */
-function RequireRole({ allowedRoles = [], requiredPage = null, strictPage = false, children }) {
+const ROOT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+
+function isRootTenantUser(user) {
+  const tenantId = String(user?.tenantId || user?.tenant_id || user?.TenantId || "").toLowerCase();
+  return user?.isRootTenant === true || user?.IsRootTenant === true || tenantId === ROOT_TENANT_ID;
+}
+
+function RequireRole({ allowedRoles = [], requiredPage = null, strictPage = false, rootOnly = false, children }) {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem("mahima_user") || "null"); }
     catch { return null; }
   });
   const [loading, setLoading] = useState(true);
+  const [licensedModules, setLicensedModules] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getCurrentUser()
-      .then((freshUser) => {
-        if (!cancelled) setUser(freshUser || null);
-      })
-      .catch(() => {
-        if (!cancelled) setUser(null);
+    Promise.all([
+      getCurrentUser().catch(() => null),
+      fetchTenantEntitlements().catch(() => null),
+    ])
+      .then(([freshUser, entitlements]) => {
+        if (cancelled) return;
+        setUser(freshUser || null);
+        setLicensedModules(Array.isArray(entitlements?.modules) ? entitlements.modules : []);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -111,6 +142,12 @@ function RequireRole({ allowedRoles = [], requiredPage = null, strictPage = fals
     ? user.pages.map((page) => String(page).toUpperCase())
     : [];
   const pageKey = requiredPage ? String(requiredPage).toUpperCase() : null;
+
+  if (rootOnly && !isRootTenantUser(user)) return <Navigate to="/home" replace />;
+
+  if (pageKey && !pageIsLicensed(pageKey, licensedModules, isRootTenantUser(user))) {
+    return <Navigate to="/home" replace />;
+  }
 
   if (role === "admin") return children;
 
@@ -145,6 +182,8 @@ export default function App() {
       <Routes>
       {/* PUBLIC ROUTES */}
       <Route path="/" element={<LandingRoute />} />
+      <Route path="/saas" element={<SaasLandingPage />} />
+      <Route path="/t/:tenantSlug" element={<TenantLandingRoute />} />
       <Route path="/login" element={<Login />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/app-downloads" element={<AppDownloadsPage publicMode />} />
@@ -165,10 +204,18 @@ export default function App() {
         {/* Default */}
         <Route index element={<HomeLanding />} />
         <Route path="home" element={<HomeLanding />} />
+<<<<<<< HEAD
         <Route
           path="app-downloads"
           element={
             <RequireRole requiredPage="APP_DOWNLOADS" strictPage>
+=======
+        <Route path="subscriptions" element={<SubscriptionsPage />} />
+        <Route
+          path="app-downloads"
+          element={
+            <RequireRole allowedRoles={["admin", "staff", "member"]} requiredPage="APP_DOWNLOADS">
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
               <AppDownloadsPage />
             </RequireRole>
           }
@@ -187,9 +234,9 @@ export default function App() {
         <Route
           path="chat"
           element={
-            <RequireAuth>
+            <RequireRole allowedRoles={["admin", "staff", "member"]} requiredPage="CHAT">
               <ChatPage />
-            </RequireAuth>
+            </RequireRole>
           }
         />
 
@@ -330,6 +377,30 @@ export default function App() {
           element={
             <RequireRole allowedRoles={["admin"]} requiredPage="LANGUAGES">
               <AdminLanguages />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/multitenant"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="MULTITENANT" rootOnly>
+              <MultiTenantAdminPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/billing"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="SAAS_BILLING" rootOnly>
+              <BillingCenterPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/landing"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="LANDING_PAGE">
+              <TenantLandingEditorPage />
             </RequireRole>
           }
         />

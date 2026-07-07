@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -69,6 +70,19 @@ ALTER TABLE public.""Tasks""
     ADD COLUMN IF NOT EXISTS ""UpdatedById"" uuid NULL,
     ADD COLUMN IF NOT EXISTS ""AssignedByUserId"" uuid NULL,
     ADD COLUMN IF NOT EXISTS ""AssignedByPositionId"" bigint NULL;
+=======
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
+using System.Text.RegularExpressions;
+using Mahima.Api.v3.clean.Hubs;
+using Mahima.Api.v3.clean.Services;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Mvc;
+using Npgsql;
+using NpgsqlTypes;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
 DO $$
 BEGIN
@@ -141,7 +155,105 @@ CREATE INDEX IF NOT EXISTS ix_task_automation_queue_due ON public.""TaskAutomati
             return allowed.Contains(v) ? v : "intake";
         }
 
+<<<<<<< HEAD
         private static (int Status, string ProcessStage) NormalizeStatusAndStage(int? requestedStatus, string? requestedStage)
+=======
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        private static volatile bool _taskAutomationSchemaReady = false;
+
+        private async Task EnsureTaskAutomationQueueAsync(NpgsqlConnection conn, NpgsqlTransaction? tx = null)
+        {
+            if (_taskAutomationSchemaReady) return;
+
+            const string sql = @"
+ALTER TABLE public.""Tasks""
+    ADD COLUMN IF NOT EXISTS ""ProcessStage"" text NOT NULL DEFAULT 'intake',
+    ADD COLUMN IF NOT EXISTS ""UpdatedAt"" timestamp without time zone NULL;
+
+CREATE TABLE IF NOT EXISTS public.""TaskAutomationQueue"" (
+    ""Id"" bigserial PRIMARY KEY,
+    ""TaskId"" bigint NOT NULL REFERENCES public.""Tasks""(""Id"") ON DELETE CASCADE,
+    ""AutomationKey"" text NOT NULL,
+    ""ScheduledAtUtc"" timestamp with time zone NOT NULL,
+    ""Message"" text NOT NULL,
+    ""Status"" text NOT NULL DEFAULT 'pending',
+    ""SentAtUtc"" timestamp with time zone NULL,
+    ""AttemptCount"" integer NOT NULL DEFAULT 0,
+    ""LastError"" text NULL,
+    ""CreatedAtUtc"" timestamp with time zone NOT NULL DEFAULT now(),
+    ""UpdatedAtUtc"" timestamp with time zone NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_task_automation_queue_task_key ON public.""TaskAutomationQueue"" (""TaskId"", ""AutomationKey"");
+CREATE INDEX IF NOT EXISTS ix_task_automation_queue_due ON public.""TaskAutomationQueue"" (""Status"", ""ScheduledAtUtc"");";
+
+            await using var cmd = new NpgsqlCommand(sql, conn, tx);
+            await cmd.ExecuteNonQueryAsync();
+            _taskAutomationSchemaReady = true;
+        }
+
+        private static string? ExtractAutomationKey(string? description)
+        {
+            var match = Regex.Match(description ?? string.Empty, @"^Automation:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return match.Success ? match.Groups[1].Value.Trim() : null;
+        }
+
+        private static string? ExtractAutomationMessage(TaskDto dto)
+        {
+            var match = Regex.Match(dto.Description ?? string.Empty, @"^JaiMasihMessage:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return match.Success ? match.Groups[1].Value.Trim() : null;
+        }
+
+        private static async Task UpsertTaskAutomationQueueAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long taskId, TaskDto dto, bool replacePending)
+        {
+            var key = ExtractAutomationKey(dto.Description);
+            if (string.IsNullOrWhiteSpace(key)) return;
+
+            if (replacePending)
+            {
+                await using var clear = new NpgsqlCommand(@"
+DELETE FROM public.""TaskAutomationQueue""
+WHERE ""TaskId"" = @taskId
+  AND ""Status"" IN ('pending', 'processing');", conn, tx);
+                clear.Parameters.AddWithValue("taskId", taskId);
+                await clear.ExecuteNonQueryAsync();
+            }
+
+            if (!dto.DueDate.HasValue || dto.Status == 2 || dto.Status == 3) return;
+            var scheduledAtUtc = dto.DueDate.Value.Kind == DateTimeKind.Utc
+                ? dto.DueDate.Value
+                : DateTime.SpecifyKind(dto.DueDate.Value, DateTimeKind.Local).ToUniversalTime();
+            if (scheduledAtUtc <= DateTime.UtcNow) return;
+
+            var message = ExtractAutomationMessage(dto);
+            if (string.IsNullOrWhiteSpace(message)) return;
+
+            await using var cmd = new NpgsqlCommand(@"
+INSERT INTO public.""TaskAutomationQueue"" (""TaskId"", ""AutomationKey"", ""ScheduledAtUtc"", ""Message"", ""Status"", ""CreatedAtUtc"")
+VALUES (@taskId, @automationKey, @scheduledAtUtc, @message, 'pending', now())
+ON CONFLICT (""TaskId"", ""AutomationKey"") DO UPDATE
+SET ""ScheduledAtUtc"" = EXCLUDED.""ScheduledAtUtc"",
+    ""Message"" = EXCLUDED.""Message"",
+    ""Status"" = CASE WHEN public.""TaskAutomationQueue"".""Status"" IN ('sent', 'skipped') THEN public.""TaskAutomationQueue"".""Status"" ELSE 'pending' END,
+    ""LastError"" = NULL,
+    ""UpdatedAtUtc"" = now();", conn, tx);
+            cmd.Parameters.AddWithValue("taskId", taskId);
+            cmd.Parameters.AddWithValue("automationKey", key);
+            cmd.Parameters.AddWithValue("scheduledAtUtc", NpgsqlDbType.TimestampTz, scheduledAtUtc);
+            cmd.Parameters.AddWithValue("message", message);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // ============================
+        // GET ALL TASKS
+        // ============================
+        [HttpGet]
+        public async Task<IActionResult> GetAllTasks()
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         {
             var stage = NormalizeProcessStage(requestedStage);
             var status = requestedStatus ?? 0;
@@ -150,15 +262,28 @@ CREATE INDEX IF NOT EXISTS ix_task_automation_queue_due ON public.""TaskAutomati
             if (stage == "done") status = 2;
             if (status == 2) stage = "done";
 
+<<<<<<< HEAD
             return (status, stage);
         }
 
+=======
+            // ---- tasks ----
+            // NOTE: Tasks."AssigneeId" is uuid (legacy single-assignee field).
+            // It is deliberately NOT selected here — the source of truth for
+            // assignments is the polymorphic "TaskAssignees" table loaded below.
+            var taskSql = @"
+SELECT ""Id"", ""Title"", ""Description"", ""Status"", ""Priority"", ""DueDate""
+FROM public.""Tasks""
+WHERE ""TenantId"" = @tenantId
+ORDER BY ""Id"" DESC";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
         private static bool IsPositionAncestorOrSelf(PositionVisibilityContext visibility, long? ownerPositionId)
         {
             return ownerPositionId.HasValue && visibility.PositionTreeIds.Any(id => id == ownerPositionId.Value);
         }
 
+<<<<<<< HEAD
         private static bool LooksLikeAdminRole(string? value)
         {
             var normalized = new string((value ?? "")
@@ -575,6 +700,110 @@ ORDER BY ""CreatedAt"" DESC;", conn);
             return Ok(list);
         }
 
+=======
+            await using (var cmd = new NpgsqlCommand(taskSql, conn))
+            {
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+                await using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var id = reader.GetInt64(0);
+                        taskIds.Add(id);
+                        taskRows.Add(new Dictionary<string, object?>
+                        {
+                            ["id"]          = id,
+                            ["title"]       = reader.GetString(1),
+                            ["description"] = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                            ["status"]      = reader.GetInt32(3),
+                            ["priority"]    = reader.GetInt32(4),
+                            ["dueDate"]     = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5),
+                        });
+                    }
+                }
+            }
+
+            var assigneesByTask = new Dictionary<long, List<object>>();
+            foreach (var id in taskIds) assigneesByTask[id] = new List<object>();
+
+            // ---- assignees (single polymorphic join) ----
+            if (taskIds.Count > 0)
+            {
+                var assigneeSql = @"
+SELECT ta.""TaskId"",
+       ta.""AssigneeType"",
+       ta.""AssigneeId"",
+       u.displayname,
+       u.username,
+       u.email,
+       u.profilephotourl,
+       t.""Name""
+FROM public.""TaskAssignees"" ta
+LEFT JOIN public.users      u ON ta.""AssigneeType"" = 'user' AND u.id::text = ta.""AssigneeId"" AND u.tenant_id = @tenantId
+LEFT JOIN public.""Teams""  t ON ta.""AssigneeType"" = 'team' AND t.""Id""::text = ta.""AssigneeId"" AND t.""TenantId"" = @tenantId
+WHERE ta.""TaskId"" = ANY(@ids)";
+
+                await using var cmd = new NpgsqlCommand(assigneeSql, conn);
+                cmd.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = taskIds.ToArray() });
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var taskId   = reader.GetInt64(0);
+                    var type     = reader.GetString(1);                              // 'user' | 'team'
+                    var rawId    = reader.GetString(2);                              // text
+                    var display  = reader.IsDBNull(3) ? null : reader.GetString(3);
+                    var username = reader.IsDBNull(4) ? null : reader.GetString(4);
+                    var email    = reader.IsDBNull(5) ? null : reader.GetString(5);
+                    var photo    = reader.IsDBNull(6) ? null : reader.GetString(6);
+                    var teamName = reader.IsDBNull(7) ? null : reader.GetString(7);
+
+                    if (!assigneesByTask.TryGetValue(taskId, out var bucket)) continue;
+
+                    if (string.Equals(type, "team", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bucket.Add(new
+                        {
+                            id = rawId,
+                            type = "team",
+                            name = teamName ?? "Team",
+                        });
+                    }
+                    else
+                    {
+                        bucket.Add(new
+                        {
+                            id = rawId,
+                            type = "user",
+                            name = display ?? username ?? email ?? "User",
+                            displayName = display,
+                            email = email,
+                            avatarUrl = photo,
+                        });
+                    }
+                }
+            }
+
+            foreach (var row in taskRows)
+            {
+                var id = (long)row["id"]!;
+                list.Add(new
+                {
+                    id          = row["id"],
+                    title       = row["title"],
+                    description = row["description"],
+                    status      = row["status"],
+                    priority    = row["priority"],
+                    dueDate     = row["dueDate"],
+                    assigneeId  = (object?)null, // legacy field — always null going forward
+                    assignees   = assigneesByTask.TryGetValue(id, out var a) ? a : new List<object>(),
+                });
+            }
+
+            return Ok(list);
+        }
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         // ============================
         // CREATE TASK
         // ============================
@@ -588,6 +817,7 @@ ORDER BY ""CreatedAt"" DESC;", conn);
                 await EnsureProcessSchemaAsync(conn);
                 var visibility = await PositionVisibilityService.ResolveAsync(HttpContext, conn);
                 await using var tx = await conn.BeginTransactionAsync();
+                await EnsureTaskAutomationQueueAsync(conn, tx);
 
                 var statusStage = NormalizeStatusAndStage(dto.Status, dto.ProcessStage);
                 int status = statusStage.Status;
@@ -595,8 +825,13 @@ ORDER BY ""CreatedAt"" DESC;", conn);
 
                 var sql = @"
 INSERT INTO public.""Tasks""
+<<<<<<< HEAD
 (""Title"", ""Description"", ""Status"", ""Priority"", ""DueDate"", ""ParentTaskId"", ""TaskType"", ""ProcessStage"", ""FollowUpDate"", ""FollowUpNotes"", ""CreatedById"", ""OwnerPositionId"", ""AssignedByUserId"", ""AssignedByPositionId"")
 VALUES (@t, @d, @s, @p, @dd, @parentTaskId, @taskType, @processStage, @followUpDate, @followUpNotes, @createdById, @ownerPositionId, @assignedByUserId, @assignedByPositionId)
+=======
+(""Title"", ""Description"", ""Status"", ""Priority"", ""DueDate"", ""TenantId"")
+VALUES (@t, @d, @s, @p, @dd, @tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 RETURNING ""Id"";";
 
                 long newId;
@@ -607,6 +842,7 @@ RETURNING ""Id"";";
                     cmd.Parameters.AddWithValue("s", status);
                     cmd.Parameters.AddWithValue("p", priority);
                     cmd.Parameters.AddWithValue("dd", (object?)dto.DueDate ?? DBNull.Value);
+<<<<<<< HEAD
                     cmd.Parameters.AddWithValue("parentTaskId", (object?)dto.ParentTaskId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("taskType", NormalizeTaskType(dto.TaskType));
                     cmd.Parameters.AddWithValue("processStage", statusStage.ProcessStage);
@@ -616,14 +852,21 @@ RETURNING ""Id"";";
                     cmd.Parameters.AddWithValue("ownerPositionId", visibility.PositionId.HasValue ? (object)visibility.PositionId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("assignedByUserId", visibility.UserId == Guid.Empty ? DBNull.Value : (object)visibility.UserId);
                     cmd.Parameters.AddWithValue("assignedByPositionId", visibility.PositionId.HasValue ? (object)visibility.PositionId.Value : DBNull.Value);
+=======
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
                     var idObj = await cmd.ExecuteScalarAsync();
                     if (idObj == null) { await tx.RollbackAsync(); return StatusCode(500, "Insert returned no id"); }
                     newId = Convert.ToInt64(idObj);
                 }
 
+<<<<<<< HEAD
                 await WriteAssigneesAsync(conn, tx, newId, dto.Assignees, replaceExisting: false, visibility);
                 await LogTaskActivityAsync(conn, tx, newId, dto.ParentTaskId.HasValue ? "subtask-created" : "task-created", $"Type: {NormalizeTaskType(dto.TaskType)}; Status: {status}; Stage: {statusStage.ProcessStage}");
+=======
+                await WriteAssigneesAsync(conn, tx, newId, dto.Assignees, replaceExisting: false);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 await UpsertTaskAutomationQueueAsync(conn, tx, newId, dto, replacePending: false);
 
                 await tx.CommitAsync();
@@ -653,6 +896,7 @@ RETURNING ""Id"";";
                 var visibility = await PositionVisibilityService.ResolveAsync(HttpContext, conn);
                 if (!await CanModifyTaskAsync(conn, id, visibility)) return Forbid();
                 await using var tx = await conn.BeginTransactionAsync();
+                await EnsureTaskAutomationQueueAsync(conn, tx);
 
                 var statusStage = NormalizeStatusAndStage(dto.Status, dto.ProcessStage);
                 int status = statusStage.Status;
@@ -664,6 +908,7 @@ UPDATE public.""Tasks""
        ""Description""=@d,
        ""Status""=@s,
        ""Priority""=@p,
+<<<<<<< HEAD
        ""DueDate""=@dd,
        ""ParentTaskId""=@parentTaskId,
        ""TaskType""=@taskType,
@@ -672,6 +917,10 @@ UPDATE public.""Tasks""
        ""FollowUpNotes""=@followUpNotes,
        ""UpdatedById""=@updatedById
  WHERE ""Id""=@id;";
+=======
+       ""DueDate""=@dd
+ WHERE ""Id""=@id AND ""TenantId""=@tenantId;";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
                 int rows;
                 await using (var cmd = new NpgsqlCommand(sql, conn, tx))
@@ -682,20 +931,28 @@ UPDATE public.""Tasks""
                     cmd.Parameters.AddWithValue("s", status);
                     cmd.Parameters.AddWithValue("p", priority);
                     cmd.Parameters.AddWithValue("dd", (object?)dto.DueDate ?? DBNull.Value);
+<<<<<<< HEAD
                     cmd.Parameters.AddWithValue("parentTaskId", (object?)dto.ParentTaskId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("taskType", NormalizeTaskType(dto.TaskType));
                     cmd.Parameters.AddWithValue("processStage", statusStage.ProcessStage);
                     cmd.Parameters.AddWithValue("followUpDate", (object?)dto.FollowUpDate ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("followUpNotes", string.IsNullOrWhiteSpace(dto.FollowUpNotes) ? DBNull.Value : dto.FollowUpNotes.Trim());
                     cmd.Parameters.AddWithValue("updatedById", visibility.UserId == Guid.Empty ? DBNull.Value : (object)visibility.UserId);
+=======
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
                     rows = await cmd.ExecuteNonQueryAsync();
                 }
 
                 if (rows == 0) { await tx.RollbackAsync(); return NotFound(); }
 
+<<<<<<< HEAD
                 await WriteAssigneesAsync(conn, tx, id, dto.Assignees, replaceExisting: true, visibility);
                 await LogTaskActivityAsync(conn, tx, id, "task-updated", $"Status: {status}; Stage: {statusStage.ProcessStage}");
+=======
+                await WriteAssigneesAsync(conn, tx, id, dto.Assignees, replaceExisting: true);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 await UpsertTaskAutomationQueueAsync(conn, tx, id, dto, replacePending: true);
 
                 await tx.CommitAsync();
@@ -804,10 +1061,16 @@ SELECT
             var visibility = await PositionVisibilityService.ResolveAsync(HttpContext, conn);
             if (!await CanModifyTaskAsync(conn, id, visibility)) return Forbid();
 
+<<<<<<< HEAD
             var sql = @"DELETE FROM public.""Tasks"" WHERE ""Id""=@id";
+=======
+            // FK ON DELETE CASCADE handles the TaskAssignees rows.
+        var sql = @"DELETE FROM public.""Tasks"" WHERE ""Id""=@id AND ""TenantId""=@tenantId";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
-            await using var cmd = new NpgsqlCommand(sql, conn);
-            cmd.Parameters.AddWithValue("id", id);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
 
             await cmd.ExecuteNonQueryAsync();
 
@@ -854,11 +1117,13 @@ SELECT
                 if (type == "user")
                 {
                     if (!Guid.TryParse(a.Id, out var uid)) continue;
+                    if (!await UserBelongsToTenantAsync(conn, tx, uid)) continue;
                     canonId = uid.ToString();
                 }
                 else
                 {
                     if (!long.TryParse(a.Id, out var tid)) continue;
+                    if (!await TeamBelongsToTenantAsync(conn, tx, tid)) continue;
                     canonId = tid.ToString();
                 }
 
@@ -943,10 +1208,21 @@ SELECT
             var ids = new List<long>();
             if (userId == Guid.Empty) return ids;
             await using var cmd = new NpgsqlCommand(@"
+<<<<<<< HEAD
 SELECT DISTINCT teamid
 FROM public.teammembers
 WHERE userid = @user_id;", conn);
             cmd.Parameters.AddWithValue("user_id", NpgsqlDbType.Uuid, userId);
+=======
+SELECT DISTINCT tm.userid
+FROM public.teammembers tm
+JOIN public.""Teams"" t ON t.""Id"" = tm.teamid AND t.""TenantId"" = @tenantId
+JOIN public.users u ON u.id = tm.userid AND u.tenant_id = @tenantId
+WHERE tm.teamid = ANY(@teamIds);", conn);
+            cmd.Parameters.AddWithValue("teamIds", NpgsqlDbType.Array | NpgsqlDbType.Bigint, teamIds.ToArray());
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             await using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
             {
@@ -954,6 +1230,7 @@ WHERE userid = @user_id;", conn);
             }
             return ids;
         }
+<<<<<<< HEAD
         private async IAsyncEnumerable<Guid> LoadTeamMemberIdsAsync(IReadOnlyList<long> teamIds)
         {
             if (teamIds.Count == 0) yield break;
@@ -1012,3 +1289,53 @@ WHERE teamid = ANY(@teamIds);", conn);
 
 
 
+=======
+
+        private async Task<bool> UserBelongsToTenantAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid userId)
+        {
+            await using var cmd = new NpgsqlCommand(
+                @"SELECT EXISTS (
+                    SELECT 1 FROM public.users
+                    WHERE id = @userId AND tenant_id = @tenantId
+                );", conn, tx);
+            cmd.Parameters.AddWithValue("userId", NpgsqlDbType.Uuid, userId);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+            return (bool)(await cmd.ExecuteScalarAsync() ?? false);
+        }
+
+        private async Task<bool> TeamBelongsToTenantAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long teamId)
+        {
+            await using var cmd = new NpgsqlCommand(
+                @"SELECT EXISTS (
+                    SELECT 1 FROM public.""Teams""
+                    WHERE ""Id"" = @teamId AND ""TenantId"" = @tenantId
+                );", conn, tx);
+            cmd.Parameters.AddWithValue("teamId", teamId);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+            return (bool)(await cmd.ExecuteScalarAsync() ?? false);
+        }
+
+        public class TaskAssigneeDto
+        {
+            public string? Id { get; set; }
+            public string? Type { get; set; }
+        }
+
+        public class TaskDto
+        {
+            public string? Title { get; set; }
+            public string? Description { get; set; }
+            public int? Status { get; set; }
+            public int? Priority { get; set; }
+            public DateTime? DueDate { get; set; }
+            public long? AssigneeId { get; set; }
+            public List<TaskAssigneeDto>? Assignees { get; set; }
+            public string? TaskType { get; set; }
+            public string? ProcessStage { get; set; }
+            public DateTime? FollowUpDate { get; set; }
+            public string? FollowUpNotes { get; set; }
+            public long? ParentTaskId { get; set; }
+        }
+    }
+}
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)

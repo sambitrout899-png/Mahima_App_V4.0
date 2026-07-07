@@ -477,7 +477,10 @@ export default function AdminDashboard() {
   const [rawResults, setRawResults] = useState([]);
   const [loading, setLoading]       = useState(false);
   const [error,   setError]         = useState("");
+<<<<<<< HEAD
   const [chatSafetyScanStatus, setChatSafetyScanStatus] = useState("");
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
   const [dateRange, setDateRange]   = useState(30);
   const [countdown, setCountdown]   = useState(AUTO_REFRESH);
   const timerRef = useRef(null);
@@ -534,6 +537,7 @@ export default function AdminDashboard() {
 
   async function blockUser(uid,reason){ if(!uid||!confirm("Block this user?"))return; try{ await api.post(`/admin/daily-routines/users/${uid}/block`,{reason}); load(); }catch(e){setError(e.message);} }
   async function unblockUser(uid)    { if(!uid||!confirm("Unblock?"))return;           try{ await api.post(`/admin/daily-routines/users/${uid}/unblock`);        load(); }catch(e){setError(e.message);} }
+<<<<<<< HEAD
   async function scanChatSafety() {
     try {
       setLoading(true);
@@ -574,6 +578,18 @@ export default function AdminDashboard() {
     if(!userId || !confirm("Unblock this user and allow login again?")) return;
     try{ await api.post(`/admin/chat-safety/users/${userId}/unblock`); load(); }catch(e){setError(e.message);}
   }
+=======
+  async function scanChatSafety()     { try{ setLoading(true); await api.post("/admin/chat-safety/scan-now"); await load(); }catch(e){setError(e.message);} finally{setLoading(false);} }
+  async function resolveChatAlert(id) { if(!id)return; try{ await api.post(`/admin/chat-safety/alerts/${id}/resolve`); load(); }catch(e){setError(e.message);} }
+  async function blockChatSafetyUser(userId, reason) {
+    if(!userId || !confirm("Block this user from logging in?")) return;
+    try{ await api.post(`/admin/chat-safety/users/${userId}/block`, { reason }); load(); }catch(e){setError(e.message);}
+  }
+  async function unblockChatSafetyUser(userId) {
+    if(!userId || !confirm("Unblock this user and allow login again?")) return;
+    try{ await api.post(`/admin/chat-safety/users/${userId}/unblock`); load(); }catch(e){setError(e.message);}
+  }
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
   if(!canAccess) return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -653,7 +669,10 @@ export default function AdminDashboard() {
           summary={db.chatSafety}
           alerts={db.chatAlerts}
           loading={loading}
+<<<<<<< HEAD
           scanStatus={chatSafetyScanStatus}
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
           onScan={scanChatSafety}
           onResolve={resolveChatAlert}
           onBlockUser={blockChatSafetyUser}
@@ -1198,7 +1217,11 @@ function CommsPanel({ db, navigate }) {
 }
 
 /* ═══════════════════ DAILY ROUTINES ═══════════════════ */
+<<<<<<< HEAD
 function ChatSafetyPanel({ summary, alerts, loading, scanStatus, onScan, onResolve, onBlockUser, onUnblockUser, navigate }) {
+=======
+function ChatSafetyPanel({ summary, alerts, loading, onScan, onResolve, onBlockUser, onUnblockUser, navigate }) {
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
   const rows = arrayFrom(alerts);
   const open = num(summary?.open);
   const special = num(summary?.special);
@@ -1248,6 +1271,7 @@ function ChatSafetyPanel({ summary, alerts, loading, scanStatus, onScan, onResol
         </div>
       )}
 
+<<<<<<< HEAD
       {scanStatus && (
         <div className="px-5 pt-3">
           <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
@@ -1256,6 +1280,8 @@ function ChatSafetyPanel({ summary, alerts, loading, scanStatus, onScan, onResol
         </div>
       )}
 
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
       <div className="p-5">
         {!rows.length ? (
           <EmptyState text="No unresolved chat safety alerts."/>

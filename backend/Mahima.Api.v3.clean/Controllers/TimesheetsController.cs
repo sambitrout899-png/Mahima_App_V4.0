@@ -18,6 +18,7 @@ namespace Mahima.Api.Controllers
     public class TimesheetsController : ControllerBase
     {
         private readonly MahimaDbContext _db;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public TimesheetsController(MahimaDbContext db)
         {
@@ -39,7 +40,16 @@ namespace Mahima.Api.Controllers
 
         private string? GetActorIdString() => GetActorId()?.ToString();
 
+<<<<<<< HEAD
         private bool HasAnyRole(params string[] roles)
+=======
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
+
+        private bool IsAdmin()
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         {
             var allowed = roles
                 .Select(r => r.Trim().ToLowerInvariant())
@@ -74,6 +84,7 @@ namespace Mahima.Api.Controllers
         {
             var log = new AuditLog
             {
+                TenantId = GetCurrentTenantId(),
                 ActorId = GetActorId(),
                 Action = action,
                 EntityType = entityType,
@@ -108,7 +119,8 @@ namespace Mahima.Api.Controllers
                 userId = actorId;
             }
 
-            var query = _db.Timesheets.AsQueryable();
+            var tenantId = GetCurrentTenantId();
+            var query = _db.Timesheets.Where(x => x.TenantId == tenantId);
 
             if (!string.IsNullOrEmpty(userId))
                 query = query.Where(x => x.UserId == userId);
@@ -146,6 +158,7 @@ namespace Mahima.Api.Controllers
             if (string.IsNullOrWhiteSpace(model.UserId))
                 return BadRequest("UserId is required.");
 
+<<<<<<< HEAD
             if (!canManageOthers)
             {
                 if (string.IsNullOrWhiteSpace(actorId))
@@ -154,6 +167,9 @@ namespace Mahima.Api.Controllers
                     return Forbid();
             }
 
+=======
+            model.TenantId = GetCurrentTenantId();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             model.Date = DateTime.SpecifyKind(model.Date, DateTimeKind.Unspecified);
 
             _db.Timesheets.Add(model);
@@ -176,7 +192,8 @@ namespace Mahima.Api.Controllers
         [HttpPut("{id:int}")]
         public async Task<IActionResult> Put(int id, [FromBody] Timesheet model)
         {
-            var existing = await _db.Timesheets.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var existing = await _db.Timesheets.FirstOrDefaultAsync(t => t.Id == id && t.TenantId == tenantId);
             if (existing == null) return NotFound();
 
             var canManageOthers = CanManageOthers();
@@ -229,7 +246,8 @@ namespace Mahima.Api.Controllers
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var existing = await _db.Timesheets.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var existing = await _db.Timesheets.FirstOrDefaultAsync(t => t.Id == id && t.TenantId == tenantId);
             if (existing == null) return NotFound();
 
             if (!CanManageOthers() && !IsActor(existing.UserId))

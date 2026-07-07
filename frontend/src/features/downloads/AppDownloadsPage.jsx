@@ -19,9 +19,9 @@ import {
   UploadCloud,
   Wifi,
 } from "lucide-react";
-import mahimaLogo from "../../assets/mahima-logo.png";
 import { API_BASE } from "../../api";
 import { getToken } from "../../utils/auth";
+import TenantLogo from "../../components/TenantLogo";
 
 function envValue(key, fallback) {
   const value = import.meta.env[key];
@@ -398,9 +398,13 @@ export default function AppDownloadsPage({ publicMode = false }) {
                 Mahima mobile app
               </div>
               <div className="mt-5 flex items-center gap-4">
+<<<<<<< HEAD
                 <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg bg-white p-2 shadow-lg">
                   <img src={mahimaLogo} alt="Mahima Ministry" className="h-full w-full object-contain" />
                 </div>
+=======
+                <TenantLogo name="Mobile App" className="h-16 w-16 rounded-lg shadow-lg" fallbackClassName="bg-white text-emerald-800" />
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 <div>
                   <h1 className="text-3xl font-black leading-tight sm:text-4xl">Download Mahima App</h1>
                   <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-emerald-50 sm:text-base">

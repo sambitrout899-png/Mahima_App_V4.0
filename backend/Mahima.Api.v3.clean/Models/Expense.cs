@@ -6,6 +6,7 @@ namespace Mahima.Api.v3.clean.Models
     public class Expense
     {
         public long Id { get; set; }
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public string Description { get; set; } = string.Empty;
 
@@ -46,6 +47,7 @@ namespace Mahima.Api.v3.clean.Models
 	public class Account
 {
     public long Id { get; set; }
+    public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
     public string Name { get; set; } = "";
     public string Type { get; set; } = ""; 
     // ASSET | LIABILITY | INCOME | EXPENSE
@@ -56,6 +58,7 @@ namespace Mahima.Api.v3.clean.Models
 public class JournalEntry
 {
     public long Id { get; set; }
+    public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
     public DateTime Date { get; set; }
     public string Description { get; set; } = "";
 

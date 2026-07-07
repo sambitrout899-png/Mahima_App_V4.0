@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace Mahima.Api.v3.clean.Controllers
 {
     [ApiController]
+    [Authorize]
     [Route("api/[controller]")]
     public class UsersController : ControllerBase
     {
@@ -64,6 +65,11 @@ namespace Mahima.Api.v3.clean.Controllers
             Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id)
                 ? id
                 : Guid.Empty;
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         private static DateTime? ParsePayloadDate(string? value)
         {
@@ -295,8 +301,14 @@ CREATE TABLE IF NOT EXISTS public.user_access_blocks (
                 var userCodeExpr = Expr("UserCode", "usercode");
                 var isDeletedExpr = Expr("isdeleted", "IsDeleted");
                 var payrollEnabledExpr = Expr("payrollenabled", "PayrollEnabled", "payroll_enabled");
+                var tenantIdExpr = Expr("tenant_id");
 
                 var conditions = new List<string>();
+                if (tenantIdExpr != "NULL")
+                {
+                    conditions.Add($"({tenantIdExpr}) = @tenantId");
+                }
+
                 if (isDeletedExpr != "NULL")
                 {
                     conditions.Add($"COALESCE(({isDeletedExpr})::boolean, false) = false");
@@ -366,6 +378,7 @@ ORDER BY ({joinDateExpr}) DESC NULLS LAST, COALESCE(({displayNameExpr})::text, (
 LIMIT @limit OFFSET @offset;";
 
                 await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 cmd.Parameters.AddWithValue("limit", NpgsqlTypes.NpgsqlDbType.Integer, limit);
                 cmd.Parameters.AddWithValue("offset", NpgsqlTypes.NpgsqlDbType.Integer, offset);
                 if (hasSearch)
@@ -460,6 +473,50 @@ WHERE table_schema = 'public'
             return member ?? (2, "Member");
         }
 
+        private static string NormalizeUserCodePrefix(string? value)
+        {
+            var cleaned = new string((value ?? "MHN").ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+            if (cleaned.Length < 2) cleaned = "MHN";
+            return cleaned.Length > 12 ? cleaned[..12] : cleaned;
+        }
+
+        private static async Task<string> ReadTenantUserCodePrefixAsync(NpgsqlConnection conn, Guid tenantId)
+        {
+            await using var columnCmd = new NpgsqlCommand(@"
+SELECT 1
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'tenants'
+  AND column_name = 'user_code_prefix'
+LIMIT 1;", conn);
+            var hasColumn = await columnCmd.ExecuteScalarAsync() != null;
+            if (!hasColumn) return "MHN";
+
+            await using var cmd = new NpgsqlCommand(@"
+SELECT user_code_prefix
+FROM public.tenants
+WHERE id = @tenantId
+LIMIT 1;", conn);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+            var value = await cmd.ExecuteScalarAsync();
+            return NormalizeUserCodePrefix(value?.ToString());
+        }
+
+        private static async Task<string> GenerateTenantUserCodeAsync(NpgsqlConnection conn, Guid tenantId)
+        {
+            var prefix = await ReadTenantUserCodePrefixAsync(conn, tenantId);
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                var code = $"{prefix}{Random.Shared.Next(1, 999999):D6}";
+                await using var cmd = new NpgsqlCommand(@"SELECT COUNT(*) FROM public.users WHERE ""UserCode"" = @code;", conn);
+                cmd.Parameters.AddWithValue("code", NpgsqlTypes.NpgsqlDbType.Text, code);
+                var exists = Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+                if (!exists) return code;
+            }
+
+            return $"{prefix}{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000:D8}";
+        }
+
         private static string? DbString(IDataRecord rdr, string name)
         {
             var value = rdr[name];
@@ -550,8 +607,10 @@ SELECT u.id, u.username, u.email, u.displayname, u.profilephotourl, p.status
 FROM public.users u
 LEFT JOIN public.user_profiles p ON p.user_id = u.id
 WHERE u.id = @id
+  AND u.tenant_id = @tenantId
 LIMIT 1;", conn);
                 cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (!await rdr.ReadAsync()) return NotFound();
@@ -595,9 +654,10 @@ LIMIT 1;", conn);
 UPDATE public.users
 SET displayname = COALESCE(NULLIF(@displayName, ''), displayname),
     profilephotourl = COALESCE(NULLIF(@photo, ''), profilephotourl)
-WHERE id = @id;", conn, tx))
+WHERE id = @id AND tenant_id = @tenantId;", conn, tx))
                 {
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                     cmd.Parameters.AddWithValue("displayName", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto.DisplayName?.Trim() ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("photo", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto.ProfilePhotoUrl?.Trim() ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync();
@@ -668,7 +728,7 @@ UPDATE users SET
     ""CurrentAddress"" = @CurrentAddress,
     ""EmergencyContactPhone"" = @EmergencyContactPhone,
     ""IsPastor"" = @IsPastor
-WHERE id = @Id;
+WHERE id = @Id AND tenant_id = @TenantId;
 "
 };             //cmd.Parameters.AddWithValue("Id", NpgsqlTypes.NpgsqlDbType.Uuid, id);
                 var isGuid = Guid.TryParse(id, out var guidId);
@@ -677,6 +737,7 @@ WHERE id = @Id;
         cmd.Parameters.AddWithValue("Id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
         else
         cmd.Parameters.AddWithValue("Id", NpgsqlTypes.NpgsqlDbType.Text, id);
+                cmd.Parameters.AddWithValue("TenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 object DbNullIfNull(object? v) => v ?? DBNull.Value;
 
                 cmd.Parameters.AddWithValue("Birthday",
@@ -768,8 +829,9 @@ WHERE id = @Id;
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
                                               FROM users
-                                              WHERE id = @id", conn);
+                                              WHERE id = @id AND tenant_id = @tenantId", conn);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 }
                 else if (isInt)
                 {
@@ -783,8 +845,9 @@ WHERE id = @Id;
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
                                               FROM users
-                                              WHERE id = @id", conn);
+                                              WHERE id = @id AND tenant_id = @tenantId", conn);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 }
                 else if (isLong)
                 {
@@ -798,8 +861,9 @@ WHERE id = @Id;
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
                                               FROM users
-                                              WHERE id = @id", conn);
+                                              WHERE id = @id AND tenant_id = @tenantId", conn);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 }
                 else
                 {
@@ -813,8 +877,9 @@ WHERE id = @Id;
                                                   role        AS ""Role"",
                                                   joindate    AS ""JoinDate""
                                               FROM users
-                                              WHERE cast(id as text) = @id", conn);
+                                              WHERE cast(id as text) = @id AND tenant_id = @tenantId", conn);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
+                    cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
                 }
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
@@ -918,6 +983,10 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
         if (string.IsNullOrWhiteSpace(password))
             return BadRequest("password required");
 
+        var tenantId = GetCurrentTenantId();
+        if (tenantId == Guid.Empty)
+            return BadRequest(new { message = "Tenant context is missing. Please login again for the correct church." });
+
         // 🔥 HASH PASSWORD
         var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<string>();
         var hash = hasher.HashPassword(username, password);
@@ -948,16 +1017,36 @@ public async Task<IActionResult> Create([FromBody] JsonElement body)
 
         var (roleId, roleName) = await ResolveRoleAsync(conn, requestedRole);
 
+        await using (var duplicateCmd = new NpgsqlCommand(@"
+SELECT 1
+FROM users
+WHERE tenant_id = @tenantId
+  AND (
+    lower(username) = lower(@username)
+    OR (@email IS NOT NULL AND email IS NOT NULL AND lower(email) = lower(@email))
+  )
+LIMIT 1;", conn))
+        {
+            duplicateCmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+            duplicateCmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username);
+            duplicateCmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
+            var exists = await duplicateCmd.ExecuteScalarAsync();
+            if (exists != null)
+                return Conflict(new { message = "A user with this username or email already exists in this church." });
+        }
+
+        var userCode = await GenerateTenantUserCodeAsync(conn, tenantId);
+
         const string sql = @"
 INSERT INTO users (
-    username, email, passwordhash, role, joindate, phone, displayname, profilephotourl,
+    username, ""UserCode"", email, passwordhash, role, joindate, phone, displayname, profilephotourl, tenant_id,
     ""Birthday"", ""MaritalStatus"", ""Sex"", ""IsBaptized"", ""BaptismPlace"",
     ""BaptismDate"", ""IsBornAgain"", ""IsBeliever"", ""Age"",
     ""AadharNumber"", ""HomeAddress"", ""CurrentAddress"",
     ""EmergencyContactPhone"", ""IsPastor"", payrollenabled
 )
 VALUES (
-    @username, @email, @passwordhash, @role, @JoinDate, @phone, @displayname, @profilePhotoUrl,
+    @username, @userCode, @email, @passwordhash, @role, @JoinDate, @phone, @displayname, @profilePhotoUrl, @tenantId,
     @Birthday, @MaritalStatus, @Sex, @IsBaptized, @BaptismPlace,
     @BaptismDate, @IsBornAgain, @IsBeliever, @Age,
     @AadharNumber, @HomeAddress, @CurrentAddress,
@@ -970,6 +1059,7 @@ RETURNING id;
 
         // 🔹 BASIC PARAMS
         cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username);
+        cmd.Parameters.AddWithValue("userCode", NpgsqlTypes.NpgsqlDbType.Text, userCode);
         cmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
         cmd.Parameters.AddWithValue("passwordhash", NpgsqlTypes.NpgsqlDbType.Text, hash);
         cmd.Parameters.AddWithValue("role", NpgsqlTypes.NpgsqlDbType.Text, roleId.ToString());
@@ -979,6 +1069,7 @@ RETURNING id;
             NpgsqlTypes.NpgsqlDbType.Text,
             !string.IsNullOrWhiteSpace(displayName) ? displayName : username);
         cmd.Parameters.AddWithValue("profilePhotoUrl", NpgsqlTypes.NpgsqlDbType.Text, (object?)profilePhotoUrl ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
 
         // 🔹 ENRICH PARAMS
         cmd.Parameters.AddWithValue("Birthday", NpgsqlTypes.NpgsqlDbType.TimestampTz, DbTimestamp(birthday));
@@ -1005,6 +1096,7 @@ RETURNING id;
         return Ok(new
         {
             id,
+            userCode,
             username,
             email,
             phone,
@@ -1021,7 +1113,10 @@ RETURNING id;
     catch (Exception ex)
     {
         _logger.LogError(ex, "Create user failed");
-        return StatusCode(500, ex.Message);
+        if (ex is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation)
+            return Conflict(new { message = "A user with the same username, email, phone, or user code already exists." });
+
+        return StatusCode(500, new { message = $"Create user failed: {ex.Message}" });
     }
 }
 
@@ -1033,7 +1128,8 @@ RETURNING id;
             bool isInt,
             int intId,
             bool isLong,
-            long longId)
+            long longId,
+            Guid tenantId)
         {
             var columns = await GetUsersColumnsAsync(conn);
             string? Column(params string[] names) => names.FirstOrDefault(columns.Contains);
@@ -1076,24 +1172,25 @@ RETURNING id;
 
             if (isGuid)
             {
-                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id AND tenant_id = @tenantId";
                 cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
             }
             else if (isInt)
             {
-                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id AND tenant_id = @tenantId";
                 cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
             }
             else if (isLong)
             {
-                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id";
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE id = @id AND tenant_id = @tenantId";
                 cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
             }
             else
             {
-                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE cast(id as text) = @id";
+                cmd.CommandText = $@"UPDATE users SET {string.Join(", ", sets)} WHERE cast(id as text) = @id AND tenant_id = @tenantId";
                 cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
             }
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
 
             return await cmd.ExecuteNonQueryAsync();
         }
@@ -1163,7 +1260,7 @@ RETURNING id;
 
                 if (blockers.Count > 0)
                 {
-                    var softRows = await SoftDeleteUserAsync(conn, id, isGuid, guidId, isInt, intId, isLong, longId);
+                    var softRows = await SoftDeleteUserAsync(conn, id, isGuid, guidId, isInt, intId, isLong, longId, GetCurrentTenantId());
                     if (softRows == 0) return NotFound();
 
                     return Ok(new
@@ -1177,24 +1274,25 @@ RETURNING id;
                 await using var delCmd = new NpgsqlCommand { Connection = conn, CommandType = CommandType.Text };
                 if (isGuid)
                 {
-                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id";
+                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id AND tenant_id = @tenantId";
                     delCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
                 }
                 else if (isInt)
                 {
-                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id";
+                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id AND tenant_id = @tenantId";
                     delCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
                 }
                 else if (isLong)
                 {
-                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id";
+                    delCmd.CommandText = @"DELETE FROM users WHERE id = @id AND tenant_id = @tenantId";
                     delCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
                 }
                 else
                 {
-                    delCmd.CommandText = @"DELETE FROM users WHERE cast(id as text) = @id";
+                    delCmd.CommandText = @"DELETE FROM users WHERE cast(id as text) = @id AND tenant_id = @tenantId";
                     delCmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
                 }
+                delCmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 var rows = await delCmd.ExecuteNonQueryAsync();
                 if (rows == 0) return NotFound();
@@ -1246,28 +1344,29 @@ RETURNING id;
 
                 if (isGuid)
                 {
-                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id";
+                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id AND tenant_id = @tenantId";
                     cmd.Parameters.AddWithValue("ph", NpgsqlTypes.NpgsqlDbType.Text, newHash);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, guidId);
                 }
                 else if (isInt)
                 {
-                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id";
+                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id AND tenant_id = @tenantId";
                     cmd.Parameters.AddWithValue("ph", NpgsqlTypes.NpgsqlDbType.Text, newHash);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, intId);
                 }
                 else if (isLong)
                 {
-                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id";
+                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE id = @id AND tenant_id = @tenantId";
                     cmd.Parameters.AddWithValue("ph", NpgsqlTypes.NpgsqlDbType.Text, newHash);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Bigint, longId);
                 }
                 else
                 {
-                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE cast(id as text) = @id";
+                    cmd.CommandText = @"UPDATE users SET passwordhash = @ph WHERE cast(id as text) = @id AND tenant_id = @tenantId";
                     cmd.Parameters.AddWithValue("ph", NpgsqlTypes.NpgsqlDbType.Text, newHash);
                     cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Text, id);
                 }
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 var rows = await cmd.ExecuteNonQueryAsync();
                 if (rows == 0) return NotFound();
@@ -1391,7 +1490,7 @@ UPDATE users SET
     ""IsPastor"" = @IsPastor,
     payrollenabled = COALESCE(@PayrollEnabled, payrollenabled)
 
-WHERE id = @Id;
+WHERE id = @Id AND tenant_id = @TenantId;
 ";
 
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -1419,7 +1518,12 @@ WHERE id = @Id;
         cmd.Parameters.AddWithValue("IsPastor", NpgsqlTypes.NpgsqlDbType.Boolean, isPastor ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("PayrollEnabled", NpgsqlTypes.NpgsqlDbType.Boolean, payrollEnabled ?? (object)DBNull.Value);
 
+<<<<<<< HEAD
         cmd.Parameters.AddWithValue("Id", parsedUserId);
+=======
+        cmd.Parameters.AddWithValue("Id", Guid.Parse(id));
+        cmd.Parameters.AddWithValue("TenantId", NpgsqlTypes.NpgsqlDbType.Uuid, GetCurrentTenantId());
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
         var rows = await cmd.ExecuteNonQueryAsync();
 

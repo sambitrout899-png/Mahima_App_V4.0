@@ -1,9 +1,13 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using NpgsqlTypes;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace Mahima.Api.v3.clean.Controllers
@@ -15,6 +19,7 @@ namespace Mahima.Api.v3.clean.Controllers
     }
 
     [ApiController]
+    [Authorize]
     [Route("api/teams/{teamId}/members")]
     public class TeamMembersController : ControllerBase
     {
@@ -25,6 +30,41 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection")!;
             _logger = logger;
+        }
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        private async Task<bool> TeamBelongsToTenantAsync(NpgsqlConnection conn, long teamId, NpgsqlTransaction? tx = null)
+        {
+            await using var cmd = new NpgsqlCommand(
+                @"SELECT EXISTS (
+                    SELECT 1 FROM public.""Teams""
+                    WHERE ""Id"" = @teamId AND ""TenantId"" = @tenantId
+                );", conn, tx);
+            cmd.Parameters.AddWithValue("teamId", teamId);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+            return (bool)(await cmd.ExecuteScalarAsync() ?? false);
+        }
+
+        private async Task<HashSet<Guid>> LoadTenantUserIdsAsync(NpgsqlConnection conn, IEnumerable<Guid> userIds, NpgsqlTransaction? tx = null)
+        {
+            var ids = userIds.Where(id => id != Guid.Empty).Distinct().ToArray();
+            if (ids.Length == 0) return new HashSet<Guid>();
+
+            await using var cmd = new NpgsqlCommand(
+                @"SELECT id FROM public.users WHERE tenant_id = @tenantId AND id = ANY(@userIds);", conn, tx);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+            cmd.Parameters.AddWithValue("userIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid, ids);
+
+            var valid = new HashSet<Guid>();
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+                valid.Add(rdr.GetGuid(0));
+
+            return valid;
         }
 
         public class MemberCreateDto
@@ -56,6 +96,20 @@ namespace Mahima.Api.v3.clean.Controllers
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
 
+            if (!await TeamBelongsToTenantAsync(conn, teamLong, tx))
+            {
+                await tx.RollbackAsync();
+                return NotFound();
+            }
+
+            var requestedMembers = (dto.Members ?? new List<Guid>()).Distinct().ToList();
+            var validMembers = await LoadTenantUserIdsAsync(conn, requestedMembers, tx);
+            if (dto.LeaderId.HasValue && !validMembers.Contains(dto.LeaderId.Value))
+            {
+                await tx.RollbackAsync();
+                return BadRequest("Leader must be a user in this church.");
+            }
+
             // DELETE
             await using (var delCmd = conn.CreateCommand())
             {
@@ -66,7 +120,7 @@ namespace Mahima.Api.v3.clean.Controllers
             }
 
             // INSERT
-            if (dto.Members?.Count > 0)
+            if (validMembers.Count > 0)
             {
                 await using var insCmd = conn.CreateCommand();
                 insCmd.Transaction = tx;
@@ -83,7 +137,7 @@ VALUES (@teamId, @userId, @role, now(), @isLeader);";
                 insCmd.Parameters.Add(pRole);
                 insCmd.Parameters.Add(pLeader);
 
-                foreach (var u in dto.Members)
+                foreach (var u in validMembers)
                 {
                     pUser.Value = u;
                     pLeader.Value = dto.LeaderId == u;
@@ -97,9 +151,13 @@ VALUES (@teamId, @userId, @role, now(), @isLeader);";
                 cmd.Transaction = tx;
                 cmd.CommandText = @"UPDATE ""Teams""
 SET ""LeadUserId"" = @leaderId
-WHERE ""Id"" = @teamId;";
+WHERE ""Id"" = @teamId AND ""TenantId"" = @tenantId;";
                 cmd.Parameters.AddWithValue("teamId", teamLong);
-                cmd.Parameters.AddWithValue("leaderId", dto.LeaderId ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
+                cmd.Parameters.Add(new NpgsqlParameter("leaderId", NpgsqlDbType.Uuid)
+                {
+                    Value = dto.LeaderId.HasValue ? dto.LeaderId.Value : DBNull.Value
+                });
                 await cmd.ExecuteNonQueryAsync();
             }
 
@@ -116,6 +174,9 @@ WHERE ""Id"" = @teamId;";
 
             await using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
+
+            if (!await TeamBelongsToTenantAsync(conn, teamLong))
+                return NotFound();
 
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
@@ -154,6 +215,19 @@ ORDER BY ""JoinedAt"" DESC;";
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
 
+            if (!await TeamBelongsToTenantAsync(conn, teamLong, tx))
+            {
+                await tx.RollbackAsync();
+                return NotFound();
+            }
+
+            var validUsers = await LoadTenantUserIdsAsync(conn, new[] { dto.UserId.Value }, tx);
+            if (!validUsers.Contains(dto.UserId.Value))
+            {
+                await tx.RollbackAsync();
+                return BadRequest("User must belong to this church.");
+            }
+
             if (dto.IsLeader == true)
             {
                 await using var clear = conn.CreateCommand();
@@ -189,8 +263,9 @@ await rdr.CloseAsync();
                 setLead.Transaction = tx;
                 setLead.CommandText = @"UPDATE ""Teams""
 SET ""LeadUserId"" = @userId
-WHERE ""Id"" = @teamId;";
+WHERE ""Id"" = @teamId AND ""TenantId"" = @tenantId;";
                 setLead.Parameters.AddWithValue("teamId", teamLong);
+                setLead.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
                 setLead.Parameters.AddWithValue("userId", dto.UserId.Value);
                 await setLead.ExecuteNonQueryAsync();
             }
@@ -298,7 +373,16 @@ WHERE ""Id"" = @teamId AND ""LeadUserId"" = @userId;";
             await using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
 
+<<<<<<< HEAD
             await using var tx = await conn.BeginTransactionAsync();
+=======
+            if (!await TeamBelongsToTenantAsync(conn, teamLong))
+                return NotFound();
+
+            var validUsers = await LoadTenantUserIdsAsync(conn, new[] { userGuid });
+            if (!validUsers.Contains(userGuid))
+                return NotFound();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             await using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;

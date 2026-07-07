@@ -5,6 +5,7 @@ import api, { API_BASE } from "../../api";
 const TOKEN_KEY = "mahima_token";
 const USERNAME_KEY = "mahima_username";
 const ME_KEY = "me";
+const TENANT_SLUG_KEY = "mahima_tenant_slug";
 
 function apiUrl(path) {
   if (/^https?:\/\//i.test(path)) return path;
@@ -13,6 +14,54 @@ function apiUrl(path) {
     return API_BASE + normalized.slice(4);
   }
   return API_BASE + normalized;
+}
+
+function getTenantSlug() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = window.location.hash || "";
+    const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashTenantMatch = hash.match(/^#\/t\/([^/?#]+)/i);
+    const fromUrl = (
+      params.get("tenant") ||
+      params.get("tenantSlug") ||
+      hashParams.get("tenant") ||
+      hashParams.get("tenantSlug") ||
+      (hashTenantMatch ? decodeURIComponent(hashTenantMatch[1]) : "") ||
+      ""
+    ).trim();
+    if (fromUrl) {
+      localStorage.setItem(TENANT_SLUG_KEY, fromUrl);
+      localStorage.setItem("tenantSlug", fromUrl);
+      return fromUrl;
+    }
+
+    const host = window.location.hostname.toLowerCase();
+    const isKnownMahimaHost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".local") ||
+      host.includes("mahimaministries.");
+
+    if (!isKnownMahimaHost) {
+      return "";
+    }
+
+    return (
+      localStorage.getItem(TENANT_SLUG_KEY) ||
+      localStorage.getItem("tenantSlug") ||
+      localStorage.getItem("tenant_slug") ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function tenantHeaders() {
+  const tenantSlug = getTenantSlug();
+  return tenantSlug ? { "X-Tenant-Slug": tenantSlug } : {};
 }
 
 /* ---------------- TOKEN HELPERS ---------------- */
@@ -153,6 +202,7 @@ export async function login({ usernameOrEmail, password = "" }) {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...tenantHeaders(),
     },
     body: JSON.stringify({ usernameOrEmail, password }),
   });
@@ -205,6 +255,7 @@ export async function register(payload) {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...tenantHeaders(),
     },
     body: JSON.stringify(payload),
   });

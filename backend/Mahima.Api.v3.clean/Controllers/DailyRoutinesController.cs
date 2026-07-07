@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 ﻿using Mahima.Api.v3.clean.Data;
+=======
+using Mahima.Api.v3.clean.Data;
+using Mahima.Api.v3.clean.Services;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -36,15 +41,18 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly MahimaDbContext _db;
         private readonly IConfiguration _configuration;
         private readonly ILogger<DailyRoutinesController> _logger;
+        private readonly ITenantContextService _tenantContext;
 
         public DailyRoutinesController(
             MahimaDbContext db,
             IConfiguration configuration,
-            ILogger<DailyRoutinesController> logger)
+            ILogger<DailyRoutinesController> logger,
+            ITenantContextService tenantContext)
         {
             _db = db;
             _configuration = configuration;
             _logger = logger;
+            _tenantContext = tenantContext;
         }
 
         public class PageVisitDto
@@ -85,11 +93,18 @@ namespace Mahima.Api.v3.clean.Controllers
             });
         }
 
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            return tenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+        }
+
         private static async Task EnsureRoutineTablesAsync(NpgsqlConnection conn)
         {
             await using var cmd = new NpgsqlCommand(@"
 CREATE TABLE IF NOT EXISTS public.daily_page_visits (
     id bigserial PRIMARY KEY,
+    tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     user_id uuid NULL,
     path text NOT NULL,
     title text NULL,
@@ -102,11 +117,15 @@ CREATE TABLE IF NOT EXISTS public.daily_page_visits (
 CREATE INDEX IF NOT EXISTS ix_daily_page_visits_created_at
     ON public.daily_page_visits(created_at_utc);
 
+CREATE INDEX IF NOT EXISTS ix_daily_page_visits_tenant_created_at
+    ON public.daily_page_visits(tenant_id, created_at_utc);
+
 CREATE INDEX IF NOT EXISTS ix_daily_page_visits_user_created_at
     ON public.daily_page_visits(user_id, created_at_utc);
 
 CREATE TABLE IF NOT EXISTS public.security_events (
     id bigserial PRIMARY KEY,
+    tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     event_type text NOT NULL,
     severity text NOT NULL DEFAULT 'medium',
     username text NULL,
@@ -121,13 +140,29 @@ CREATE TABLE IF NOT EXISTS public.security_events (
 CREATE INDEX IF NOT EXISTS ix_security_events_created_at
     ON public.security_events(created_at_utc);
 
+CREATE INDEX IF NOT EXISTS ix_security_events_tenant_created_at
+    ON public.security_events(tenant_id, created_at_utc);
+
 CREATE TABLE IF NOT EXISTS public.user_access_blocks (
     user_id uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     reason text NULL,
     blocked_by uuid NULL,
     blocked_at_utc timestamp with time zone NOT NULL DEFAULT now(),
     is_active boolean NOT NULL DEFAULT true
-);", conn);
+);
+
+ALTER TABLE public.daily_page_visits
+    ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
+
+ALTER TABLE public.security_events
+    ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
+
+ALTER TABLE public.user_access_blocks
+    ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
+
+CREATE INDEX IF NOT EXISTS ix_user_access_blocks_tenant_active
+    ON public.user_access_blocks(tenant_id, is_active);", conn);
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -171,16 +206,18 @@ CREATE TABLE IF NOT EXISTS public.user_access_blocks (
             await conn.OpenAsync(HttpContext.RequestAborted);
             await EnsureRoutineTablesAsync(conn);
 
+            var tenantId = await GetCurrentTenantIdAsync();
             var userId = CurrentUserId();
             var userAgent = Request.Headers.UserAgent.ToString();
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
 
             await using (var cmd = new NpgsqlCommand(@"
 INSERT INTO public.daily_page_visits
-    (user_id, path, title, referrer, user_agent, ip_address)
+    (tenant_id, user_id, path, title, referrer, user_agent, ip_address)
 VALUES
-    (@user_id, @path, @title, @referrer, @user_agent, @ip_address);", conn))
+    (@tenant_id, @user_id, @path, @title, @referrer, @user_agent, @ip_address);", conn))
             {
+                cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
                 cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId == Guid.Empty ? DBNull.Value : (object)userId);
                 cmd.Parameters.AddWithValue("path", NpgsqlTypes.NpgsqlDbType.Text, path);
                 cmd.Parameters.AddWithValue("title", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto?.Title ?? DBNull.Value);
@@ -194,9 +231,10 @@ VALUES
             {
                 await using var eventCmd = new NpgsqlCommand(@"
 INSERT INTO public.security_events
-    (event_type, severity, user_id, path, ip_address, user_agent, details)
+    (tenant_id, event_type, severity, user_id, path, ip_address, user_agent, details)
 VALUES
-    ('SuspiciousPath', 'high', @user_id, @path, @ip_address, @user_agent, 'Suspicious path pattern detected from app telemetry.');", conn);
+    (@tenant_id, 'SuspiciousPath', 'high', @user_id, @path, @ip_address, @user_agent, 'Suspicious path pattern detected from app telemetry.');", conn);
+                eventCmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
                 eventCmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId == Guid.Empty ? DBNull.Value : (object)userId);
                 eventCmd.Parameters.AddWithValue("path", NpgsqlTypes.NpgsqlDbType.Text, path);
                 eventCmd.Parameters.AddWithValue("ip_address", NpgsqlTypes.NpgsqlDbType.Text, (object?)ip ?? DBNull.Value);
@@ -213,11 +251,19 @@ VALUES
             if (!CurrentUserIsAdmin())
                 return Forbid();
 
+<<<<<<< HEAD
             var day = DateTime.SpecifyKind((date ?? DateTime.UtcNow).Date, DateTimeKind.Utc);
             var nextDay = day.AddDays(1);
             var attendanceDay = DateTime.SpecifyKind(day, DateTimeKind.Unspecified);
             var attendanceNextDay = attendanceDay.AddDays(1);
+=======
+            var day = DateTime.SpecifyKind((date ?? DateTime.UtcNow).Date, DateTimeKind.Unspecified);
+            var nextDay = day.AddDays(1);
+            var dayUtc = DateTime.SpecifyKind(day, DateTimeKind.Utc);
+            var nextDayUtc = dayUtc.AddDays(1);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             var now = DateTime.UtcNow;
+            var tenantId = await GetCurrentTenantIdAsync();
 
             await using var conn = new NpgsqlConnection(ConnectionString);
             await conn.OpenAsync(HttpContext.RequestAborted);
@@ -230,6 +276,7 @@ VALUES
 
             var users = await _db.Users
                 .AsNoTracking()
+                .Where(u => u.TenantId == tenantId)
                 .Select(u => new
                 {
                     u.Id,
@@ -270,7 +317,11 @@ VALUES
 
             var attendanceRows = await _db.AttendanceRecords
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(a => a.Date >= attendanceDay && a.Date < attendanceNextDay)
+=======
+                .Where(a => a.TenantId == tenantId && a.Date >= day && a.Date < nextDay)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .ToListAsync(HttpContext.RequestAborted);
 
             var attendanceKeys = new HashSet<string>(
@@ -307,7 +358,7 @@ VALUES
 
             var newTasks = await _db.Tasks
                 .AsNoTracking()
-                .Where(t => t.CreatedAt >= day && t.CreatedAt < nextDay)
+                .Where(t => t.TenantId == tenantId && t.CreatedAt >= dayUtc && t.CreatedAt < nextDayUtc)
                 .OrderByDescending(t => t.CreatedAt)
                 .Select(t => new
                 {
@@ -327,7 +378,7 @@ VALUES
                 .AsNoTracking()
                 .Include(tm => tm.Team)
                 .Include(tm => tm.User)
-                .Where(tm => tm.JoinedAt >= day && tm.JoinedAt < nextDay)
+                .Where(tm => tm.Team.TenantId == tenantId && tm.JoinedAt >= dayUtc && tm.JoinedAt < nextDayUtc)
                 .OrderByDescending(tm => tm.JoinedAt)
                 .Select(tm => new
                 {
@@ -343,16 +394,42 @@ VALUES
 
             var auditRows = await _db.AuditLogs
                 .AsNoTracking()
-                .Where(a => a.CreatedAt >= day && a.CreatedAt < nextDay)
+                .Where(a => a.TenantId == tenantId && a.CreatedAt >= dayUtc && a.CreatedAt < nextDayUtc)
                 .OrderByDescending(a => a.CreatedAt)
                 .Take(1000)
                 .ToListAsync(HttpContext.RequestAborted);
 
+<<<<<<< HEAD
             var flaggedMessages = Array.Empty<object>().ToList();
+=======
+            var messages = await _db.Messages
+                .AsNoTracking()
+                .Include(m => m.Sender)
+                .Include(m => m.Chat)
+                .Where(m => m.Chat != null && m.Chat.TenantId == tenantId && m.CreatedAt >= dayUtc && m.CreatedAt < nextDayUtc)
+                .OrderByDescending(m => m.CreatedAt)
+                .Take(1000)
+                .ToListAsync(HttpContext.RequestAborted);
+
+            var flaggedMessages = messages
+                .Where(m => ContainsAny(m.Content, UnsafeChatTerms))
+                .Select(m => new
+                {
+                    messageId = m.Id,
+                    chatId = m.ChatId,
+                    userId = m.SenderId,
+                    userName = m.Sender?.DisplayName ?? m.Sender?.Username,
+                    reason = "Potential abusive or unsafe language",
+                    preview = (m.Content ?? "").Length > 180 ? (m.Content ?? "")[..180] + "..." : m.Content,
+                    m.CreatedAt
+                })
+                .Take(50)
+                .ToList();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             var attachments = await _db.Attachments
                 .AsNoTracking()
-                .Where(a => a.UploadedAt >= day && a.UploadedAt < nextDay)
+                .Where(a => a.TenantId == tenantId && a.UploadedAt >= dayUtc && a.UploadedAt < nextDayUtc)
                 .OrderByDescending(a => a.UploadedAt)
                 .Take(1000)
                 .ToListAsync(HttpContext.RequestAborted);
@@ -392,9 +469,9 @@ VALUES
                 .Take(20)
                 .ToList();
 
-            var pageVisits = await ReadPageVisitsAsync(conn, day, nextDay);
-            var securityEvents = await ReadSecurityEventsAsync(conn, day, nextDay);
-            var blockedUsers = await ReadBlockedUsersAsync(conn);
+            var pageVisits = await ReadPageVisitsAsync(conn, tenantId, dayUtc, nextDayUtc);
+            var securityEvents = await ReadSecurityEventsAsync(conn, tenantId, dayUtc, nextDayUtc);
+            var blockedUsers = await ReadBlockedUsersAsync(conn, tenantId);
 
             var topPages = pageVisits
                 .GroupBy(v => v.Path)
@@ -496,26 +573,30 @@ VALUES
         {
             if (!CurrentUserIsAdmin()) return Forbid();
             var adminId = CurrentUserId();
+            var tenantId = await GetCurrentTenantIdAsync();
 
             await using var conn = new NpgsqlConnection(ConnectionString);
             await conn.OpenAsync(HttpContext.RequestAborted);
             await EnsureRoutineTablesAsync(conn);
 
             await using var cmd = new NpgsqlCommand(@"
-INSERT INTO public.user_access_blocks (user_id, reason, blocked_by, blocked_at_utc, is_active)
-VALUES (@user_id, @reason, @blocked_by, now(), true)
+INSERT INTO public.user_access_blocks (user_id, tenant_id, reason, blocked_by, blocked_at_utc, is_active)
+VALUES (@user_id, @tenant_id, @reason, @blocked_by, now(), true)
 ON CONFLICT (user_id)
-DO UPDATE SET reason = EXCLUDED.reason,
+DO UPDATE SET tenant_id = EXCLUDED.tenant_id,
+              reason = EXCLUDED.reason,
               blocked_by = EXCLUDED.blocked_by,
               blocked_at_utc = now(),
               is_active = true;", conn);
             cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             cmd.Parameters.AddWithValue("reason", NpgsqlTypes.NpgsqlDbType.Text, (object?)dto?.Reason ?? "Blocked from Daily Routines dashboard");
             cmd.Parameters.AddWithValue("blocked_by", NpgsqlTypes.NpgsqlDbType.Uuid, adminId == Guid.Empty ? DBNull.Value : (object)adminId);
             await cmd.ExecuteNonQueryAsync(HttpContext.RequestAborted);
 
             _db.AuditLogs.Add(new Mahima.Api.v3.clean.Models.AuditLog
             {
+                TenantId = tenantId,
                 ActorId = adminId == Guid.Empty ? null : adminId,
                 Action = "BlockUser",
                 EntityType = "User",
@@ -533,6 +614,7 @@ DO UPDATE SET reason = EXCLUDED.reason,
         {
             if (!CurrentUserIsAdmin()) return Forbid();
             var adminId = CurrentUserId();
+            var tenantId = await GetCurrentTenantIdAsync();
 
             await using var conn = new NpgsqlConnection(ConnectionString);
             await conn.OpenAsync(HttpContext.RequestAborted);
@@ -541,12 +623,14 @@ DO UPDATE SET reason = EXCLUDED.reason,
             await using var cmd = new NpgsqlCommand(@"
 UPDATE public.user_access_blocks
 SET is_active = false
-WHERE user_id = @user_id;", conn);
+WHERE tenant_id = @tenant_id AND user_id = @user_id;", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             cmd.Parameters.AddWithValue("user_id", NpgsqlTypes.NpgsqlDbType.Uuid, userId);
             var rows = await cmd.ExecuteNonQueryAsync(HttpContext.RequestAborted);
 
             _db.AuditLogs.Add(new Mahima.Api.v3.clean.Models.AuditLog
             {
+                TenantId = tenantId,
                 ActorId = adminId == Guid.Empty ? null : adminId,
                 Action = "UnblockUser",
                 EntityType = "User",
@@ -558,15 +642,17 @@ WHERE user_id = @user_id;", conn);
             return Ok(new { unblocked = rows > 0, userId });
         }
 
-        private async Task<List<PageVisitRow>> ReadPageVisitsAsync(NpgsqlConnection conn, DateTime day, DateTime nextDay)
+        private async Task<List<PageVisitRow>> ReadPageVisitsAsync(NpgsqlConnection conn, Guid tenantId, DateTime day, DateTime nextDay)
         {
             var rows = new List<PageVisitRow>();
             await using var cmd = new NpgsqlCommand(@"
 SELECT id, user_id, path, title, ip_address, created_at_utc
 FROM public.daily_page_visits
-WHERE created_at_utc >= @day AND created_at_utc < @next_day
+WHERE tenant_id = @tenant_id
+  AND created_at_utc >= @day AND created_at_utc < @next_day
 ORDER BY created_at_utc DESC
 LIMIT 5000;", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             cmd.Parameters.AddWithValue("day", NpgsqlTypes.NpgsqlDbType.TimestampTz, DateTime.SpecifyKind(day, DateTimeKind.Utc));
             cmd.Parameters.AddWithValue("next_day", NpgsqlTypes.NpgsqlDbType.TimestampTz, DateTime.SpecifyKind(nextDay, DateTimeKind.Utc));
 
@@ -584,15 +670,17 @@ LIMIT 5000;", conn);
             return rows;
         }
 
-        private async Task<List<SecurityEventRow>> ReadSecurityEventsAsync(NpgsqlConnection conn, DateTime day, DateTime nextDay)
+        private async Task<List<SecurityEventRow>> ReadSecurityEventsAsync(NpgsqlConnection conn, Guid tenantId, DateTime day, DateTime nextDay)
         {
             var rows = new List<SecurityEventRow>();
             await using var cmd = new NpgsqlCommand(@"
 SELECT id, event_type, severity, username, user_id, path, ip_address, user_agent, details, created_at_utc
 FROM public.security_events
-WHERE created_at_utc >= @day AND created_at_utc < @next_day
+WHERE tenant_id = @tenant_id
+  AND created_at_utc >= @day AND created_at_utc < @next_day
 ORDER BY created_at_utc DESC
 LIMIT 500;", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             cmd.Parameters.AddWithValue("day", NpgsqlTypes.NpgsqlDbType.TimestampTz, DateTime.SpecifyKind(day, DateTimeKind.Utc));
             cmd.Parameters.AddWithValue("next_day", NpgsqlTypes.NpgsqlDbType.TimestampTz, DateTime.SpecifyKind(nextDay, DateTimeKind.Utc));
 
@@ -614,7 +702,7 @@ LIMIT 500;", conn);
             return rows;
         }
 
-        private async Task<List<object>> ReadBlockedUsersAsync(NpgsqlConnection conn)
+        private async Task<List<object>> ReadBlockedUsersAsync(NpgsqlConnection conn, Guid tenantId)
         {
             var rows = new List<object>();
             await using var cmd = new NpgsqlCommand(@"
@@ -625,9 +713,11 @@ SELECT b.user_id,
        b.blocked_at_utc
 FROM public.user_access_blocks b
 JOIN public.users u ON u.id = b.user_id
-WHERE b.is_active = true
+WHERE b.tenant_id = @tenant_id
+  AND b.is_active = true
 ORDER BY b.blocked_at_utc DESC
 LIMIT 100;", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
 
             await using var rdr = await cmd.ExecuteReaderAsync(HttpContext.RequestAborted);
             while (await rdr.ReadAsync(HttpContext.RequestAborted))

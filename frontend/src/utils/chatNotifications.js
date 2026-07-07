@@ -20,12 +20,15 @@
 //     isTabActive,
 //   } from "./chatNotifications";
 //
-import mahimaLogoUrl from "../assets/mahima-logo.png";
 import { speakText } from "./speech";
 
 const STORAGE_KEY = "jm_chat_muted";
 const NOTIFICATION_TITLE = "Jai Masih Di";
+<<<<<<< HEAD
 const DEFAULT_NOTIFICATION_ICON = mahimaLogoUrl;
+=======
+const DEFAULT_NOTIFICATION_ICON = "";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 const ANDROID_NOTIFICATION_ICON = "ic_stat_jai_masih";
 
 let audioCtx = null;

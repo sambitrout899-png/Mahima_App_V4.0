@@ -6,6 +6,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.google.firebase.messaging.FirebaseMessaging;
+<<<<<<< HEAD
 import android.content.Context;
 import android.content.SharedPreferences;
 
@@ -15,6 +16,11 @@ public class MahimaPushTokenPlugin extends Plugin {
     private static final String PENDING_CALL_JSON = "pending_call_json";
     private static final String SHARE_PREFS = "mahima_share_intents";
     private static final String PENDING_SHARE_JSON = "pending_share_json";
+=======
+
+@CapacitorPlugin(name = "MahimaPushToken")
+public class MahimaPushTokenPlugin extends Plugin {
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
     @PluginMethod
     public void getToken(PluginCall call) {
@@ -32,6 +38,7 @@ public class MahimaPushTokenPlugin extends Plugin {
                 call.resolve(ret);
             });
     }
+<<<<<<< HEAD
 
     @PluginMethod
     public void getPendingCallIntent(PluginCall call) {
@@ -54,4 +61,6 @@ public class MahimaPushTokenPlugin extends Plugin {
         ret.put("json", json == null ? "" : json);
         call.resolve(ret);
     }
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 }

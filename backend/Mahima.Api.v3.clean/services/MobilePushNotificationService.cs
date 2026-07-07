@@ -81,12 +81,17 @@ namespace Mahima.Api.v3.clean.Services
                 .ToList();
             if (recipientIds.Count == 0) return;
 
+<<<<<<< HEAD
             var tokens = await ReadTokensAsync(recipientIds);
             if (tokens.Count == 0)
             {
                 _logger.LogWarning("Skipping mobile push: no registered device tokens for {RecipientCount} recipient(s).", recipientIds.Count);
                 return;
             }
+=======
+            var tokens = await ReadTokensAsync(chatId, recipientIds);
+            if (tokens.Count == 0) return;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             var senderName = await _db.Users
                 .AsNoTracking()
@@ -241,6 +246,7 @@ namespace Mahima.Api.v3.clean.Services
             }
         }
 
+<<<<<<< HEAD
         // ── OAuth2 access token via service account ──────────────────────────
 
         private async Task SendIncomingCallFcmV1Async(
@@ -390,11 +396,23 @@ namespace Mahima.Api.v3.clean.Services
         }
 
         private async Task<List<string>> ReadTokensAsync(IEnumerable<Guid> userIds)
+=======
+        private async Task<List<string>> ReadTokensAsync(Guid chatId, IEnumerable<Guid> userIds)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         {
+            var tenantId = await _db.Chats
+                .AsNoTracking()
+                .Where(c => c.Id == chatId)
+                .Select(c => c.TenantId)
+                .FirstOrDefaultAsync();
+
+            if (tenantId == Guid.Empty)
+                return new List<string>();
+
             var prefixes = userIds.Select(id => $"{DeviceTokenPrefix}{id}:").ToList();
             var rows = await _db.MinistryAutomationSettings
                 .AsNoTracking()
-                .Where(s => s.Key.StartsWith(DeviceTokenPrefix))
+                .Where(s => s.TenantId == tenantId && s.Key.StartsWith(DeviceTokenPrefix))
                 .ToListAsync();
 
             return rows

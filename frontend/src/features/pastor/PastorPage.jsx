@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   BookOpen,
@@ -300,7 +300,7 @@ export default function PastorPage() {
                 <Sparkles className="h-4 w-4" />
                 {avatarStates[avatarState]}
               </div>
-              <h1 className="mt-4 text-4xl font-black">AI Pastor</h1>
+              <h1 className="mt-4 text-4xl font-black">AI Counseller</h1>
               <p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-300">
                 A guided pastoral assistant for prayer, Scripture, family encouragement, and daily direction.
               </p>
@@ -469,7 +469,7 @@ export default function PastorPage() {
         type="button"
         onClick={() => setAgentOpen(true)}
         className="fixed bottom-5 right-5 z-40 grid h-16 w-16 place-items-center rounded-full bg-emerald-700 text-white shadow-2xl ring-4 ring-white hover:bg-emerald-800"
-        aria-label="Open AI Pastor"
+        aria-label="Open AI Counseller"
       >
         <PastorCharacter className="h-full w-full" />
       </button>
@@ -483,7 +483,7 @@ export default function PastorPage() {
                   <PastorCharacter className="h-full w-full" />
                 </div>
                 <div>
-                  <div className="text-lg font-black">AI Pastor Agent</div>
+                  <div className="text-lg font-black">AI Counseller Agent</div>
                   <div className="text-xs font-bold text-emerald-100">{active.voiceLabel}</div>
                 </div>
               </div>

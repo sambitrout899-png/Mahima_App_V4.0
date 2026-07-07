@@ -1,0 +1,1286 @@
+// src/features/home/HomeLanding.jsx
+import React, { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  ArrowRight,
+  BookOpen,
+  Calendar,
+  ChevronRight,
+  Clock,
+  Heart,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Moon,
+  PhoneCall,
+  Play,
+  Quote,
+  Sparkles,
+  Star,
+  Sun,
+  Users,
+} from "lucide-react";
+import { apiFetchJson } from "../../utils/fetch-auth-shim";
+import { getToken } from "../auth/authService";
+import mahimaLogo from "../../assets/mahima-logo.png";
+
+const galleryImages = [
+  "/images/prayer.jpg",
+  "/images/welcome.jpg",
+  "/images/worship.jpg",
+  "/images/Mahima-Word.png",
+  "/images/1000236883.jpg",
+  "/images/1000236884.jpg",
+  "/images/1000236885.jpg",
+  "/images/1000236887.jpg",
+  "/images/1000236888.jpg",
+  "/images/1000236889.jpg",
+  "/images/1000236890.jpg",
+  "/images/1000236891.jpg",
+];
+
+const verses = [
+  "“Come to Me, all you who labor and are heavy laden, and I will give you rest.” — Matthew 11:28",
+  "“The Lord is my shepherd; I shall not want.” — Psalm 23:1",
+  "“I can do all things through Christ who strengthens me.” — Philippians 4:13",
+  "“Be still, and know that I am God.” — Psalm 46:10",
+  "“For with God nothing will be impossible.” — Luke 1:37",
+];
+
+function hasToken() {
+  return Boolean(
+    localStorage.getItem("mahima_token") ||
+      localStorage.getItem("authToken") ||
+      localStorage.getItem("token") ||
+      localStorage.getItem("mahima:user") ||
+      getToken?.()
+  );
+}
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
+
+export default function HomeLanding() {
+  const [showDonate, setShowDonate] = useState(false);
+
+  useEffect(() => {
+    const openDonate = () => setShowDonate(true);
+    window.addEventListener("mahima_open_donate", openDonate);
+    window.addEventListener("mahima_show_donate_modal", openDonate);
+    return () => {
+      window.removeEventListener("mahima_open_donate", openDonate);
+      window.removeEventListener("mahima_show_donate_modal", openDonate);
+    };
+  }, []);
+
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#fffaf2] text-slate-950 dark:bg-[#070912] dark:text-white">
+      {/* Decorative background */}
+      <div className="fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_10%_-10%,rgba(251,146,60,.32),transparent_42%),radial-gradient(ellipse_at_92%_5%,rgba(225,29,72,.22),transparent_38%),radial-gradient(circle_at_50%_120%,rgba(245,158,11,.18),transparent_55%),linear-gradient(180deg,#fffaf2,#fff_55%,#fff7ed)] dark:bg-[radial-gradient(ellipse_at_10%_-10%,rgba(251,146,60,.18),transparent_42%),radial-gradient(ellipse_at_92%_5%,rgba(225,29,72,.16),transparent_38%),radial-gradient(circle_at_50%_120%,rgba(245,158,11,.10),transparent_55%),linear-gradient(180deg,#070912,#0c111d_55%,#0a0f1a)]" />
+        <div className="absolute inset-0 opacity-[0.035] dark:opacity-[0.06] mix-blend-overlay [background-image:radial-gradient(rgba(0,0,0,.6)_1px,transparent_1px)] [background-size:3px_3px]" />
+      </div>
+
+      <GlobalStyles />
+
+      <div className="mx-auto w-full max-w-7xl px-4 pb-12 sm:px-6">
+        <TopNav onDonate={() => setShowDonate(true)} />
+        <Hero onDonate={() => setShowDonate(true)} />
+        <VerseMarquee />
+        <QuickActions onDonate={() => setShowDonate(true)} />
+        <AboutSection />
+        <ServiceTimes />
+        <MinistriesGrid />
+        <Testimony />
+        <GallerySection />
+        <GetInvolved onDonate={() => setShowDonate(true)} />
+        <Footer />
+      </div>
+
+      <MobileCTA onDonate={() => setShowDonate(true)} />
+
+      {showDonate && (
+        <Modal onClose={() => setShowDonate(false)}>
+          <div className="w-[22rem] max-w-full rounded-3xl bg-white p-7 text-center shadow-2xl ring-1 ring-black/5 dark:bg-slate-950 dark:ring-white/10">
+            <button
+              type="button"
+              onClick={() => setShowDonate(false)}
+              className="ml-auto block rounded-full px-3 py-1 text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"
+            >
+              Close
+            </button>
+            <div className="mx-auto -mt-1 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-rose-600 to-amber-400 text-white shadow-lg">
+              <Heart size={22} />
+            </div>
+            <h2 className="mt-3 text-xl font-black text-rose-700 dark:text-rose-300">
+              Support Mahima Ministry
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              Scan the code below to give via UPI
+            </p>
+            <div className="mx-auto mt-5 inline-block rounded-2xl bg-gradient-to-br from-rose-100 via-white to-amber-100 p-1 shadow-lg dark:from-rose-900/30 dark:to-amber-900/30">
+              <img
+                src="/assets/upi-qr.jpg"
+                alt="UPI QR Code"
+                className="rounded-xl"
+                loading="lazy"
+              />
+            </div>
+            <p className="mt-5 text-xs text-slate-500 dark:text-slate-400">
+              “Each one must give as he has decided in his heart.” — 2 Cor 9:7
+            </p>
+          </div>
+        </Modal>
+      )}
+    </main>
+  );
+}
+
+/* ---------------- TOP NAV ---------------- */
+function TopNav({ onDonate }) {
+  const [dark, setDark] = useState(() =>
+    typeof document !== "undefined"
+      ? document.documentElement.classList.contains("dark")
+      : false
+  );
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("mahima_theme");
+    if (saved === "dark") {
+      document.documentElement.classList.add("dark");
+      setDark(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function toggleTheme() {
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("mahima_theme", next ? "dark" : "light");
+    setDark(next);
+  }
+
+  return (
+    <header
+      className={`sticky top-0 z-40 -mx-4 mb-4 px-4 py-3 transition-all duration-300 sm:-mx-6 sm:px-6 ${
+        scrolled
+          ? "border-b border-rose-100/70 bg-white/85 shadow-[0_8px_30px_-12px_rgba(159,18,57,.12)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/80"
+          : "bg-transparent"
+      }`}
+    >
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => scrollToSection("top")}
+          className="flex min-w-0 items-center gap-3 transition hover:opacity-90"
+        >
+          <span className="relative grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white shadow-[0_8px_25px_-6px_rgba(225,29,72,.35)] ring-1 ring-rose-100 dark:ring-white/10">
+            <span className="absolute inset-0 rounded-2xl bg-gradient-to-br from-rose-600/10 to-amber-400/10" />
+            <img
+              src={mahimaLogo}
+              alt="Mahima Ministry"
+              className="relative h-9 w-9 object-contain"
+            />
+          </span>
+          <span className="min-w-0 text-left">
+            <span className="block truncate text-lg font-black leading-tight text-rose-800 dark:text-rose-200">
+              Mahima Ministry
+            </span>
+            <span className="hidden text-[10.5px] font-bold uppercase tracking-[0.22em] text-amber-600 dark:text-amber-400 sm:block">
+              Restoration · Healing · Mission
+            </span>
+          </span>
+        </button>
+
+        <nav className="hidden items-center gap-1 md:flex">
+          <button type="button" onClick={() => scrollToSection("about")} className="navBtn">
+            About
+          </button>
+          <button type="button" onClick={() => scrollToSection("ministries")} className="navBtn">
+            Ministries
+          </button>
+          <button type="button" onClick={() => scrollToSection("moments")} className="navBtn">
+            Moments
+          </button>
+          <button type="button" onClick={() => scrollToSection("get-involved")} className="navBtn">
+            Get Involved
+          </button>
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="iconBtn"
+            aria-label="Toggle theme"
+          >
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button
+            type="button"
+            onClick={onDonate}
+            className="hidden items-center gap-2 rounded-full bg-gradient-to-r from-rose-600 to-amber-400 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-rose-500/40 sm:inline-flex"
+          >
+            <Heart size={15} />
+            Donate
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!hasToken()) window.location.hash = "#/login";
+            }}
+            className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white shadow-lg ring-1 ring-black/5 transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+          >
+            {hasToken() ? "Logged In" : "Login"}
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ---------------- HERO ---------------- */
+function Hero({ onDonate }) {
+  const navigate = useNavigate();
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dailyOpen, setDailyOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadTasks() {
+      setLoading(true);
+      const urls = ["/tasks", "/tasks/calendar", "/tasks?upcoming=true"];
+      for (const url of urls) {
+        try {
+          const res = await apiFetchJson(url);
+          const list = Array.isArray(res) ? res : res?.items || res?.tasks || [];
+          const broadcast = list.filter(
+            (item) =>
+              item.broadcast === true ||
+              item.Broadcast === true ||
+              item.isBroadcast === true
+          );
+          if (mounted && broadcast.length) {
+            setTasks(broadcast.slice(0, 3));
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // Try the next endpoint.
+        }
+      }
+      if (mounted) {
+        setTasks([]);
+        setLoading(false);
+      }
+    }
+    loadTasks();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const openDaily = () => setDailyOpen(true);
+    const openWelcome = () => setWelcomeOpen(true);
+    window.addEventListener("mahima_open_daily_word", openDaily);
+    window.addEventListener("mahima_open_welcome_guide", openWelcome);
+    return () => {
+      window.removeEventListener("mahima_open_daily_word", openDaily);
+      window.removeEventListener("mahima_open_welcome_guide", openWelcome);
+    };
+  }, []);
+
+  return (
+    <section
+      id="top"
+      className="relative overflow-hidden rounded-[2.25rem] bg-slate-950 shadow-[0_30px_90px_-30px_rgba(0,0,0,.55)] ring-1 ring-white/10"
+    >
+      {/* Background image with ken-burns */}
+      <div className="absolute inset-0">
+        <img
+          src="/assets/mahimachurch-hero.jpg"
+          alt=""
+          className="h-full w-full animate-kenburns object-cover opacity-60"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 to-slate-950/20" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-transparent to-slate-950/60" />
+        {/* Soft accent blobs */}
+        <div className="absolute -left-20 top-10 h-72 w-72 rounded-full bg-rose-500/25 blur-3xl" />
+        <div className="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-amber-400/20 blur-3xl" />
+      </div>
+
+      <div className="relative grid min-h-[680px] grid-cols-1 items-center gap-8 p-5 sm:p-8 lg:grid-cols-[1.08fr_.92fr] lg:p-14">
+        <div className="max-w-3xl">
+          <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold text-amber-200 shadow-inner backdrop-blur-md">
+            <span className="relative grid h-5 w-5 place-items-center">
+              <span className="absolute inset-0 rounded-full bg-amber-300/50 animate-ping" />
+              <Sparkles size={14} className="relative" />
+            </span>
+            <span>Come and be blessed</span>
+            <span className="hidden sm:inline text-white/40">•</span>
+            <span className="text-white/70">Saturday · 6 PM – 9 PM</span>
+          </div>
+
+          <h1 className="mt-7 text-5xl font-black leading-[0.92] tracking-tight text-white sm:text-7xl lg:text-[5.5rem]">
+            <span className="block">Worship.</span>
+            <span className="block bg-gradient-to-r from-amber-200 via-rose-200 to-amber-300 bg-clip-text text-transparent">
+              Heal.
+            </span>
+            <span className="block">Send.</span>
+          </h1>
+
+          <p className="mt-7 max-w-2xl text-lg leading-8 text-white/82">
+            A Christ-centred ministry in Punjab where faith becomes practical
+            worship, healing prayer, discipleship, and mission for everyday life.
+          </p>
+
+          <div className="mt-9 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/sermons")}
+              className="heroPrimary group"
+            >
+              <Play size={18} className="transition group-hover:scale-110" />
+              Watch Sermons
+              <ArrowRight size={16} className="opacity-70 transition group-hover:translate-x-0.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!hasToken()) {
+                  alert("Please Create User/Login to enter a prayer request");
+                  return;
+                }
+                navigate("/prayerrequests");
+              }}
+              className="heroSecondary"
+            >
+              <Heart size={18} />
+              Request Prayer
+            </button>
+            <button type="button" onClick={onDonate} className="heroGhost">
+              Give
+            </button>
+          </div>
+
+          <div className="mt-9 grid gap-3 text-sm text-white/85 sm:grid-cols-2">
+            <a href="tel:+919646628466" className="infoPill group">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-amber-400 text-white shadow-md">
+                <PhoneCall size={14} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-white/55">
+                  Call us
+                </div>
+                <div className="truncate font-bold">+91 9646628466</div>
+              </div>
+            </a>
+            <div className="infoPill">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-amber-400 text-white shadow-md">
+                <Clock size={14} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-white/55">
+                  Night Prayer
+                </div>
+                <div className="truncate font-bold">Tue & Fri · 10:30 PM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right column cards */}
+        <div className="grid gap-4">
+          <div className="group relative overflow-hidden rounded-[1.75rem] border border-white/15 bg-white/10 p-4 shadow-2xl backdrop-blur-xl">
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-300/10 via-transparent to-rose-500/10" />
+            <img
+              src="/images/Mahima-Word.png"
+              alt="Mahima Word"
+              className="h-64 w-full rounded-3xl object-cover shadow-xl transition duration-700 group-hover:scale-[1.02]"
+            />
+            <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-white/90">
+              <span className="rounded-full bg-black/40 px-3 py-1 backdrop-blur">
+                Mahima Word
+              </span>
+              <span className="rounded-full bg-rose-600/85 px-3 py-1 backdrop-blur">
+                Weekly
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <MiniCard
+              title="Daily Word"
+              text="John 3:16"
+              icon={<BookOpen size={18} />}
+              onClick={() => setDailyOpen(true)}
+            />
+            <MiniCard
+              title="Welcome Guide"
+              text="Start here"
+              icon={<Sun size={18} />}
+              onClick={() => setWelcomeOpen(true)}
+            />
+          </div>
+
+          <div className="relative overflow-hidden rounded-[1.5rem] border border-white/15 bg-white/10 p-5 text-white shadow-xl backdrop-blur-xl">
+            <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-amber-400/20 blur-2xl" />
+            <div className="flex items-center justify-between">
+              <h3 className="font-black tracking-tight">Upcoming</h3>
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-rose-500 to-amber-400 text-white shadow-md">
+                <Calendar size={16} />
+              </span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {loading ? (
+                <p className="text-sm text-white/65">Loading activities...</p>
+              ) : tasks.length ? (
+                tasks.map((item) => (
+                  <div
+                    key={item.id || item.title || item.name}
+                    className="rounded-2xl border border-white/10 bg-white/10 p-3 transition hover:bg-white/15"
+                  >
+                    <div className="font-bold">
+                      {item.title || item.name || "Untitled"}
+                    </div>
+                    <div className="text-xs text-white/65">
+                      {item.startDate || item.start
+                        ? new Date(item.startDate || item.start).toLocaleString()
+                        : "Details coming soon"}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-3 text-sm text-white/65">
+                  No upcoming broadcast events.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Scroll hint */}
+      <button
+        type="button"
+        onClick={() => scrollToSection("about")}
+        className="absolute bottom-5 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white/80 backdrop-blur transition hover:bg-white/20 lg:inline-flex"
+      >
+        Explore <span className="animate-bounce">?</span>
+      </button>
+
+      {dailyOpen && (
+        <Modal onClose={() => setDailyOpen(false)}>
+          <ModalCard title="Daily Word">
+            <p className="text-lg italic leading-8 text-slate-700 dark:text-slate-200">
+              "For God so loved the world that He gave His only begotten Son,
+              that whoever believes in Him should not perish but have everlasting
+              life."
+            </p>
+            <p className="mt-4 font-bold text-rose-700 dark:text-rose-300">
+              John 3:16
+            </p>
+          </ModalCard>
+        </Modal>
+      )}
+      {welcomeOpen && (
+        <Modal onClose={() => setWelcomeOpen(false)}>
+          <ModalCard title="Welcome Guide">
+            <div className="space-y-4 text-slate-700 dark:text-slate-300">
+              <p>
+                <strong>Salvation & Word of God:</strong> We believe salvation is
+                by grace through faith in Jesus Christ.
+              </p>
+              <p>
+                <strong>Prayer Support:</strong> Submit confidential prayer needs
+                and our team will pray with you.
+              </p>
+              <p>
+                <strong>Community:</strong> Join worship, discipleship, outreach,
+                and care ministries.
+              </p>
+            </div>
+          </ModalCard>
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+function MiniCard({ title, text, icon, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative min-w-0 overflow-hidden rounded-[1.5rem] border border-white/15 bg-white/10 p-4 text-left text-white shadow-xl backdrop-blur-xl transition hover:-translate-y-1 hover:border-white/30 hover:bg-white/15"
+    >
+      <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-amber-400/20 blur-2xl opacity-0 transition group-hover:opacity-100" />
+      <div className="mb-5 grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-rose-500/30 to-amber-400/30 text-amber-200 ring-1 ring-white/15">
+        {icon}
+      </div>
+      <div className="break-words font-black leading-tight">{title}</div>
+      <div className="mt-1 break-words text-sm text-white/65">{text}</div>
+      <ArrowRight
+        size={16}
+        className="absolute right-4 top-4 text-white/40 transition group-hover:translate-x-0.5 group-hover:text-white/80"
+      />
+    </button>
+  );
+}
+
+/* ---------------- VERSE MARQUEE ---------------- */
+function VerseMarquee() {
+  return (
+    <section className="mt-6 overflow-hidden rounded-full border border-rose-100/70 bg-white/60 py-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
+      <div className="marquee flex items-center gap-12 whitespace-nowrap text-sm font-bold tracking-wide text-rose-900/80 dark:text-rose-200/85">
+        {[...verses, ...verses].map((v, i) => (
+          <span key={i} className="inline-flex items-center gap-3">
+            <Quote size={14} className="text-amber-500" />
+            <span>{v}</span>
+            <span className="text-rose-300 dark:text-rose-700">?</span>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- QUICK ACTIONS ---------------- */
+function QuickActions({ onDonate }) {
+  const navigate = useNavigate();
+  const actions = [
+    {
+      title: "Welcome Guide",
+      text: "New here? Start here.",
+      icon: <Sun size={24} />,
+      onClick: () =>
+        window.dispatchEvent(new CustomEvent("mahima_open_welcome_guide")),
+    },
+    {
+      title: "Daily Word",
+      text: "A short verse for today.",
+      icon: <BookOpen size={24} />,
+      onClick: () =>
+        window.dispatchEvent(new CustomEvent("mahima_open_daily_word")),
+    },
+    {
+      title: "Prayer Request",
+      text: "We will pray with you.",
+      icon: <Heart size={24} />,
+      onClick: () => {
+        if (!hasToken()) {
+          alert("Please Create User/Login to enter a prayer request");
+          return;
+        }
+        navigate("/prayerrequests");
+      },
+    },
+    {
+      title: "Give",
+      text: "Support ministry work.",
+      icon: <Sparkles size={24} />,
+      onClick: onDonate,
+    },
+  ];
+
+  return (
+    <section className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {actions.map((action) => (
+        <button
+          key={action.title}
+          type="button"
+          onClick={action.onClick}
+          className="group relative isolate overflow-hidden rounded-3xl bg-white p-7 text-left shadow-[0_18px_50px_-25px_rgba(159,18,57,.35)] ring-1 ring-rose-100/70 transition hover:-translate-y-1 hover:shadow-[0_30px_60px_-25px_rgba(159,18,57,.45)] dark:bg-white/[0.06] dark:ring-white/10"
+        >
+          <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-rose-50 via-transparent to-amber-50 opacity-0 transition group-hover:opacity-100 dark:from-rose-900/20 dark:to-amber-900/20" />
+          <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-rose-400/20 to-amber-300/20 blur-2xl opacity-0 transition group-hover:opacity-100" />
+
+          <div className="mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-rose-600 to-amber-400 text-white shadow-[0_14px_30px_rgba(225,29,72,.28)] transition group-hover:scale-105">
+            {action.icon}
+          </div>
+          <h3 className="text-xl font-black leading-tight">
+            {action.title}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {action.text}
+          </p>
+          <div className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-rose-600 dark:text-rose-300">
+            Open
+            <ArrowRight
+              size={14}
+              className="transition group-hover:translate-x-0.5"
+            />
+          </div>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+/* ---------------- ABOUT ---------------- */
+function AboutSection() {
+  return (
+    <section
+      id="about"
+      className="mt-14 grid scroll-mt-24 grid-cols-1 gap-6 lg:grid-cols-[1.4fr_.6fr]"
+    >
+      <div className="relative overflow-hidden rounded-[2rem] bg-white p-8 shadow-xl ring-1 ring-rose-100/60 dark:bg-white/[0.06] dark:ring-white/10">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-rose-300/30 to-amber-200/30 blur-3xl" />
+        <p className="sectionKicker">Who we are</p>
+        <h2 className="sectionTitle">A warm church family in Jalandhar</h2>
+        <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600 dark:text-slate-300">
+          Mahima Ministry is dedicated to worship, healing, discipleship, and
+          local care. We believe broken lives can be restored and every believer
+          can be equipped for ministry.
+        </p>
+
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Stat label="Active Members" value="300+" icon={<Users size={18} />} />
+          <Stat label="Years" value="1+" icon={<Calendar size={18} />} />
+          <Stat label="Small Groups" value="10" icon={<MessageSquare size={18} />} />
+        </div>
+      </div>
+
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-rose-700 via-rose-600 to-amber-500 p-8 text-white shadow-2xl">
+        <div className="pointer-events-none absolute -right-16 -bottom-16 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
+        <div className="pointer-events-none absolute -left-10 -top-10 h-40 w-40 rounded-full bg-amber-300/30 blur-3xl" />
+        <div className="relative">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-widest backdrop-blur">
+            <MapPin size={12} /> Visit Us
+          </div>
+          <h3 className="mt-3 text-2xl font-black tracking-tight">Contact & Visit</h3>
+
+          <div className="mt-6 space-y-4 text-sm">
+            <a href="tel:+919646628466" className="contactRow">
+              <span className="contactIcon">
+                <PhoneCall size={14} />
+              </span>
+              <span>+91 9646628466</span>
+            </a>
+            <a href="mailto:PawanK@mahimaministries.in" className="contactRow">
+              <span className="contactIcon">
+                <Mail size={14} />
+              </span>
+              <span className="break-all">PawanK@mahimaministries.in</span>
+            </a>
+            <div className="contactRow !items-start">
+              <span className="contactIcon mt-0.5">
+                <MapPin size={14} />
+              </span>
+              <span className="leading-6">
+                Universal Public School, Gurunanak Nagar,
+                <br />
+                Gulab Devi Road, Jalandhar, Punjab 144021
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Stat({ label, value, icon }) {
+  return (
+    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-50 to-rose-50 p-5 ring-1 ring-rose-100/70 dark:from-white/[0.06] dark:to-white/[0.06] dark:ring-white/10">
+      <div className="pointer-events-none absolute -right-4 -top-4 h-16 w-16 rounded-full bg-rose-200/40 blur-2xl dark:bg-rose-500/20" />
+      <div className="relative">
+        <div className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-white text-rose-700 shadow ring-1 ring-rose-100 dark:bg-white/10 dark:text-rose-300 dark:ring-white/10">
+          {icon}
+        </div>
+        <div className="text-3xl font-black tracking-tight">{value}</div>
+        <div className="text-sm font-medium text-slate-500 dark:text-slate-300">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- SERVICE TIMES ---------------- */
+function ServiceTimes() {
+  const services = [
+    {
+      day: "Saturday",
+      title: "Worship Service",
+      time: "6:00 PM – 9:00 PM",
+      icon: <Sparkles size={18} />,
+      accent: "from-rose-500 to-amber-400",
+    },
+    {
+      day: "Tuesday",
+      title: "Night Prayer",
+      time: "10:30 PM",
+      icon: <Moon size={18} />,
+      accent: "from-indigo-500 to-rose-500",
+    },
+    {
+      day: "Friday",
+      title: "Night Prayer",
+      time: "10:30 PM",
+      icon: <Star size={18} />,
+      accent: "from-amber-400 to-rose-500",
+    },
+  ];
+  return (
+    <section className="mt-12">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="sectionKicker">Plan your visit</p>
+          <h2 className="sectionTitle">Service times</h2>
+        </div>
+        <p className="max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
+          Whether it's your first time or you've been with us a while — there's
+          a place at the table for you.
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {services.map((s) => (
+          <div
+            key={s.day + s.title}
+            className="group relative overflow-hidden rounded-[1.75rem] bg-white p-6 shadow-xl ring-1 ring-rose-100/70 transition hover:-translate-y-1 dark:bg-white/[0.06] dark:ring-white/10"
+          >
+            <div
+              className={`pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-gradient-to-br ${s.accent} opacity-15 blur-3xl transition group-hover:opacity-25`}
+            />
+            <div
+              className={`mb-5 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br ${s.accent} text-white shadow-lg`}
+            >
+              {s.icon}
+            </div>
+            <div className="text-xs font-bold uppercase tracking-widest text-rose-600 dark:text-rose-300">
+              {s.day}
+            </div>
+            <div className="mt-1 text-xl font-black">{s.title}</div>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700 dark:bg-white/10 dark:text-slate-200">
+              <Clock size={13} /> {s.time}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- MINISTRIES ---------------- */
+function MinistriesGrid() {
+  const ministries = [
+    ["Worship & Services", "Biblical teaching and worship.", <Play size={20} />],
+    ["Healing Ministry", "Prayer, deliverance, and counseling.", <Heart size={20} />],
+    ["Children & Youth", "Safe discipleship programs.", <Users size={20} />],
+    ["Outreach & Mercy", "Serving the local community.", <Sparkles size={20} />],
+    ["Small Groups", "Life-on-life discipleship.", <MessageSquare size={20} />],
+    ["Training & Leadership", "Equipping believers to serve.", <BookOpen size={20} />],
+  ];
+  return (
+    <section id="ministries" className="mt-14 scroll-mt-24">
+      <p className="sectionKicker">Ministries</p>
+      <h2 className="sectionTitle">Many ways to grow, serve, and receive care</h2>
+      <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {ministries.map(([title, desc, icon]) => (
+          <div
+            key={title}
+            className="group relative overflow-hidden rounded-[1.75rem] bg-white p-7 shadow-xl ring-1 ring-rose-100/70 transition hover:-translate-y-1 hover:shadow-2xl dark:bg-white/[0.06] dark:ring-white/10"
+          >
+            <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-rose-300/60 to-transparent opacity-0 transition group-hover:opacity-100" />
+            <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br from-rose-300/25 to-amber-200/25 blur-2xl opacity-0 transition group-hover:opacity-100" />
+            <div className="mb-5 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-rose-600 to-amber-400 text-white shadow-[0_10px_25px_rgba(225,29,72,.25)] transition group-hover:scale-105">
+              {icon}
+            </div>
+            <h3 className="text-lg font-black tracking-tight">{title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              {desc}
+            </p>
+            <div className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-rose-600 opacity-0 transition group-hover:opacity-100 dark:text-rose-300">
+              Learn more <ArrowRight size={14} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- TESTIMONY / SCRIPTURE BANNER ---------------- */
+function Testimony() {
+  return (
+    <section className="mt-14">
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-amber-50 via-white to-rose-50 p-8 shadow-xl ring-1 ring-rose-100/70 dark:from-white/[0.04] dark:via-white/[0.04] dark:to-white/[0.06] dark:ring-white/10 sm:p-12">
+        <div className="pointer-events-none absolute -left-10 -top-10 h-56 w-56 rounded-full bg-rose-300/25 blur-3xl" />
+        <div className="pointer-events-none absolute -right-10 -bottom-10 h-56 w-56 rounded-full bg-amber-300/25 blur-3xl" />
+        <Quote size={40} className="text-rose-600/40 dark:text-rose-300/40" />
+        <p className="relative mt-3 max-w-4xl text-2xl font-bold leading-[1.35] tracking-tight text-slate-800 dark:text-slate-100 sm:text-3xl">
+          “Therefore if anyone is in Christ, he is a new creation; old things
+          have passed away; behold, all things have become new.”
+        </p>
+        <p className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-rose-700 shadow ring-1 ring-rose-100 dark:bg-white/10 dark:text-rose-200 dark:ring-white/10">
+          <BookOpen size={14} /> 2 Corinthians 5:17
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- GALLERY ---------------- */
+function GallerySection() {
+  return (
+    <section id="moments" className="mt-14 scroll-mt-24">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <p className="sectionKicker">Ministry Moments</p>
+          <h2 className="sectionTitle">A glimpse of worship, prayer, and community</h2>
+        </div>
+        <p className="max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300">
+          Real faces, real stories — moments God is writing through Mahima
+          Ministry.
+        </p>
+      </div>
+
+      <div className="mt-7 columns-1 gap-4 sm:columns-2 lg:columns-3">
+        {galleryImages.map((src, index) => (
+          <div
+            key={src}
+            className="group relative mb-4 break-inside-avoid overflow-hidden rounded-[1.75rem] bg-white p-2 shadow-xl ring-1 ring-rose-100/70 dark:bg-white/[0.06] dark:ring-white/10"
+          >
+            <div className="overflow-hidden rounded-[1.35rem]">
+              <img
+                src={src}
+                alt={`Mahima Ministry moment ${index + 1}`}
+                className="w-full object-cover transition duration-700 group-hover:scale-[1.06]"
+                loading="lazy"
+              />
+            </div>
+            <div className="pointer-events-none absolute inset-2 rounded-[1.35rem] bg-gradient-to-t from-slate-950/55 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+            <div className="pointer-events-none absolute inset-x-5 bottom-4 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-white opacity-0 transition group-hover:opacity-100">
+              <span>Mahima · Moment {String(index + 1).padStart(2, "0")}</span>
+              <Sparkles size={14} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- GET INVOLVED ---------------- */
+function GetInvolved({ onDonate }) {
+  const navigate = useNavigate();
+  const [serveOpen, setServeOpen] = useState(false);
+  return (
+    <section
+      id="get-involved"
+      className="relative mt-14 scroll-mt-24 overflow-hidden rounded-[2rem] bg-slate-950 p-8 text-white shadow-2xl ring-1 ring-white/10 sm:p-12"
+    >
+      <div className="pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-rose-500/30 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 -bottom-20 h-80 w-80 rounded-full bg-amber-400/25 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:radial-gradient(rgba(255,255,255,.6)_1px,transparent_1px)] [background-size:4px_4px]" />
+
+      <div className="relative">
+        <p className="font-bold uppercase tracking-[0.28em] text-amber-300">
+          Get Involved
+        </p>
+        <h2
+          className="mt-3 max-w-4xl font-black leading-[1.02] tracking-tight"
+          style={{ fontSize: "clamp(2rem, 4.2vw, 4rem)" }}
+        >
+          Serve, pray, give, and build the{" "}
+          <span className="bg-gradient-to-r from-amber-200 via-rose-200 to-amber-300 bg-clip-text text-transparent">
+            church family
+          </span>
+          .
+        </h2>
+
+        <div className="mt-9 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ActionPanel
+            title="Serve on a Team"
+            text="Worship, kids, hospitality, and media."
+            onClick={() => setServeOpen(true)}
+          />
+          <ActionPanel
+            title="Request Prayer"
+            text="Submit a confidential prayer request."
+            onClick={() => {
+              if (!hasToken()) {
+                alert("Please Create User/Login to enter a prayer request");
+                return;
+              }
+              navigate("/prayerrequests");
+            }}
+          />
+          <ActionPanel
+            title="Give"
+            text="Support ministries and outreach."
+            onClick={onDonate}
+          />
+        </div>
+      </div>
+
+      {serveOpen && (
+        <Modal onClose={() => setServeOpen(false)}>
+          <ModalCard title="Serve on a Team">
+            <p className="text-slate-700 dark:text-slate-300">
+              Please contact Bro. Pawan Kumar for team assignments, training, and
+              scheduling.
+            </p>
+            <p className="mt-4 font-bold text-rose-700 dark:text-rose-300">
+              Phone: +91 9646628466
+            </p>
+          </ModalCard>
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+function ActionPanel({ title, text, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative flex w-full min-w-0 flex-col items-start justify-between gap-4 overflow-hidden rounded-3xl border border-white/15 bg-white/10 p-6 text-left text-white shadow-xl backdrop-blur-md transition hover:-translate-y-1 hover:border-white/30 hover:bg-white/15"
+      style={{ minHeight: 170 }}
+    >
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-rose-400/25 to-amber-300/25 blur-2xl opacity-0 transition group-hover:opacity-100" />
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-rose-500 to-amber-400 text-white shadow-[0_14px_30px_rgba(225,29,72,.28)] transition group-hover:scale-105">
+        <ChevronRight size={22} />
+      </div>
+      <div className="w-full min-w-0">
+        <h3 className="m-0 break-words text-2xl font-black leading-tight">
+          {title}
+        </h3>
+        <p className="mt-2 break-words text-[15px] leading-6 text-white/72">
+          {text}
+        </p>
+        <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-bold text-amber-200 opacity-0 transition group-hover:opacity-100">
+          Continue <ArrowRight size={14} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/* ---------------- MOBILE CTA ---------------- */
+function MobileCTA({ onDonate }) {
+  const navigate = useNavigate();
+  return (
+    <div className="fixed inset-x-3 bottom-3 z-50 sm:hidden">
+      <div className="grid grid-cols-3 gap-2 rounded-full bg-white/95 p-2 shadow-2xl ring-1 ring-rose-100 backdrop-blur dark:bg-slate-950/95 dark:ring-white/10">
+        <button
+          type="button"
+          onClick={() => navigate("/sermons")}
+          className="rounded-full border border-rose-100 py-2 text-sm font-bold dark:border-white/10"
+        >
+          Sermons
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!hasToken()) {
+              alert("Please Create User/Login to enter a prayer request");
+              return;
+            }
+            navigate("/prayerrequests");
+          }}
+          className="rounded-full border border-rose-100 py-2 text-sm font-bold dark:border-white/10"
+        >
+          Prayer
+        </button>
+        <button
+          type="button"
+          onClick={onDonate}
+          className="rounded-full bg-gradient-to-r from-rose-600 to-amber-400 py-2 text-sm font-bold text-white shadow-md"
+        >
+          Give
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- FOOTER ---------------- */
+function Footer() {
+  return (
+    <footer className="mt-14 border-t border-rose-100/70 py-10 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-white shadow ring-1 ring-rose-100 dark:bg-white/10 dark:ring-white/10">
+              <img src={mahimaLogo} alt="" className="h-7 w-7 object-contain" />
+            </span>
+            <span className="text-base font-black text-rose-800 dark:text-rose-200">
+              Mahima Ministry
+            </span>
+          </div>
+          <p className="mt-4 max-w-sm leading-6">
+            Restoration, healing, and mission — a Christ-centred ministry family
+            in Jalandhar, Punjab.
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-rose-600 dark:text-rose-300">
+            Connect
+          </p>
+          <ul className="mt-3 space-y-2">
+            <li>
+              <a className="hover:text-rose-600" href="tel:+919646628466">
+                +91 9646628466
+              </a>
+            </li>
+            <li>
+              <a className="hover:text-rose-600" href="mailto:PawanK@mahimaministries.in">
+                PawanK@mahimaministries.in
+              </a>
+            </li>
+            <li className="leading-6">
+              Universal Public School, Gurunanak Nagar, Gulab Devi Road, Jalandhar, Punjab 144021
+            </li>
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-rose-600 dark:text-rose-300">
+            Explore
+          </p>
+          <ul className="mt-3 space-y-2">
+            <li>
+              <button onClick={() => scrollToSection("about")} className="hover:text-rose-600">
+                About
+              </button>
+            </li>
+            <li>
+              <button onClick={() => scrollToSection("ministries")} className="hover:text-rose-600">
+                Ministries
+              </button>
+            </li>
+            <li>
+              <button onClick={() => scrollToSection("moments")} className="hover:text-rose-600">
+                Moments
+              </button>
+            </li>
+            <li>
+              <button onClick={() => scrollToSection("get-involved")} className="hover:text-rose-600">
+                Get Involved
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-rose-100/70 pt-6 sm:flex-row sm:items-center dark:border-white/10">
+        <p>© {new Date().getFullYear()} Mahima Ministry. All rights reserved.</p>
+        <div className="flex gap-4">
+          <a href="/privacy" className="hover:text-rose-600">
+            Privacy
+          </a>
+          <a href="/terms" className="hover:text-rose-600">
+            Terms
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+/* ---------------- MODALS ---------------- */
+function Modal({ children, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      ref={ref}
+      className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ModalCard({ title, children }) {
+  return (
+    <div className="w-full max-w-2xl rounded-3xl bg-white p-7 shadow-2xl ring-1 ring-black/5 dark:bg-slate-950 dark:ring-white/10">
+      <h2 className="text-2xl font-black tracking-tight text-rose-700 dark:text-rose-300">
+        {title}
+      </h2>
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+/* ---------------- GLOBAL STYLES ---------------- */
+function GlobalStyles() {
+  return (
+    <style>{`
+      .navBtn {
+        padding: 10px 14px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 800;
+        color: #9f1239;
+        transition: all .2s ease;
+      }
+      .navBtn:hover {
+        background: rgba(244, 63, 94, 0.10);
+        color: #be123c;
+      }
+      .dark .navBtn { color: #fda4af; }
+      .dark .navBtn:hover { background: rgba(244, 63, 94, 0.16); }
+
+      .iconBtn {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        transition: all .2s ease;
+      }
+      .iconBtn:hover { transform: translateY(-1px); }
+      .dark .iconBtn {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.10);
+      }
+
+      .heroPrimary {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #e11d48, #f59e0b);
+        color: white;
+        padding: 14px 22px;
+        font-weight: 900;
+        box-shadow: 0 18px 45px rgba(225, 29, 72, 0.35);
+        transition: transform .2s ease, box-shadow .2s ease;
+      }
+      .heroPrimary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 22px 55px rgba(225, 29, 72, 0.45);
+      }
+      .heroSecondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 999px;
+        background: white;
+        color: #9f1239;
+        padding: 14px 22px;
+        font-weight: 900;
+        box-shadow: 0 14px 30px rgba(0,0,0,.15);
+        transition: transform .2s ease;
+      }
+      .heroSecondary:hover { transform: translateY(-2px); }
+      .heroGhost {
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        color: white;
+        padding: 14px 22px;
+        font-weight: 900;
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(8px);
+        transition: all .2s ease;
+      }
+      .heroGhost:hover {
+        background: rgba(255,255,255,.18);
+        transform: translateY(-2px);
+      }
+
+      .infoPill {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 12px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.10);
+        padding: 12px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        transition: background .2s ease;
+      }
+      .infoPill:hover { background: rgba(255,255,255,.15); }
+
+      .contactRow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .contactIcon {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        background: rgba(255,255,255,.22);
+        backdrop-filter: blur(8px);
+      }
+
+      .sectionKicker {
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: #e11d48;
+      }
+      .dark .sectionKicker { color: #fda4af; }
+
+      .sectionTitle {
+        margin-top: 8px;
+        font-size: clamp(2rem, 4vw, 3.5rem);
+        line-height: 1.02;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+      }
+
+      /* Ken Burns */
+      @keyframes kenburns {
+        0%   { transform: scale(1.05) translate3d(0,0,0); }
+        50%  { transform: scale(1.12) translate3d(-1%, -1%, 0); }
+        100% { transform: scale(1.05) translate3d(0,0,0); }
+      }
+      .animate-kenburns {
+        animation: kenburns 22s ease-in-out infinite;
+      }
+
+      /* Marquee */
+      @keyframes marquee {
+        0%   { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+      }
+      .marquee {
+        animation: marquee 38s linear infinite;
+        width: max-content;
+      }
+      .marquee:hover { animation-play-state: paused; }
+
+      /* Bounce hint */
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50%      { transform: translateY(3px); }
+      }
+      .animate-bounce { animation: bounce 1.6s ease-in-out infinite; }
+    `}</style>
+  );
+}

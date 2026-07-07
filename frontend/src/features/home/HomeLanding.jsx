@@ -1,45 +1,24 @@
-// src/features/home/HomeLanding.jsx
-//
-// Mahima Ministry landing page — sleeker, leaner, no duplicates.
-//
-// Flow:
-//   TopNav  → Hero  → Services  → About+Visit  → Get Involved
-//          → Ministries  → Scripture Marquee  → Gallery  → Footer
-//
-// Removed from the old version:
-//   - NextService (its content is now inside Services)
-//   - Hero FloatingCards (Welcome/Daily Word) — those live in Get Involved
-//   - Old GetInvolved trio (Serve/Pray/Give) — merged into one richer
-//     Get Involved section with four well-labelled paths
-//   - Standalone Testimony block — Scripture Marquee covers the role
-//
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
-  ArrowUpRight,
-  BookOpen,
-  ChevronRight,
+  CalendarDays,
   Clock,
-  Heart,
-  HelpCircle,
+  ExternalLink,
+  HeartHandshake,
   Mail,
   MapPin,
   Menu,
-  MessageSquare,
-  Moon,
   Phone,
-  PhoneCall,
-  Play,
-  Quote,
   Sparkles,
-  Sun,
   Users,
   X,
 } from "lucide-react";
+import { API_BASE } from "../../api";
 import { getToken, logout as authLogout } from "../auth/authService";
-import mahimaLogo from "../../assets/mahima-logo.png";
+import TenantLogo from "../../components/TenantLogo";
 
+<<<<<<< HEAD
 const galleryImages = [
   "/images/1000236887.jpg",
   "/images/1000236888.jpg",
@@ -47,23 +26,56 @@ const galleryImages = [
   "/images/1000236890.jpg",
   "/images/1000236891.jpg",
 ];
+=======
+const TENANT_SLUG_KEY = "mahima_tenant_slug";
+const AUTH_TENANT_SLUG_KEY = "mahima_auth_tenant_slug";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
-const verses = [
-  '"Come to Me, all you who labor and are heavy laden, and I will give you rest." — Matthew 11:28',
-  '"The Lord is my shepherd; I shall not want." — Psalm 23:1',
-  '"I can do all things through Christ who strengthens me." — Philippians 4:13',
-  '"Be still, and know that I am God." — Psalm 46:10',
-  '"For with God nothing will be impossible." — Luke 1:37',
-  '"Therefore if anyone is in Christ, he is a new creation; old things have passed away; all things have become new." — 2 Corinthians 5:17',
-];
-
-const contact = {
-  phone: "+91 7087775465",
-  phoneHref: "tel:+917087775465",
-  email: "Contact@mahimaministries.in",
-  address: "Universal Public School, Gurunanak Nagar, Gulab Devi Road, Jalandhar, Punjab 144021",
+const fallbackConfig = {
+  tenant: {
+    name: "Church Community",
+    slug: "mahima-root",
+  },
+  landing: {
+    logoUrl: "",
+    heroImageUrl: "",
+    heroTitle: "Church Community",
+    heroSubtitle: "Welcome to this church community.",
+    primaryColor: "#0f766e",
+    accentColor: "#f59e0b",
+    contactEmail: "Contact@mahimaministries.in",
+    contactPhone: "+91 7087775465",
+    address: "Universal Public School, Gurunanak Nagar, Gulab Devi Road, Jalandhar, Punjab 144021",
+    serviceTimes: [
+      { day: "Saturday", title: "Worship Service", time: "6:00 - 9:00 PM", note: "Weekly gathering" },
+      { day: "Tuesday", title: "Night Prayer", time: "10:30 PM", note: "Prayer line" },
+      { day: "Friday", title: "Night Prayer", time: "10:30 PM", note: "Prayer line" },
+    ],
+    socialLinks: [],
+    sections: [
+      {
+        type: "feature-grid",
+        title: "Ministry life",
+        subtitle: "Configure these cards from Landing Page admin.",
+        items: [
+          { title: "Prayer", text: "Share requests and stand together in faith." },
+          { title: "Fellowship", text: "Build a warm church community." },
+          { title: "Word", text: "Grow through messages and teaching." },
+        ],
+      },
+      {
+        type: "cta",
+        title: "Join us this week",
+        text: "We would love to welcome you.",
+        buttonLabel: "Login",
+        buttonHref: "/#/login",
+      },
+    ],
+    published: true,
+  },
 };
 
+<<<<<<< HEAD
 const SAAS_MAHIMA_URL =
   typeof window !== "undefined" && window.__SAAS_MAHIMA_URL__
     ? window.__SAAS_MAHIMA_URL__
@@ -77,30 +89,99 @@ const services = [
   { day: "Friday",   title: "Night Prayer",    time: "10:30 PM",       tag: "Prayer",
     bg: "linear-gradient(135deg, #b45309 0%, #881337 100%)" },
 ];
+=======
+function normalizeLandingResponse(data) {
+  const tenant = data?.tenant || fallbackConfig.tenant;
+  const landing = { ...fallbackConfig.landing, ...(data?.landing || data || {}) };
+  landing.serviceTimes = Array.isArray(landing.serviceTimes) ? landing.serviceTimes : [];
+  landing.socialLinks = Array.isArray(landing.socialLinks) ? landing.socialLinks : [];
+  landing.sections = Array.isArray(landing.sections) ? landing.sections : [];
+  return { tenant, landing };
+}
+
+function resolveAsset(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:/i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      if (parsed.pathname.startsWith("/uploads/")) {
+        parsed.pathname = `/api${parsed.pathname}`;
+        return parsed.toString();
+      }
+    } catch {
+      return value;
+    }
+    return value;
+  }
+  if (/^(data:|blob:)/i.test(value)) return value;
+  if (value.startsWith("/uploads/")) return `/api${value}`;
+  return `${value.startsWith("/") ? "" : "/"}${value}`;
+}
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
 function hasToken() {
   return Boolean(
     localStorage.getItem("mahima_token") ||
       localStorage.getItem("authToken") ||
       localStorage.getItem("token") ||
-      localStorage.getItem("mahima:user") ||
       getToken?.()
   );
 }
-function isMobileAppMode() {
-  try {
-    return import.meta.env.MODE === "mobile" ||
-      Boolean(window.Capacitor?.isNativePlatform?.());
-  } catch { return false; }
-}
-function scrollToSection(id) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+function hasCurrentTenantToken() {
+  const tenantSlug = getTenantSlug();
+  if (!hasToken()) return false;
+  if (!tenantSlug) return true;
+  const authTenantSlug = (localStorage.getItem(AUTH_TENANT_SLUG_KEY) || "").trim();
+  return authTenantSlug === tenantSlug;
 }
 
-/* ========================================================================
-   MAIN
-   ===================================================================== */
+function getTenantSlug() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = window.location.hash || "";
+    const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashTenantMatch = hash.match(/^#\/t\/([^/?#]+)/i);
+    const fromUrl = (
+      params.get("tenant") ||
+      params.get("tenantSlug") ||
+      hashParams.get("tenant") ||
+      hashParams.get("tenantSlug") ||
+      (hashTenantMatch ? decodeURIComponent(hashTenantMatch[1]) : "") ||
+      ""
+    ).trim();
+    if (fromUrl) {
+      localStorage.setItem(TENANT_SLUG_KEY, fromUrl);
+      localStorage.setItem("tenantSlug", fromUrl);
+      return fromUrl;
+    }
+
+    const host = window.location.hostname.toLowerCase();
+    const isKnownMahimaHost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".local") ||
+      host.includes("mahimaministries.");
+
+    if (!isKnownMahimaHost) {
+      return "";
+    }
+
+    return (
+      localStorage.getItem(TENANT_SLUG_KEY) ||
+      localStorage.getItem("tenantSlug") ||
+      localStorage.getItem("tenant_slug") ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
 export default function HomeLanding() {
+<<<<<<< HEAD
   const [showDonate, setShowDonate] = useState(false);
   const appMode = isMobileAppMode();
 
@@ -213,99 +294,107 @@ function AppMobileNav() {
    TOP NAV
    ===================================================================== */
 function TopNav({ onDonate }) {
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
   const navigate = useNavigate();
-  const [loggedIn, setLoggedIn] = useState(() => hasToken());
-  const [dark, setDark] = useState(() =>
-    typeof document !== "undefined" ? document.documentElement.classList.contains("dark") : false
-  );
-  const [scrolled, setScrolled] = useState(false);
+  const [config, setConfig] = useState(fallbackConfig);
+  const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const sync = () => setLoggedIn(hasToken());
-    window.addEventListener("auth:change", sync);
-    window.addEventListener("storage", sync);
+    let cancelled = false;
+    const tenantSlug = getTenantSlug();
+    const landingUrl = tenantSlug
+      ? `${API_BASE}/public/tenants/${encodeURIComponent(tenantSlug)}/landing`
+      : `${API_BASE}/public/landing/current`;
+
+    fetch(landingUrl, { headers: { Accept: "application/json" } })
+      .then((res) => (res.ok ? res.json() : fallbackConfig))
+      .then((data) => {
+        if (cancelled) return;
+        const slug = data?.tenant?.slug || data?.tenant?.Slug || "";
+        if (slug) {
+          localStorage.setItem("mahima_tenant_slug", slug);
+          localStorage.setItem("tenantSlug", slug);
+        }
+        setConfig(normalizeLandingResponse(data));
+      })
+      .catch(() => {
+        if (!cancelled) setConfig(fallbackConfig);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
-      window.removeEventListener("auth:change", sync);
-      window.removeEventListener("storage", sync);
+      cancelled = true;
     };
   }, []);
 
-  useEffect(() => {
-    if (localStorage.getItem("mahima_theme") === "dark") {
-      document.documentElement.classList.add("dark");
-      setDark(true);
+  const { tenant, landing } = config;
+  const colors = useMemo(
+    () => ({
+      primary: landing.primaryColor || "#0f766e",
+      accent: landing.accentColor || "#f59e0b",
+      primarySoft: `${landing.primaryColor || "#0f766e"}18`,
+    }),
+    [landing.primaryColor, landing.accentColor]
+  );
+
+  function goLogin() {
+    const tenantSlug = getTenantSlug();
+    const currentHost = window.location.hostname.replace(/^www\./i, "").toLowerCase();
+    const tenantHost = String(tenant.domain || tenant.Domain || "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "").toLowerCase();
+    const onTenantDomain = tenantHost && currentHost === tenantHost;
+    const loginPath = onTenantDomain
+      ? "/#/login"
+      : tenantSlug
+        ? `/#/login?tenant=${encodeURIComponent(tenantSlug)}`
+        : "/#/login";
+    if (!tenantSlug && hasCurrentTenantToken()) {
+      navigate("/home");
+    } else {
+      window.location.href = loginPath;
     }
-  }, []);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  function toggleTheme() {
-    const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("mahima_theme", next ? "dark" : "light");
-    setDark(next);
   }
 
-  function jump(id) {
-    setMenuOpen(false);
-    setTimeout(() => scrollToSection(id), 60);
+  function logout() {
+    authLogout();
+    localStorage.removeItem("mahima_user");
+    navigate("/login", { replace: true });
   }
 
-  function handleAuthClick() {
-    if (loggedIn) {
-      if (isMobileAppMode()) { navigate("/home", { replace: true }); return; }
-      authLogout();
-      localStorage.removeItem("mahima_user");
-      localStorage.removeItem("mahima:user");
-      setLoggedIn(false);
-      navigate("/login", { replace: true });
-      return;
-    }
-    navigate("/login");
-  }
-
-  const navLinks = [
-    ["Services",     "services"],
-    ["About",        "about"],
-    ["Get Involved", "get-involved"],
-    ["Ministries",   "ministries"],
-    ["Moments",      "moments"],
-  ];
+  const logo = landing.logoUrl || "";
+  const heroImage = resolveAsset(landing.heroImageUrl);
 
   return (
-    <>
-      <header
-        className={`sticky top-0 z-40 w-full transition-all duration-300 ${
-          scrolled
-            ? "border-b border-stone-900/5 bg-[#f7f1e3]/85 backdrop-blur-xl dark:border-white/5 dark:bg-[#0b0807]/85"
-            : "bg-transparent"
-        }`}
-      >
-        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <button type="button" onClick={() => scrollToSection("top")}
-            className="flex min-w-0 items-center gap-2.5 transition active:scale-[0.97]">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-stone-900 shadow-sm dark:bg-stone-100">
-              <img src={mahimaLogo} alt="Mahima Ministry" className="h-7 w-7 object-contain" />
-            </span>
-            <span className="min-w-0 text-left leading-none">
-              <span className="block truncate font-serif text-[15px] font-black tracking-tight text-stone-900 dark:text-stone-50 sm:text-base">Mahima Ministry</span>
-              <span className="mt-1 hidden text-[10px] font-bold uppercase tracking-[0.28em] text-amber-700 dark:text-amber-300 sm:block">Restoration · Healing · Mission</span>
+    <main className="min-h-screen bg-slate-50 text-slate-950" style={{ "--tenant-primary": colors.primary, "--tenant-accent": colors.accent }}>
+      <header className="sticky top-0 z-40 border-b border-white/30 bg-white/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+          <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-3 text-left">
+            <TenantLogo src={logo} name={tenant.name || landing.heroTitle} className="h-11 w-11 rounded-lg shadow-sm" />
+            <span>
+              <span className="block text-lg font-black leading-tight">{tenant.name || landing.heroTitle}</span>
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Church community</span>
             </span>
           </button>
 
-          {/* Desktop nav */}
-          <nav className="hidden items-center gap-1 lg:flex">
-            {navLinks.map(([label, id]) => (
-              <button key={id} type="button" onClick={() => jump(id)} className="navBtn">{label}</button>
+          <nav className="hidden items-center gap-2 md:flex">
+            <Anchor id="services">Services</Anchor>
+            <Anchor id="sections">Ministries</Anchor>
+            <Anchor id="contact">Contact</Anchor>
+            {landing.socialLinks.map((link, index) => (
+              <a key={`${link.label || link.url}-${index}`} href={link.url} target="_blank" rel="noreferrer" className="rounded-full px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100">
+                {link.label || "Social"} <ExternalLink className="ml-1 inline h-3 w-3" />
+              </a>
             ))}
+            {hasCurrentTenantToken() ? (
+              <button type="button" onClick={logout} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-black text-white">Logout</button>
+            ) : (
+              <button type="button" onClick={goLogin} className="rounded-full bg-[var(--tenant-primary)] px-4 py-2 text-sm font-black text-white">Login</button>
+            )}
           </nav>
 
+<<<<<<< HEAD
           <div className="flex shrink-0 items-center gap-1.5">
             <button type="button" onClick={toggleTheme} className="iconBtn" aria-label="Toggle theme">
               {dark ? <Sun size={17} /> : <Moon size={17} />}
@@ -330,25 +419,24 @@ function TopNav({ onDonate }) {
               <Menu size={18} />
             </button>
           </div>
+=======
+          <button type="button" onClick={() => setMenuOpen(true)} className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 md:hidden" aria-label="Open menu">
+            <Menu className="h-5 w-5" />
+          </button>
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         </div>
       </header>
 
       {menuOpen && (
-        <div className="fixed inset-0 z-[60] lg:hidden">
-          <button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}
-            className="absolute inset-0 bg-stone-950/50 backdrop-blur-sm" />
-          <div className="absolute inset-x-3 top-3 overflow-hidden rounded-3xl bg-[#f7f1e3] p-5 shadow-2xl ring-1 ring-stone-900/10 dark:bg-[#120c0a] dark:ring-white/10 animate-slideDown">
+        <div className="fixed inset-0 z-50 bg-slate-950/55 p-4 md:hidden" onClick={() => setMenuOpen(false)}>
+          <div className="ml-auto max-w-xs rounded-lg bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-stone-900 dark:bg-stone-100">
-                  <img src={mahimaLogo} alt="" className="h-7 w-7 object-contain" />
-                </span>
-                <span className="font-serif text-base font-black">Mahima Ministry</span>
-              </div>
-              <button type="button" onClick={() => setMenuOpen(false)} className="iconBtn" aria-label="Close">
-                <X size={18} />
+              <b>{tenant.name}</b>
+              <button type="button" onClick={() => setMenuOpen(false)} className="grid h-9 w-9 place-items-center rounded-full bg-slate-100">
+                <X className="h-4 w-4" />
               </button>
             </div>
+<<<<<<< HEAD
             <nav className="mt-5 grid grid-cols-1 gap-1">
               {navLinks.map(([label, id]) => (
                 <button key={id} type="button" onClick={() => jump(id)}
@@ -370,13 +458,204 @@ function TopNav({ onDonate }) {
               <button type="button" onClick={() => { setMenuOpen(false); onDonate(); }}
                 className="h-14 rounded-2xl bg-gradient-to-br from-rose-800 to-amber-600 text-sm font-black text-amber-50 active:scale-[0.98]">
                 Donate
+=======
+            <div className="mt-4 grid gap-2">
+              <MobileAnchor id="services" close={() => setMenuOpen(false)}>Services</MobileAnchor>
+              <MobileAnchor id="sections" close={() => setMenuOpen(false)}>Ministries</MobileAnchor>
+              <MobileAnchor id="contact" close={() => setMenuOpen(false)}>Contact</MobileAnchor>
+              <button type="button" onClick={goLogin} className="rounded-lg bg-[var(--tenant-primary)] px-4 py-3 text-left text-sm font-black text-white">
+                {hasCurrentTenantToken() ? "Open App" : "Login"}
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${colors.primary} 0%, #102033 55%, ${colors.accent} 130%)` }} />
+        {heroImage && <img src={heroImage} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30 mix-blend-screen" />}
+        <div className="relative mx-auto grid min-h-[620px] max-w-7xl items-center gap-8 px-4 py-16 text-white sm:px-6 lg:grid-cols-[1fr_420px]">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-bold backdrop-blur">
+              <Sparkles className="h-4 w-4" />
+              {tenant.name || "Your church"}
+            </div>
+            <h1 className="mt-6 max-w-4xl text-5xl font-black leading-[0.95] tracking-tight sm:text-7xl">
+              {landing.heroTitle || tenant.name}
+            </h1>
+            <p className="mt-6 max-w-2xl text-xl leading-8 text-white/85">
+              {landing.heroSubtitle || "A church community powered by Mahima."}
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button type="button" onClick={goLogin} className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-black text-slate-950 shadow-lg">
+                {hasCurrentTenantToken() ? "Open App" : "Member Login"} <ArrowRight className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })} className="rounded-full border border-white/30 px-6 py-3 text-sm font-black text-white">
+                Visit Us
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white/95 p-5 text-slate-950 shadow-2xl">
+            <h2 className="text-xl font-black">This Week</h2>
+            <div className="mt-4 grid gap-3">
+              {(landing.serviceTimes || []).slice(0, 4).map((service, index) => (
+                <ServiceCard key={`${service.day}-${service.title}-${index}`} service={service} accent={colors.accent} />
+              ))}
+              {!landing.serviceTimes?.length && <p className="text-sm text-slate-500">Service times are not configured yet.</p>}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="services" className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+        <SectionHeading eyebrow="Gatherings" title="Service Times" subtitle="Every tenant can set its own worship and prayer schedule." />
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {(landing.serviceTimes || []).map((service, index) => (
+            <ServiceCard key={`${service.day}-${service.title}-${index}`} service={service} accent={colors.accent} large />
+          ))}
+        </div>
+      </section>
+
+      <section id="sections" className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        {(landing.sections || []).map((section, index) => (
+          <ConfigSection key={`${section.type || "section"}-${index}`} section={section} colors={colors} />
+        ))}
+      </section>
+
+      <section id="contact" className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+        <div className="grid gap-5 rounded-lg bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:grid-cols-[1fr_420px]">
+          <div>
+            <SectionHeading eyebrow="Contact" title={`Visit ${tenant.name || "us"}`} subtitle="Each tenant owns these details from the Landing Page editor." />
+            <div className="mt-6 grid gap-3 text-sm font-semibold text-slate-700">
+              {landing.contactPhone && <ContactLine icon={Phone} text={landing.contactPhone} href={`tel:${landing.contactPhone}`} />}
+              {landing.contactEmail && <ContactLine icon={Mail} text={landing.contactEmail} href={`mailto:${landing.contactEmail}`} />}
+              {landing.address && <ContactLine icon={MapPin} text={landing.address} />}
+            </div>
+          </div>
+          <div className="rounded-lg p-5 text-white" style={{ background: colors.primary }}>
+            <h3 className="text-2xl font-black">Ready to connect?</h3>
+            <p className="mt-2 text-white/80">Login to access this church community, requests, sermons, teams, and licensed modules.</p>
+            <button type="button" onClick={goLogin} className="mt-5 rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950">
+              {hasCurrentTenantToken() ? "Open App" : "Login"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">
+        {loading ? "Loading church page..." : `${tenant.name || landing.heroTitle} - Powered by Mahima Innovation Center (MIC)`}
+      </footer>
+    </main>
+  );
+}
+
+function Anchor({ id, children }) {
+  return (
+    <button type="button" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })} className="rounded-full px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100">
+      {children}
+    </button>
+  );
+}
+
+function MobileAnchor({ id, close, children }) {
+  return (
+    <button type="button" onClick={() => { close(); setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }), 50); }} className="rounded-lg px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-100">
+      {children}
+    </button>
+  );
+}
+
+function ServiceCard({ service, accent, large = false }) {
+  return (
+    <div className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${large ? "min-h-40" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide" style={{ color: accent }}>
+            <CalendarDays className="h-4 w-4" />
+            {service.day || "Service"}
+          </div>
+          <h3 className="mt-2 text-lg font-black text-slate-950">{service.title || "Gathering"}</h3>
+        </div>
+        <Clock className="h-5 w-5 text-slate-400" />
+      </div>
+      <p className="mt-3 text-sm font-bold text-slate-700">{service.time || "Time to be announced"}</p>
+      {service.note && <p className="mt-2 text-sm text-slate-500">{service.note}</p>}
+    </div>
+  );
+}
+
+function SectionHeading({ eyebrow, title, subtitle }) {
+  return (
+    <div>
+      <div className="text-xs font-black uppercase tracking-[0.24em] text-[var(--tenant-primary)]">{eyebrow}</div>
+      <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">{title}</h2>
+      {subtitle && <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">{subtitle}</p>}
+    </div>
+  );
+}
+
+function ConfigSection({ section, colors }) {
+  const type = String(section?.type || "feature-grid").toLowerCase();
+  if (type === "cta") {
+    return (
+      <div className="my-8 rounded-lg p-8 text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${colors.primary}, #102033)` }}>
+        <h2 className="text-3xl font-black">{section.title || "Call to action"}</h2>
+        {section.text && <p className="mt-3 max-w-3xl text-lg text-white/80">{section.text}</p>}
+        {section.buttonLabel && (
+          <a href={section.buttonHref || "/#/login"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950">
+            {section.buttonLabel} <ArrowRight className="h-4 w-4" />
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (type === "story") {
+    return (
+      <div className="my-8 grid gap-6 rounded-lg bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:grid-cols-[1fr_360px]">
+        <div>
+          <SectionHeading eyebrow={section.eyebrow || "About"} title={section.title || "Our story"} subtitle={section.text || section.subtitle} />
+        </div>
+        {section.imageUrl ? (
+          <img src={resolveAsset(section.imageUrl)} alt={section.title || ""} className="h-72 w-full rounded-lg object-cover" />
+        ) : (
+          <div className="grid h-72 place-items-center rounded-lg" style={{ background: colors.primarySoft }}>
+            <HeartHandshake className="h-16 w-16" style={{ color: colors.primary }} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const items = Array.isArray(section.items) ? section.items : [];
+  return (
+    <div className="my-8">
+      <SectionHeading eyebrow={section.eyebrow || "Ministry"} title={section.title || "Ministries"} subtitle={section.subtitle || section.text} />
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        {items.map((item, index) => (
+          <div key={`${item.title}-${index}`} className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <div className="grid h-12 w-12 place-items-center rounded-lg" style={{ background: colors.primarySoft, color: colors.primary }}>
+              {index % 2 === 0 ? <Users className="h-6 w-6" /> : <HeartHandshake className="h-6 w-6" />}
+            </div>
+            <h3 className="mt-4 text-xl font-black">{item.title || "Section item"}</h3>
+            {item.text && <p className="mt-2 text-sm leading-6 text-slate-600">{item.text}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContactLine({ icon: Icon, text, href }) {
+  const content = (
+    <>
+      <Icon className="h-4 w-4 shrink-0 text-[var(--tenant-primary)]" />
+      <span>{text}</span>
     </>
   );
+<<<<<<< HEAD
 }
 
 /* ========================================================================
@@ -1070,4 +1349,10 @@ function GlobalStyles() {
       }
     `}</style>
   );
+=======
+  if (href) {
+    return <a href={href} className="flex items-start gap-3 hover:text-[var(--tenant-primary)]">{content}</a>;
+  }
+  return <div className="flex items-start gap-3">{content}</div>;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 }

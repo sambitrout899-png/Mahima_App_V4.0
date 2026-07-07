@@ -29,8 +29,106 @@ function readRememberedLogin() {
   }
 }
 
+function tenantSlugFromCurrentUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = window.location.hash || "";
+    const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashTenantMatch = hash.match(/^#\/t\/([^/?#]+)/i);
+    return (
+      params.get("tenantSlug") ||
+      params.get("tenant") ||
+      hashParams.get("tenantSlug") ||
+      hashParams.get("tenant") ||
+      (hashTenantMatch ? decodeURIComponent(hashTenantMatch[1]) : "") ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function humanizeSlug(slug) {
+  return String(slug || "")
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function resolveAsset(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:/i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      if (parsed.pathname.startsWith("/uploads/")) {
+        parsed.pathname = `/api${parsed.pathname}`;
+        return parsed.toString();
+      }
+    } catch {
+      return value;
+    }
+    return value;
+  }
+  if (/^(data:|blob:)/i.test(value)) return value;
+  if (value.startsWith("/uploads/")) return `/api${value}`;
+  return `${value.startsWith("/") ? "" : "/"}${value}`;
+}
+
+function digitsOnly(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function isValidUsername(value) {
+  return /^[A-Za-z0-9._-]{3,50}$/.test(String(value || "").trim());
+}
+
+function isValidEmail(value) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) && text.length <= 254;
+}
+
+function normalizeIndianMobile(value) {
+  const digits = digitsOnly(value);
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return "";
+}
+
+function validateRegistrationForm({ username, displayName, phone, password }) {
+  const cleanUsername = username.trim();
+  const cleanDisplayName = displayName.trim();
+  const mobile = normalizeIndianMobile(phone);
+
+  if (!cleanDisplayName || !cleanUsername || !phone.trim() || !password) {
+    return "Display Name, Username, Mobile Number and Password are required";
+  }
+
+  if (!isValidUsername(cleanUsername)) {
+    return "Username must be 3-50 characters and can use letters, numbers, dot, underscore, or hyphen only.";
+  }
+
+  if (!mobile) {
+    return "Enter a valid 10-digit Indian mobile number.";
+  }
+
+  if (password.length < 6) {
+    return "Password must be at least 6 characters";
+  }
+
+  if (cleanUsername.includes("@") && !isValidEmail(cleanUsername)) {
+    return "If you use an email as username, enter a valid email address.";
+  }
+
+  return "";
+}
+
 export default function Login() {
   const navigate = useNavigate();
+  const [loginTenantSlug] = useState(() => tenantSlugFromCurrentUrl());
   const autoLoginStarted = useRef(false);
   const googleButtonRef = useRef(null);
   const runtimeGoogleClientId = typeof window !== "undefined" ? (window.__GOOGLE_CLIENT_ID__ || window.__GOOGLE_WEB_CLIENT_ID__ || "") : "";
@@ -44,6 +142,8 @@ export default function Login() {
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(() => isMobileAppMode() || Boolean(readRememberedLogin()));
   const [showPwd, setShowPwd] = useState(false);
 
@@ -52,6 +152,10 @@ export default function Login() {
   const [forgotSent, setForgotSent] = useState("");
   const [googleReady, setGoogleReady] = useState(false);
   const [nativeGoogleReady, setNativeGoogleReady] = useState(false);
+<<<<<<< HEAD
+=======
+  const [tenantBrand, setTenantBrand] = useState(null);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
   function persistAuthSession(token, user = null) {
     localStorage.setItem("authToken", token);
@@ -65,6 +169,18 @@ export default function Login() {
   }
 
   useEffect(() => {
+    const tenantSlug = loginTenantSlug;
+    if (tenantSlug) {
+      localStorage.setItem("mahima_tenant_slug", tenantSlug);
+      localStorage.setItem("tenantSlug", tenantSlug);
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("mahima_token");
+      localStorage.removeItem("token");
+      localStorage.removeItem("mahima_user");
+      localStorage.removeItem("user");
+      localStorage.removeItem("me");
+    }
+
     if (getStoredToken()) {
       navigate("/home", { replace: true });
       return;
@@ -80,7 +196,186 @@ export default function Login() {
     if (!isMobileAppMode() || autoLoginStarted.current) return;
     autoLoginStarted.current = true;
     performLogin(remembered.username, remembered.password, true);
-  }, []);
+  }, [loginTenantSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const landingUrl = loginTenantSlug
+      ? `${API_BASE}/public/tenants/${encodeURIComponent(loginTenantSlug)}/landing`
+      : `${API_BASE}/public/landing/current`;
+    fetch(landingUrl, {
+      headers: { Accept: "application/json" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const slug = data?.tenant?.slug || data?.tenant?.Slug || "";
+        if (slug) {
+          localStorage.setItem("mahima_tenant_slug", slug);
+          localStorage.setItem("tenantSlug", slug);
+        }
+        setTenantBrand(data || null);
+      })
+      .catch((err) => {
+        console.warn("[login] Tenant branding failed", err);
+        if (!cancelled) setTenantBrand(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loginTenantSlug]);
+
+  useEffect(() => {
+    setGoogleReady(false);
+    if (mode !== "login" || !googleWebClientId || !googleButtonRef.current || isMobileAppMode()) return;
+
+    let cancelled = false;
+
+    loadGoogleIdentityScript()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) return;
+
+        window.google.accounts.id.initialize({
+          client_id: googleWebClientId,
+          callback: handleGoogleCredential,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        googleButtonRef.current.innerHTML = "";
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline",
+          size: "large",
+          type: "standard",
+          shape: "rectangular",
+          text: "signin_with",
+          width: 320,
+        });
+        setGoogleReady(true);
+      })
+      .catch((err) => {
+        console.warn("[login] Google sign-in script failed", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, googleWebClientId]);
+
+  function loadGoogleIdentityScript() {
+    return new Promise((resolve, reject) => {
+      if (window.google?.accounts?.id) {
+        resolve();
+        return;
+      }
+
+      const existing = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = GOOGLE_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+  useEffect(() => {
+    if (mode !== "login" || !isMobileAppMode()) {
+      setNativeGoogleReady(false);
+      return;
+    }
+
+    const plugins = window.Capacitor?.Plugins || {};
+    setNativeGoogleReady(Boolean(plugins.GoogleAuth?.signIn || plugins.FirebaseAuthentication?.signInWithGoogle));
+  }, [mode]);
+
+  function extractGoogleIdToken(result) {
+    return (
+      result?.authentication?.idToken ||
+      result?.credential?.idToken ||
+      result?.idToken ||
+      result?.serverAuthCodeIdToken ||
+      result?.user?.authentication?.idToken ||
+      result?.result?.credential?.idToken ||
+      ""
+    );
+  }
+
+  async function signInWithNativeGoogle() {
+    const plugins = window.Capacitor?.Plugins || {};
+
+    if (plugins.GoogleAuth?.initialize) {
+      await plugins.GoogleAuth.initialize({
+        clientId: googleWebClientId || undefined,
+        serverClientId: googleWebClientId || undefined,
+        androidClientId: googleAndroidClientId || undefined,
+        scopes: ["profile", "email"],
+        grantOfflineAccess: false,
+      }).catch(() => {});
+    }
+
+    if (plugins.GoogleAuth?.signIn) {
+      return plugins.GoogleAuth.signIn();
+    }
+
+    if (plugins.FirebaseAuthentication?.signInWithGoogle) {
+      return plugins.FirebaseAuthentication.signInWithGoogle({
+        mode: "popup",
+      });
+    }
+
+    throw new Error("Native Google sign-in plugin is not installed in this app build.");
+  }
+
+  async function handleGoogleButtonClick() {
+    setError("");
+
+    if (isMobileAppMode()) {
+      setLoading(true);
+      try {
+        const result = await signInWithNativeGoogle();
+        const idToken = extractGoogleIdToken(result);
+        if (!idToken) throw new Error("Google sign-in did not return an ID token from the app.");
+        await handleGoogleCredential({ credential: idToken });
+      } catch (err) {
+        setError(err.message || "Google sign-in failed in the app.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!googleWebClientId) {
+      setError("Google sign-in is not configured. Set VITE_GOOGLE_CLIENT_ID in the frontend and GoogleAuth:ClientIds in the API.");
+      return;
+    }
+
+    try {
+      await loadGoogleIdentityScript();
+      if (!window.google?.accounts?.id) throw new Error("Google Identity Services did not load.");
+      window.google.accounts.id.initialize({
+        client_id: googleWebClientId,
+        callback: handleGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      window.google.accounts.id.prompt((notification) => {
+        const blocked = notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.();
+        if (blocked && !googleReady) {
+          setError("Google sign-in could not be displayed. Check the Google client ID and authorized JavaScript origin.");
+        }
+      });
+    } catch (err) {
+      setError(err.message || "Google sign-in could not start.");
+    }
+  }
 
   useEffect(() => {
     setGoogleReady(false);
@@ -374,10 +669,16 @@ export default function Login() {
 
     const cleanUsername = username.trim();
     const cleanDisplayName = displayName.trim();
-    const cleanPhone = phone.trim();
+    const cleanPhone = normalizeIndianMobile(phone);
 
-    if (!cleanDisplayName || !cleanUsername || !cleanPhone || !password) {
-      setError("Display Name, Username, Mobile Number and Password are required");
+    const validationError = validateRegistrationForm({
+      username,
+      displayName,
+      phone,
+      password,
+    });
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -461,24 +762,52 @@ export default function Login() {
       setError("Username / Email is required");
       return;
     }
+    if (!phone.trim()) {
+      setError("Registered mobile number is required");
+      return;
+    }
+    if (!resetPassword || resetPassword.length < 6) {
+      setError("New password must be at least 6 characters");
+      return;
+    }
+    if (resetPassword !== resetConfirmPassword) {
+      setError("New password and confirmation do not match");
+      return;
+    }
 
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      const res = await fetch(`${API_BASE}/auth/reset-password-direct`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usernameOrEmail: username.trim() }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(loginTenantSlug ? { "X-Tenant-Slug": loginTenantSlug } : {}),
+        },
+        body: JSON.stringify({
+          usernameOrEmail: username.trim(),
+          phone: phone.trim(),
+          newPassword: resetPassword,
+        }),
       });
       // The endpoint deliberately returns 200 + a generic message regardless
       // of whether the account exists, so we don't leak account enumeration.
-      let msg = "If an account exists for that address, a reset link has been sent.";
+      let msg = res.ok
+        ? "Your password has been reset. Please sign in with the new password."
+        : "Password reset failed. Please check the username/email and registered mobile number.";
       try {
         const json = await res.json();
         if (json?.message) msg = json.message;
       } catch { /* ignore — response body may be empty */ }
 
-      // surface the generic confirmation inline; switch back to login.
+      if (!res.ok) {
+        setError(msg);
+        return;
+      }
+
+      setPassword("");
+      setResetPassword("");
+      setResetConfirmPassword("");
       setForgotSent(msg);
       setMode("login");
     } catch (err) {
@@ -488,12 +817,28 @@ export default function Login() {
     }
   }
 
+  const tenantLanding = tenantBrand?.landing || {};
+  const tenantName =
+    tenantBrand?.tenant?.name ||
+    tenantLanding.heroTitle ||
+    (loginTenantSlug ? humanizeSlug(loginTenantSlug) : "Mahima Ministry");
+  const tenantLogo = resolveAsset(tenantLanding.logoUrl) || mahimaLogo;
+  const tenantPrimary = tenantLanding.primaryColor || "#047857";
+  const brandedActiveTab = {
+    ...activeTab,
+    background: `linear-gradient(180deg, ${tenantPrimary}, ${tenantPrimary})`,
+  };
+  const brandedButton = {
+    ...button,
+    background: `linear-gradient(180deg, ${tenantPrimary}, ${tenantPrimary})`,
+  };
+
   return (
     <div style={page}>
       <div style={card}>
         <div style={logoSection}>
-          <img src={mahimaLogo} alt="Mahima Ministry" style={logo} />
-          <h2 style={title}>Mahima Ministry</h2>
+          <img src={tenantLogo} alt={tenantName} style={logo} />
+          <h2 style={title}>{tenantName}</h2>
         </div>
 
         <p style={subtitle}>
@@ -508,7 +853,7 @@ export default function Login() {
           <div style={tabRow}>
             <button
               type="button"
-              style={mode === "login" ? activeTab : tab}
+              style={mode === "login" ? brandedActiveTab : tab}
               onClick={() => switchMode("login")}
             >
               Sign In
@@ -516,7 +861,7 @@ export default function Login() {
 
             <button
               type="button"
-              style={mode === "register" ? activeTab : tab}
+              style={mode === "register" ? brandedActiveTab : tab}
               onClick={() => switchMode("register")}
             >
               Create Account
@@ -576,7 +921,7 @@ export default function Login() {
         >
           <input
             style={input}
-            placeholder="Username / Email"
+            placeholder={mode === "register" ? "User ID" : "Username / Email"}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
@@ -594,9 +939,55 @@ export default function Login() {
 
               <input
                 style={input}
+                type="tel"
+                inputMode="numeric"
+                maxLength={14}
                 placeholder="Mobile Number"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                required
+              />
+            </>
+          )}
+
+          {mode === "forgot" && (
+            <>
+              <input
+                style={input}
+                type="tel"
+                inputMode="numeric"
+                maxLength={14}
+                placeholder="Registered Mobile Number"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+              />
+
+              <div style={passwordWrap}>
+                <input
+                  style={{ ...input, paddingRight: 56 }}
+                  type={showPwd ? "text" : "password"}
+                  placeholder="New Password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowPwd(!showPwd)}
+                  style={eyeButton}
+                >
+                  {showPwd ? "Hide" : "Show"}
+                </button>
+              </div>
+
+              <input
+                style={input}
+                type={showPwd ? "text" : "password"}
+                placeholder="Confirm New Password"
+                value={resetConfirmPassword}
+                onChange={(e) => setResetConfirmPassword(e.target.value)}
                 required
               />
             </>
@@ -667,7 +1058,7 @@ export default function Login() {
           )}
           {error && <div style={errorBox}>{error}</div>}
 
-          <button type="submit" style={button} disabled={loading}>
+          <button type="submit" style={brandedButton} disabled={loading}>
             {loading
               ? "Please wait..."
               : mode === "login"

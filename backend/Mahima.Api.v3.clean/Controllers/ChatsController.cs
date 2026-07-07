@@ -29,8 +29,14 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IMobilePushNotificationService? _mobilePush;
         private readonly IPastorBotService _pastorBot;
         private readonly ILogger<ChatsController> _logger;
+        private readonly ITenantContextService _tenantContext;
+        private readonly ILicensingService _licensing;
 
+<<<<<<< HEAD
         public ChatsController(IChatService chatService, MahimaDbContext db, IHubContext<ChatHub> hub, IEnumerable<IMobilePushNotificationService> mobilePushServices, IPastorBotService pastorBot, ILogger<ChatsController> logger)
+=======
+        public ChatsController(IChatService chatService, MahimaDbContext db, IHubContext<ChatHub> hub, IEnumerable<IMobilePushNotificationService> mobilePushServices, ILogger<ChatsController> logger, ITenantContextService tenantContext, ILicensingService licensing)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         {
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
             _db = db ?? throw new ArgumentNullException(nameof(db));
@@ -38,6 +44,22 @@ namespace Mahima.Api.v3.clean.Controllers
             _mobilePush = mobilePushServices?.FirstOrDefault();
             _pastorBot = pastorBot ?? throw new ArgumentNullException(nameof(pastorBot));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
+            _licensing = licensing ?? throw new ArgumentNullException(nameof(licensing));
+        }
+
+        private async Task<IActionResult?> RequireChatModuleAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            if (tenant == null) return NotFound("Tenant not found.");
+            if (await _licensing.HasModuleAsync(tenant.Id, LicensingService.ChatModule)) return null;
+            return StatusCode(402, new
+            {
+                message = "The Jai Masih Chat module is not active for this church.",
+                moduleCode = LicensingService.ChatModule,
+                tenantId = tenant.Id,
+                action = "Create a UPI payment intent and mark it paid to activate chat."
+            });
         }
 
         private async Task<List<Guid>?> GetAuthorizedMemberIdsAsync(Guid chatId, Guid currentUserId)
@@ -46,6 +68,12 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var memberIds = (await _chatService.GetChatMemberIdsAsync(chatId)).Distinct().ToList();
             return memberIds.Contains(currentUserId) ? memberIds : null;
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            return tenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
         }
 
         private Task NotifyChatMembersAsync(IEnumerable<Guid> memberIds, string eventName, object payload)
@@ -62,9 +90,19 @@ namespace Mahima.Api.v3.clean.Controllers
             return chats.FirstOrDefault(c => c.Id == chatId);
         }
 
+        private async Task EnsureGroupPhotoColumnAsync()
+        {
+            await _db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE public.chats
+ADD COLUMN IF NOT EXISTS group_photo_url text;");
+        }
+
         [HttpPatch("{chatId:guid}/soft-delete")]
         public async Task<IActionResult> SoftDeleteChat(Guid chatId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var currentUserId = User.GetUserIdGuid();
             if (currentUserId == Guid.Empty) return Unauthorized();
 
@@ -83,6 +121,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("send-bulk")]
         public async Task<IActionResult> SendBulk([FromBody] SendBulkMessageDto dto)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var fromUserId = User.GetUserIdGuid();
@@ -149,6 +190,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpDelete("{chatId:guid}")]
         public async Task<IActionResult> DeleteChat(Guid chatId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var currentUserId = User.GetUserIdGuid();
             if (currentUserId == Guid.Empty) return Unauthorized();
 
@@ -167,6 +211,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet]
         public async Task<IActionResult> GetChats()
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -177,12 +224,26 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("contacts")]
         public async Task<IActionResult> GetChatContacts([FromQuery] string? search = null, [FromQuery] int page = 1, [FromQuery] int limit = 500)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var currentUserId = User.GetUserIdGuid();
             if (currentUserId == Guid.Empty) return Unauthorized();
 
             page = Math.Max(1, page);
             limit = Math.Clamp(limit, 1, 1000);
+<<<<<<< HEAD
             var offset = (page - 1) * limit;
+=======
+
+            var query = _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id != currentUserId);
+
+            var tenantId = await GetCurrentTenantIdAsync();
+            query = query.Where(u => u.TenantId == tenantId);
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             var term = search?.Trim();
 
             try
@@ -284,6 +345,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpPost]
         public async Task<IActionResult> CreateChat([FromBody] JsonElement body)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             string? identifier = null;
             string? groupName = null;
             var isGroup = false;
@@ -367,6 +431,7 @@ LIMIT @limit OFFSET @offset;";
 
             var currentUserId = User.GetUserIdGuid();
             if (currentUserId == Guid.Empty) return Unauthorized();
+            var tenantId = await GetCurrentTenantIdAsync();
 
             if (isGroup)
             {
@@ -423,6 +488,22 @@ LIMIT @limit OFFSET @offset;";
             if (targetUserId == Guid.Empty && string.IsNullOrWhiteSpace(identifier))
                 return BadRequest("userId or usernameOrEmail is required.");
 
+            if (targetUserId != Guid.Empty)
+            {
+                var targetInTenant = await _db.Users.AsNoTracking().AnyAsync(u => u.Id == targetUserId && u.TenantId == tenantId);
+                if (!targetInTenant) return NotFound("target user not found in this church.");
+            }
+            else if (!string.IsNullOrWhiteSpace(identifier))
+            {
+                var normalized = identifier.Trim().ToLowerInvariant();
+                var targetInTenant = await _db.Users.AsNoTracking().AnyAsync(u =>
+                    u.TenantId == tenantId &&
+                    ((u.Username != null && u.Username.ToLower() == normalized) ||
+                     (u.Email != null && u.Email.ToLower() == normalized) ||
+                     (u.Phone != null && u.Phone == identifier)));
+                if (!targetInTenant) return NotFound("target user not found in this church.");
+            }
+
             Chat createdChat;
             try
             {
@@ -463,6 +544,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpGet("{chatId}/messages")]
         public async Task<IActionResult> GetMessages(Guid chatId, int page = 1, int size = 50, int? take = null)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -505,22 +589,42 @@ LIMIT @limit OFFSET @offset;";
         [HttpGet("{chatId:guid}/members")]
         public async Task<IActionResult> GetChatMembers(Guid chatId)
         {
+<<<<<<< HEAD
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
+=======
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
+            var userId = User.GetUserIdGuid();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            await EnsureGroupPhotoColumnAsync();
+            var tenantId = await GetCurrentTenantIdAsync();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             var authorizedMemberIds = await GetAuthorizedMemberIdsAsync(chatId, userId);
             if (authorizedMemberIds == null) return Forbid();
 
             var chat = await _db.Chats
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(c => c.Id == chatId)
+=======
+                .Where(c => c.Id == chatId && c.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .Select(c => new
                 {
                     c.Id,
                     c.Name,
                     c.IsGroup,
                     c.CreatedBy,
+<<<<<<< HEAD
                     c.CreatedAt
+=======
+                    c.CreatedAt,
+                    c.GroupPhotoUrl
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 })
                 .FirstOrDefaultAsync();
 
@@ -528,7 +632,11 @@ LIMIT @limit OFFSET @offset;";
 
             var members = await _db.ChatMembers
                 .AsNoTracking()
+<<<<<<< HEAD
                 .Where(cm => cm.ChatId == chatId)
+=======
+                .Where(cm => cm.ChatId == chatId && cm.Chat.TenantId == tenantId && cm.User.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .OrderByDescending(cm => cm.UserId == chat.CreatedBy || (cm.Role != null && cm.Role.ToLower() == "admin"))
                 .ThenBy(cm => cm.User != null ? cm.User.DisplayName ?? cm.User.Username ?? cm.User.Email : null)
                 .Select(cm => new
@@ -549,6 +657,10 @@ LIMIT @limit OFFSET @offset;";
                 chatId = chat.Id,
                 name = chat.Name,
                 isGroup = chat.IsGroup,
+<<<<<<< HEAD
+=======
+                groupPhotoUrl = chat.GroupPhotoUrl,
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 adminUserId = chat.CreatedBy,
                 createdAt = chat.CreatedAt,
                 memberCount = members.Count,
@@ -556,9 +668,65 @@ LIMIT @limit OFFSET @offset;";
             });
         }
 
+<<<<<<< HEAD
+=======
+        public class UpdateGroupPhotoDto
+        {
+            public string? PhotoUrl { get; set; }
+            public string? GroupPhotoUrl { get; set; }
+            public string? Url { get; set; }
+        }
+
+        [HttpPut("{chatId:guid}/photo")]
+        public async Task<IActionResult> UpdateGroupPhoto(Guid chatId, [FromBody] UpdateGroupPhotoDto dto)
+        {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
+            var userId = User.GetUserIdGuid();
+            if (userId == Guid.Empty) return Unauthorized();
+
+            await EnsureGroupPhotoColumnAsync();
+            var tenantId = await GetCurrentTenantIdAsync();
+            var chat = await _db.Chats.FirstOrDefaultAsync(c => c.Id == chatId && c.TenantId == tenantId);
+            if (chat == null) return NotFound();
+            if (!chat.IsGroup) return BadRequest("Only group chats can have a group display photo.");
+
+            var membership = await _db.ChatMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(cm => cm.ChatId == chatId && cm.UserId == userId && cm.Chat.TenantId == tenantId && cm.User.TenantId == tenantId);
+            if (membership == null) return Forbid();
+
+            var canUpdate = chat.CreatedBy == userId
+                || string.Equals(membership.Role, "admin", StringComparison.OrdinalIgnoreCase);
+            if (!canUpdate) return Forbid();
+
+            var photoUrl = (dto.GroupPhotoUrl ?? dto.PhotoUrl ?? dto.Url ?? "").Trim();
+            if (photoUrl.Length > 2048) return BadRequest("Photo URL is too long.");
+
+            chat.GroupPhotoUrl = string.IsNullOrWhiteSpace(photoUrl) ? null : photoUrl;
+            await _db.SaveChangesAsync();
+
+            var memberIds = await _chatService.GetChatMemberIdsAsync(chatId);
+            foreach (var memberId in memberIds.Distinct())
+            {
+                var summary = await GetChatSummaryForUserAsync(memberId, chatId)
+                    ?? new ChatSummaryDto(chat.Id, chat.Name, chat.IsGroup, null, 0, GroupPhotoUrl: chat.GroupPhotoUrl);
+                await NotifyChatMembersAsync(new[] { memberId }, "ChatUpdated", summary);
+            }
+
+            var currentSummary = await GetChatSummaryForUserAsync(userId, chatId)
+                ?? new ChatSummaryDto(chat.Id, chat.Name, chat.IsGroup, null, 0, GroupPhotoUrl: chat.GroupPhotoUrl);
+            return Ok(currentSummary);
+        }
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         [HttpPost("{chatId}/messages")]
         public async Task<IActionResult> PostMessage(Guid chatId, [FromBody] CreateMessageDto dto)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var userId = User.GetUserIdGuid();
@@ -608,6 +776,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpGet("{chatId:guid}/block-status")]
         public async Task<IActionResult> GetBlockStatus(Guid chatId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -629,6 +800,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpPost("{chatId:guid}/block")]
         public async Task<IActionResult> BlockChatUser(Guid chatId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -668,6 +842,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpDelete("{chatId:guid}/block")]
         public async Task<IActionResult> UnblockChatUser(Guid chatId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -707,6 +884,9 @@ LIMIT @limit OFFSET @offset;";
         [HttpDelete("{chatId:guid}/messages/{messageId:guid}/everyone")]
         public async Task<IActionResult> DeleteMessageForEveryone(Guid chatId, Guid messageId)
         {
+            var licenseError = await RequireChatModuleAsync();
+            if (licenseError != null) return licenseError;
+
             var userId = User.GetUserIdGuid();
             if (userId == Guid.Empty) return Unauthorized();
 
@@ -734,6 +914,9 @@ LIMIT @limit OFFSET @offset;";
        [HttpPost("{chatId}/read")]
 public async Task<IActionResult> MarkRead(Guid chatId, [FromBody] MarkReadDto dto)
 {
+    var licenseError = await RequireChatModuleAsync();
+    if (licenseError != null) return licenseError;
+
     if (!ModelState.IsValid) return BadRequest(ModelState);
 
     var userId = User.GetUserIdGuid();

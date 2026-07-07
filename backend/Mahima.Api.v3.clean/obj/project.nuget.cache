@@ -1,8 +1,12 @@
 {
   "version": 2,
+<<<<<<< HEAD
   "dgSpecHash": "I7CSp3yn316AzJHaMPLFVL9BiEpki0gK/RjsaObPM2NXU3re/nJLFlhiMRmgXl/CrUvOi4Owi9Vf8LNClf4oVA==",
+=======
+  "dgSpecHash": "JEK4ivzx4tubUM3C6O4CgRBB+CDantDZxe5XC5pfaHqanafPIMfyOSdfOElLnWf3N/2KzalVcZwRNkXdy7VsZg==",
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
   "success": true,
-  "projectFilePath": "/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
+  "projectFilePath": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
   "expectedPackageFiles": [
     "/root/.nuget/packages/bouncycastle.cryptography/2.4.0/bouncycastle.cryptography.2.4.0.nupkg.sha512",
     "/root/.nuget/packages/google.apis/1.68.0/google.apis.1.68.0.nupkg.sha512",

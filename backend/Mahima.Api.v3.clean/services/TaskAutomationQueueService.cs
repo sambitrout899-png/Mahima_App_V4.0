@@ -99,6 +99,13 @@ namespace Mahima.Api.v3.clean.Services
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
+<<<<<<< HEAD
+=======
+ALTER TABLE public.""Tasks""
+    ADD COLUMN IF NOT EXISTS ""ProcessStage"" text NOT NULL DEFAULT 'intake',
+    ADD COLUMN IF NOT EXISTS ""UpdatedAt"" timestamp without time zone NULL;
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 CREATE TABLE IF NOT EXISTS public.""TaskAutomationQueue"" (
     ""Id"" bigserial PRIMARY KEY,
     ""TaskId"" bigint NOT NULL REFERENCES public.""Tasks""(""Id"") ON DELETE CASCADE,
@@ -325,4 +332,8 @@ WHERE ""Id"" = @id;";
         private sealed record QueueRow(long TaskId, string Message, string Title, int TaskStatus);
         private sealed record RecipientSet(HashSet<Guid> LinkRecipients, HashSet<Guid> NotifyOnlyRecipients);
     }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)

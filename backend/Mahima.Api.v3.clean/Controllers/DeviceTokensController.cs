@@ -24,6 +24,7 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         private const string KeyPrefix = "DeviceToken:";
         private readonly MahimaDbContext _db;
+<<<<<<< HEAD
         private readonly IMobilePushNotificationService? _mobilePush;
         private readonly IConfiguration _configuration;
 
@@ -35,6 +36,15 @@ namespace Mahima.Api.v3.clean.Controllers
             _db = db;
             _mobilePush = mobilePushServices?.FirstOrDefault();
             _configuration = configuration;
+=======
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        public DeviceTokensController(MahimaDbContext db, ITenantContextService tenantContext)
+        {
+            _db = db;
+            _tenantContext = tenantContext;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         }
 
         public class RegisterDeviceTokenDto
@@ -42,7 +52,6 @@ namespace Mahima.Api.v3.clean.Controllers
             public string Token { get; set; } = string.Empty;
             public string? Platform { get; set; }
             public string? AppVersion { get; set; }
-            public string? UserId { get; set; }
         }
 
         [HttpPost]
@@ -55,8 +64,18 @@ namespace Mahima.Api.v3.clean.Controllers
             if (userId == Guid.Empty)
                 return Unauthorized();
 
+            var tenantId = await GetCurrentTenantIdAsync();
             var tokenHash = Hash(dto.Token);
             var key = $"{KeyPrefix}{userId}:{tokenHash}";
+
+            var staleRows = await _db.MinistryAutomationSettings
+                .Where(s => s.Key.StartsWith(KeyPrefix) && s.Key.EndsWith($":{tokenHash}") && s.Key != key)
+                .ToListAsync();
+            if (staleRows.Count > 0)
+            {
+                _db.MinistryAutomationSettings.RemoveRange(staleRows);
+            }
+
             var value = JsonSerializer.Serialize(new
             {
                 userId,
@@ -66,11 +85,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 updatedAtUtc = DateTime.UtcNow
             });
 
-            var existing = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == key);
+            var existing = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId && s.Key == key);
             if (existing == null)
             {
                 _db.MinistryAutomationSettings.Add(new MinistryAutomationSetting
                 {
+                    TenantId = tenantId,
                     Key = key,
                     Value = value,
                     UpdatedAtUtc = DateTime.UtcNow
@@ -90,8 +110,9 @@ namespace Mahima.Api.v3.clean.Controllers
         [Authorize(Roles = "admin,ADMIN")]
         public async Task<IActionResult> List()
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var rows = await _db.MinistryAutomationSettings
-                .Where(s => s.Key.StartsWith(KeyPrefix))
+                .Where(s => s.TenantId == tenantId && s.Key.StartsWith(KeyPrefix))
                 .OrderByDescending(s => s.UpdatedAtUtc)
                 .ToListAsync();
 
@@ -177,6 +198,12 @@ namespace Mahima.Api.v3.clean.Controllers
         private Guid CurrentUserId()
         {
             return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            return tenant?.Id ?? RootTenantId;
         }
 
         private static string Hash(string value)

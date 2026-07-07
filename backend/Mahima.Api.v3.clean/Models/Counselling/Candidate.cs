@@ -7,6 +7,7 @@ namespace Mahima.Api.v3.clean.Models.Counselling
     public class Candidate
     {
         public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public string FullName { get; set; } = default!;
         public string? Email { get; set; }

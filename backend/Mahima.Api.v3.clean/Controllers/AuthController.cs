@@ -29,6 +29,7 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IPastorBotService _pastorBot;
     private readonly IHubContext<ChatHub> _chatHub;
+    private readonly ITenantContextService _tenantContext;
         //private readonly PasswordHasher<object> _pwHasher = new PasswordHasher<object>();
 		//private readonly PasswordHasher<string> _pwHasher = new PasswordHasher<string>();
 		private readonly PasswordHasher<object> _pwHasher = new PasswordHasher<object>();
@@ -38,7 +39,8 @@ public class AuthController : ControllerBase
         JwtTokenService jwtService,
         IEmailService emailService,
         IPastorBotService pastorBot,
-        IHubContext<ChatHub> chatHub)
+        IHubContext<ChatHub> chatHub,
+        ITenantContextService tenantContext)
     {
         _logger = logger;
         _jwtService = jwtService;
@@ -46,6 +48,7 @@ public class AuthController : ControllerBase
         _config = config;
         _pastorBot = pastorBot;
         _chatHub = chatHub;
+        _tenantContext = tenantContext;
         _connStr = config.GetConnectionString("DefaultConnection")
                    ?? throw new InvalidOperationException("Connection string missing");
     }
@@ -216,11 +219,68 @@ LIMIT 1;", conn);
         return null;
     }
 
-    private static async Task<string> GenerateUserCodeAsync(NpgsqlConnection conn, string userCodeColumn)
+    private static string NormalizeUserCodePrefix(string? value)
     {
+        var cleaned = new string((value ?? "MHN").ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        if (cleaned.Length < 2) cleaned = "MHN";
+        return cleaned.Length > 12 ? cleaned[..12] : cleaned;
+    }
+
+    private static bool LooksLikeEmail(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        return text.Length <= 254 &&
+               text.Contains('@') &&
+               text.IndexOf('@') > 0 &&
+               text.LastIndexOf('@') < text.Length - 1 &&
+               text.Contains('.');
+    }
+
+    private static bool LooksLikeUsername(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        return text.Length is >= 3 and <= 50 &&
+               text.All(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
+    }
+
+    private static string? ValidateRegistrationMobile(string? phone)
+    {
+        var digits = DigitsOnly(phone);
+        if (digits.Length == 10) return null;
+        if (digits.Length == 12 && digits.StartsWith("91")) return null;
+        return "Enter a valid 10-digit Indian mobile number.";
+    }
+
+    private static async Task<string> ReadTenantUserCodePrefixAsync(NpgsqlConnection conn, Guid tenantId)
+    {
+        await using var columnCmd = new NpgsqlCommand(@"
+SELECT 1
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'tenants'
+  AND column_name = 'user_code_prefix'
+LIMIT 1;", conn);
+        var hasColumn = await columnCmd.ExecuteScalarAsync() != null;
+        if (!hasColumn) return "MHN";
+
+        await using var cmd = new NpgsqlCommand(@"
+SELECT user_code_prefix
+FROM public.tenants
+WHERE id = @tenant_id
+LIMIT 1;", conn);
+        cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+        var value = await cmd.ExecuteScalarAsync();
+        return NormalizeUserCodePrefix(value?.ToString());
+    }
+
+    private static async Task<string> GenerateUserCodeAsync(NpgsqlConnection conn, string userCodeColumn, string? prefix)
+    {
+        var cleanPrefix = NormalizeUserCodePrefix(prefix);
         for (var attempt = 0; attempt < 50; attempt++)
         {
-            var code = $"MHN{RandomNumberGenerator.GetInt32(1, 999999):D6}";
+            var code = $"{cleanPrefix}{RandomNumberGenerator.GetInt32(1, 999999):D6}";
             await using var cmd = new NpgsqlCommand(
                 $"SELECT COUNT(*) FROM public.users WHERE {QuoteIdentifier(userCodeColumn)} = @code;",
                 conn);
@@ -229,7 +289,7 @@ LIMIT 1;", conn);
             if (!exists) return code;
         }
 
-        return $"MHN{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000:D8}";
+        return $"{cleanPrefix}{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000:D8}";
     }
 
     private static string SanitizeGoogleUsername(string raw)
@@ -275,6 +335,7 @@ WHERE LOWER(TRIM(username)) = @username;", conn);
         await using var cmd = new NpgsqlCommand(@"
 CREATE TABLE IF NOT EXISTS public.security_events (
     id bigserial PRIMARY KEY,
+    tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     event_type text NOT NULL,
     severity text NOT NULL DEFAULT 'medium',
     username text NULL,
@@ -289,13 +350,26 @@ CREATE TABLE IF NOT EXISTS public.security_events (
 CREATE INDEX IF NOT EXISTS ix_security_events_created_at
     ON public.security_events(created_at_utc);
 
+CREATE INDEX IF NOT EXISTS ix_security_events_tenant_created_at
+    ON public.security_events(tenant_id, created_at_utc);
+
 CREATE TABLE IF NOT EXISTS public.user_access_blocks (
     user_id uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
     reason text NULL,
     blocked_by uuid NULL,
     blocked_at_utc timestamp with time zone NOT NULL DEFAULT now(),
     is_active boolean NOT NULL DEFAULT true
-);", conn);
+);
+
+ALTER TABLE public.security_events
+    ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
+
+ALTER TABLE public.user_access_blocks
+    ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
+
+CREATE INDEX IF NOT EXISTS ix_user_access_blocks_tenant_active
+    ON public.user_access_blocks(tenant_id, is_active);", conn);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -309,11 +383,14 @@ CREATE TABLE IF NOT EXISTS public.user_access_blocks (
     {
         try
         {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            var tenantId = tenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
             await using var cmd = new NpgsqlCommand(@"
 INSERT INTO public.security_events
-    (event_type, severity, username, user_id, path, ip_address, user_agent, details)
+    (tenant_id, event_type, severity, username, user_id, path, ip_address, user_agent, details)
 VALUES
-    (@event_type, @severity, @username, @user_id, @path, @ip_address, @user_agent, @details);", conn);
+    (@tenant_id, @event_type, @severity, @username, @user_id, @path, @ip_address, @user_agent, @details);", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             cmd.Parameters.AddWithValue("event_type", NpgsqlTypes.NpgsqlDbType.Text, eventType);
             cmd.Parameters.AddWithValue("severity", NpgsqlTypes.NpgsqlDbType.Text, severity);
             cmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, (object?)username ?? DBNull.Value);
@@ -377,6 +454,7 @@ SELECT
   u.displayname,
   u.email,
   u.phone,
+  u.tenant_id,
   r.name as role
 FROM users u
 JOIN roles r ON r.id = u.role::int
@@ -395,14 +473,22 @@ LIMIT 1;";
             var display = rdr["displayname"]?.ToString();
             var email = rdr["email"]?.ToString();
             var phone = rdr["phone"]?.ToString();
+            var tenantId = rdr["tenant_id"] == DBNull.Value ? null : rdr["tenant_id"]?.ToString();
+            var tenantGuid = Guid.TryParse(tenantId, out var parsedTenantId)
+                ? parsedTenantId
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
             var role = rdr["role"]?.ToString();
 
             await rdr.CloseAsync();
 
+<<<<<<< HEAD
             var roles = await LoadEffectiveRoles(conn, userId, role);
             var pages = await LoadPermissions(conn, roles);
             await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userId);
             var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userId);
+=======
+            var pages = await LoadPermissions(conn, role, tenantGuid);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             return Ok(new
             {
@@ -412,6 +498,7 @@ LIMIT 1;";
                 displayName = display,
                 email,
                 phone,
+                tenantId,
                 role,
                 roles,
                 pages,
@@ -439,6 +526,13 @@ LIMIT 1;";
 
         if (string.IsNullOrWhiteSpace(username))
             return BadRequest(new { message = "Username is required" });
+        if (!LooksLikeUsername(username))
+            return BadRequest(new { message = "Username must be 3-50 characters and can use letters, numbers, dot, underscore, or hyphen only." });
+        if (!LooksLikeEmail(email))
+            return BadRequest(new { message = "Enter a valid email address." });
+        var phoneError = ValidateRegistrationMobile(phone);
+        if (phoneError != null)
+            return BadRequest(new { message = phoneError });
         if (string.IsNullOrWhiteSpace(password))
             return BadRequest(new { message = "Password is required" });
         if (password.Length < 6)
@@ -446,20 +540,35 @@ LIMIT 1;";
 
         try
         {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            var tenantId = tenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+
             await using var conn = new NpgsqlConnection(_connStr);
             await conn.OpenAsync();
 
+            var phoneDigits = DigitsOnly(phone);
             await using (var dupCmd = new NpgsqlCommand(@"
-SELECT COUNT(*)
-FROM users
-WHERE LOWER(TRIM(username)) = @username
-   OR (@email <> '' AND LOWER(TRIM(COALESCE(email, ''))) = @email);", conn))
+SELECT
+  COUNT(*) FILTER (WHERE LOWER(TRIM(username)) = @username) AS username_count,
+  COUNT(*) FILTER (WHERE @email <> '' AND LOWER(TRIM(COALESCE(email, ''))) = @email) AS email_count,
+  COUNT(*) FILTER (WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = @phone_digits) AS phone_count
+FROM public.users
+WHERE tenant_id = @tenant_id;", conn))
             {
                 dupCmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username.ToLowerInvariant());
                 dupCmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (email ?? "").ToLowerInvariant());
-                var existing = Convert.ToInt32(await dupCmd.ExecuteScalarAsync());
-                if (existing > 0)
-                    return Conflict(new { message = "Username or email already exists" });
+                dupCmd.Parameters.AddWithValue("phone_digits", NpgsqlTypes.NpgsqlDbType.Text, phoneDigits);
+                dupCmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+                await using var dupRdr = await dupCmd.ExecuteReaderAsync();
+                if (await dupRdr.ReadAsync())
+                {
+                    if (Convert.ToInt32(dupRdr["username_count"]) > 0)
+                        return Conflict(new { message = "This username is already used in this church. Please choose another username." });
+                    if (Convert.ToInt32(dupRdr["email_count"]) > 0)
+                        return Conflict(new { message = "This email address is already registered in this church. Please sign in or reset your password." });
+                    if (Convert.ToInt32(dupRdr["phone_count"]) > 0)
+                        return Conflict(new { message = "This mobile number is already registered in this church. Please sign in or reset your password." });
+                }
             }
 
             var existingUserWithPhone = await FindUserByPhoneAsync(conn, phone);
@@ -487,6 +596,7 @@ LIMIT 1;", conn))
             var insertColumns = new List<string>
             {
                 QuoteIdentifier("username"),
+                QuoteIdentifier("tenant_id"),
                 QuoteIdentifier("email"),
                 QuoteIdentifier("passwordhash"),
                 QuoteIdentifier("role"),
@@ -497,6 +607,7 @@ LIMIT 1;", conn))
             var insertValues = new List<string>
             {
                 "@username",
+                "@tenant_id",
                 "@email",
                 "@passwordhash",
                 "@role",
@@ -528,10 +639,12 @@ RETURNING id;";
             await using var insertCmd = new NpgsqlCommand(insertSql, conn);
             if (!string.IsNullOrWhiteSpace(userCodeColumn))
             {
-                var generatedCode = await GenerateUserCodeAsync(conn, userCodeColumn);
+                var prefix = await ReadTenantUserCodePrefixAsync(conn, tenantId);
+                var generatedCode = await GenerateUserCodeAsync(conn, userCodeColumn, prefix);
                 insertCmd.Parameters.AddWithValue("usercode", NpgsqlTypes.NpgsqlDbType.Text, generatedCode);
             }
             insertCmd.Parameters.AddWithValue("username", NpgsqlTypes.NpgsqlDbType.Text, username);
+            insertCmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
             insertCmd.Parameters.AddWithValue("email", NpgsqlTypes.NpgsqlDbType.Text, (object?)email ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("passwordhash", NpgsqlTypes.NpgsqlDbType.Text, passwordHash);
             insertCmd.Parameters.AddWithValue("role", NpgsqlTypes.NpgsqlDbType.Text, memberRoleId.ToString());
@@ -540,11 +653,16 @@ RETURNING id;";
 
             var id = await insertCmd.ExecuteScalarAsync();
             var userId = Guid.Parse(id?.ToString() ?? Guid.Empty.ToString());
+<<<<<<< HEAD
             var roles = new List<string> { memberRoleName };
             var pages = await LoadPermissions(conn, roles);
             await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userId);
             var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userId);
             var token = _jwtService.GenerateToken(userId, username, string.IsNullOrWhiteSpace(display) ? username : display, memberRoleName);
+=======
+            var pages = await LoadPermissions(conn, memberRoleName, tenantId);
+            var token = _jwtService.GenerateToken(userId, username, string.IsNullOrWhiteSpace(display) ? username : display, memberRoleName, tenantId);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             await SendNewUserWelcomeAsync(userId, string.IsNullOrWhiteSpace(display) ? username : display);
 
             return Ok(new
@@ -557,6 +675,7 @@ RETURNING id;";
                     display = string.IsNullOrWhiteSpace(display) ? username : display,
                     email,
                     phone,
+                    tenantId,
                     role = memberRoleName,
                     roles,
                     pages,
@@ -564,6 +683,20 @@ RETURNING id;";
                     primaryPosition = positions.FirstOrDefault()
                 }
             });
+        }
+        catch (PostgresException pgEx) when (pgEx.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            _logger.LogWarning(pgEx, "Registration duplicate constraint for {User}", username);
+            var constraint = pgEx.ConstraintName?.ToLowerInvariant() ?? "";
+            var detail = pgEx.Detail?.ToLowerInvariant() ?? "";
+            if (constraint.Contains("phone") || detail.Contains("phone"))
+                return Conflict(new { message = "This mobile number is already registered in this church. Please sign in or reset your password." });
+            if (constraint.Contains("email") || detail.Contains("email"))
+                return Conflict(new { message = "This email address is already registered in this church. Please sign in or reset your password." });
+            if (constraint.Contains("usercode") || constraint.Contains("user_code"))
+                return Conflict(new { message = "A system-generated user ID already exists. Please try creating the account again." });
+
+            return Conflict(new { message = "This user ID is already registered in this church. Please choose another user ID." });
         }
         catch (Exception ex)
         {
@@ -786,6 +919,17 @@ public async Task<IActionResult> Login([FromBody] LoginDto dto)
 
     try
     {
+        var currentTenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+        var currentTenantId = currentTenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+        if (currentTenant?.IsRootTenant != true &&
+            !string.Equals(currentTenant?.Status, "active", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(423, new
+            {
+                message = "This tenant is not active. Please contact Mahima Ministry admin.",
+                status = currentTenant?.Status ?? "inactive"
+            });
+        }
         using var conn = new NpgsqlConnection(_connStr);
         await conn.OpenAsync();
         await EnsureAuthSecurityTablesAsync(conn);
@@ -797,12 +941,14 @@ SELECT
   u.displayname,
   u.email,
   u.phone,
+  u.tenant_id,
   r.name as role,
   u.passwordhash
 FROM users u
 JOIN roles r ON r.id = u.role::int
-WHERE LOWER(TRIM(u.username)) = @u 
-   OR LOWER(TRIM(u.email)) = @u
+WHERE (LOWER(TRIM(u.username)) = @u
+   OR LOWER(TRIM(COALESCE(u.email, ''))) = @u)
+  AND u.tenant_id = @tenant_id
 LIMIT 1;
 ";
 
@@ -810,8 +956,9 @@ LIMIT 1;
         //cmd.Parameters.AddWithValue("u", dto.UsernameOrEmail);
 		//var input = dto.UsernameOrEmail?.Trim();
 		var input = dto.UsernameOrEmail?.Trim().ToLower();
-		//cmd.Parameters.AddWithValue("u", input);
+        //cmd.Parameters.AddWithValue("u", input);
         cmd.Parameters.AddWithValue("u", NpgsqlTypes.NpgsqlDbType.Text, input.ToLower());
+        cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, currentTenantId);
 		await using var rdr = await cmd.ExecuteReaderAsync();
         if (!await rdr.ReadAsync())
         {
@@ -826,6 +973,7 @@ LIMIT 1;
         var display = rdr["displayname"]?.ToString();
         var email = rdr["email"]?.ToString();
         var phone = rdr["phone"]?.ToString();
+        var tenantId = rdr["tenant_id"] == DBNull.Value ? (Guid?)null : Guid.Parse(rdr["tenant_id"].ToString()!);
         var role = rdr["role"]?.ToString() ?? "";
         var storedHash = rdr["passwordhash"]?.ToString();
 
@@ -860,11 +1008,16 @@ LIMIT 1;
             return StatusCode(423, new { message = "Your access is blocked. Please contact Mahima Ministry admin.", reason = blockReason });
         }
 
+<<<<<<< HEAD
 	var token = _jwtService.GenerateToken(userGuid, username, display, role);
         var roles = await LoadEffectiveRoles(conn, userGuid, role);
         var pages = await LoadPermissions(conn, roles);
         await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userGuid);
         var positions = await Mahima.Api.v3.clean.Controllers.PositionsController.LoadUserPositionsAsync(conn, userGuid);
+=======
+	var token = _jwtService.GenerateToken(userGuid, username, display, role, tenantId);
+        var pages = await LoadPermissions(conn, role, tenantId ?? Guid.Parse("00000000-0000-0000-0000-000000000001"));
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
         return Ok(new
         {
@@ -876,6 +1029,7 @@ LIMIT 1;
                 display,
                 email,
                 phone,
+                tenantId,
                 role,
                 roles,
                 pages,
@@ -899,6 +1053,7 @@ LIMIT 1;
     // ============================
     // ?? PERMISSION LOADER
     // ============================
+<<<<<<< HEAD
     private async Task<List<string>> LoadEffectiveRoles(NpgsqlConnection conn, Guid userId, string? fallbackRole)
     {
         var roles = new List<string>();
@@ -938,12 +1093,113 @@ CREATE INDEX IF NOT EXISTS ix_user_roles_user ON public.user_roles(user_id);", c
     }
 
     private async Task<List<string>> LoadPermissions(NpgsqlConnection conn, IEnumerable<string?> roles)
+=======
+    private static readonly Dictionary<string, string> PageModules = new(StringComparer.OrdinalIgnoreCase)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     {
+        ["CHAT"] = "chat",
+        ["TASKS"] = "operations",
+        ["ATTENDANCE"] = "operations",
+        ["PAYROLL"] = "operations",
+        ["COSTS"] = "operations",
+        ["REPORTS"] = "operations",
+        ["AUDIT_TRAIL"] = "operations",
+        ["PASTOR"] = "care_ministry",
+        ["README"] = "care_ministry",
+        ["MARRIAGE"] = "care_ministry",
+        ["BAPTISM"] = "care_ministry",
+        ["COUNSELLING"] = "care_ministry",
+        ["ADMIN_DASHBOARD"] = "admin_tools",
+        ["LIVE_USERS"] = "admin_tools",
+        ["MULTITENANT"] = "admin_tools",
+        ["LANGUAGES"] = "admin_tools",
+        ["APP_DOWNLOADS"] = "communications",
+        ["MESSAGE_CENTER"] = "communications",
+        ["EMAIL_CLIENT"] = "communications",
+        ["GOOGLE_DRIVE"] = "communications",
+        ["SERVER_FILES"] = "communications"
+    };
+
+    private static readonly string[] BasePageKeys =
+    {
+        "DASHBOARD", "SUBSCRIPTIONS", "LANDING_PAGE", "USERS", "PRAYER_REQUESTS", "SERMONS", "TEAMS", "ROLES", "PAGES"
+    };
+
+    private static async Task EnsureTenantRolePermissionsTableAsync(NpgsqlConnection conn)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.tenant_role_permissions (
+    tenant_id uuid NOT NULL,
+    role_id integer NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+    page_key text NOT NULL,
+    created_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, role_id, page_key)
+);
+
+CREATE INDEX IF NOT EXISTS ix_tenant_role_permissions_role
+    ON public.tenant_role_permissions(role_id, page_key);", conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<HashSet<string>> LoadLicensedPageKeysAsync(NpgsqlConnection conn, Guid tenantId)
+    {
+        var keys = new HashSet<string>(BasePageKeys, StringComparer.OrdinalIgnoreCase);
+        if (tenantId == Guid.Parse("00000000-0000-0000-0000-000000000001"))
+        {
+            foreach (var key in PageModules.Keys) keys.Add(key);
+            keys.Add("MULTITENANT");
+            return keys;
+        }
+
+        await using var cmd = new NpgsqlCommand(@"
+SELECT m.code
+FROM public.module_catalog m
+WHERE m.enabled = true
+  AND (
+      m.is_base_module = true
+      OR EXISTS (
+          SELECT 1
+          FROM public.tenant_module_licenses l
+          WHERE l.tenant_id = @tenant_id
+            AND l.module_code = m.code
+            AND l.status = 'active'
+            AND l.starts_at_utc <= now()
+            AND (l.ends_at_utc IS NULL OR l.ends_at_utc > now())
+      )
+  );", conn);
+        cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        var modules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (await rdr.ReadAsync())
+        {
+            var code = rdr["code"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(code)) modules.Add(code);
+        }
+
+        foreach (var pair in PageModules)
+        {
+            if (modules.Contains(pair.Value)) keys.Add(pair.Key);
+        }
+
+        keys.Remove("MULTITENANT");
+        return keys;
+    }
+
+    private async Task<List<string>> LoadPermissions(NpgsqlConnection conn, string? role, Guid tenantId)
+    {
+        await EnsureTenantRolePermissionsTableAsync(conn);
+        var licensedKeys = await LoadLicensedPageKeysAsync(conn, tenantId);
+        if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+            return licensedKeys.OrderBy(k => k).ToList();
+
         var pages = new List<string>();
         var roleList = roles.Select(r => (r ?? "").Trim()).Where(r => r.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (roleList.Length == 0) return pages;
 
         var permSql = @"
+<<<<<<< HEAD
 SELECT DISTINCT UPPER(rp.page_key)
 FROM role_permissions rp
 JOIN roles r ON r.id = rp.role_id
@@ -951,13 +1207,37 @@ WHERE LOWER(r.name) = ANY(@roles);";
 
         await using var permCmd = new NpgsqlCommand(permSql, conn);
         permCmd.Parameters.AddWithValue("roles", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text, roleList.Select(r => r.ToLowerInvariant()).ToArray());
+=======
+WITH selected_role AS (
+    SELECT id FROM roles WHERE LOWER(name) = LOWER(@role) LIMIT 1
+),
+tenant_perms AS (
+    SELECT trp.page_key
+    FROM tenant_role_permissions trp
+    JOIN selected_role sr ON sr.id = trp.role_id
+    WHERE trp.tenant_id = @tenant_id
+),
+global_perms AS (
+    SELECT rp.page_key
+    FROM role_permissions rp
+    JOIN selected_role sr ON sr.id = rp.role_id
+    WHERE NOT EXISTS (SELECT 1 FROM tenant_perms)
+)
+SELECT page_key FROM tenant_perms
+UNION
+SELECT page_key FROM global_perms;";
+
+        await using var permCmd = new NpgsqlCommand(permSql, conn);
+        permCmd.Parameters.AddWithValue("role", role ?? "");
+        permCmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
         await using var permRdr = await permCmd.ExecuteReaderAsync();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (await permRdr.ReadAsync())
         {
             var pageKey = permRdr.GetString(0).Trim().ToUpperInvariant();
-            if (pageKey.Length > 0 && seen.Add(pageKey))
+            if (pageKey.Length > 0 && licensedKeys.Contains(pageKey) && seen.Add(pageKey))
                 pages.Add(pageKey);
         }
 
@@ -975,6 +1255,13 @@ WHERE LOWER(r.name) = ANY(@roles);";
     public class ResetPasswordDto
     {
         public string? Token { get; set; }
+        public string? NewPassword { get; set; }
+    }
+
+    public class DirectResetPasswordDto
+    {
+        public string? UsernameOrEmail { get; set; }
+        public string? Phone { get; set; }
         public string? NewPassword { get; set; }
     }
 
@@ -998,22 +1285,31 @@ WHERE LOWER(r.name) = ANY(@roles);";
 
         try
         {
+            var currentTenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            var currentTenantId = currentTenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+            var explicitTenantHint = HasExplicitTenantHint();
+
             await using var conn = new NpgsqlConnection(_connStr);
             await conn.OpenAsync();
 
             // Find the user (username OR email, case-insensitive).
             var lookupSql = @"
-SELECT id, email, username, displayname
-FROM users
-WHERE LOWER(TRIM(username)) = @u OR LOWER(TRIM(email)) = @u
+SELECT u.id, u.email, u.username, u.displayname, u.tenant_id, t.slug
+FROM public.users u
+LEFT JOIN public.tenants t ON t.id = u.tenant_id
+WHERE u.tenant_id = @tenant_id
+  AND (LOWER(TRIM(u.username)) = @u OR LOWER(TRIM(u.email)) = @u)
 LIMIT 1;";
 
             Guid userId = Guid.Empty;
             string? email = null, username = null, displayName = null;
+            Guid matchedTenantId = currentTenantId;
+            string? matchedTenantSlug = currentTenant?.Slug;
 
             await using (var cmd = new NpgsqlCommand(lookupSql, conn))
             {
                 cmd.Parameters.AddWithValue("u", input);
+                cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, currentTenantId);
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
                 {
@@ -1021,12 +1317,64 @@ LIMIT 1;";
                     email       = rdr.IsDBNull(1) ? null : rdr.GetString(1);
                     username    = rdr.IsDBNull(2) ? null : rdr.GetString(2);
                     displayName = rdr.IsDBNull(3) ? null : rdr.GetString(3);
+                    matchedTenantId = rdr.GetGuid(4);
+                    matchedTenantSlug = rdr.IsDBNull(5) ? matchedTenantSlug : rdr.GetString(5);
                 }
             }
 
             // No user, or user has no email on file — return the same response.
+            if (userId == Guid.Empty && !explicitTenantHint)
+            {
+                var fallbackMatches = new List<(Guid UserId, string? Email, string? Username, string? DisplayName, Guid TenantId, string? TenantSlug)>();
+                await using (var fallback = new NpgsqlCommand(@"
+SELECT u.id, u.email, u.username, u.displayname, u.tenant_id, t.slug
+FROM public.users u
+LEFT JOIN public.tenants t ON t.id = u.tenant_id
+WHERE (LOWER(TRIM(u.username)) = @u OR LOWER(TRIM(u.email)) = @u)
+  AND COALESCE(t.status, 'active') = 'active'
+LIMIT 2;", conn))
+                {
+                    fallback.Parameters.AddWithValue("u", input);
+                    await using var rdr = await fallback.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        fallbackMatches.Add((
+                            rdr.GetGuid(0),
+                            rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                            rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                            rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                            rdr.GetGuid(4),
+                            rdr.IsDBNull(5) ? null : rdr.GetString(5)));
+                    }
+                }
+
+                if (fallbackMatches.Count == 1)
+                {
+                    var match = fallbackMatches[0];
+                    userId = match.UserId;
+                    email = match.Email;
+                    username = match.Username;
+                    displayName = match.DisplayName;
+                    matchedTenantId = match.TenantId;
+                    matchedTenantSlug = match.TenantSlug;
+                    _logger.LogInformation("Password reset tenant fallback matched unique user {UserId} in tenant {TenantId} ({TenantSlug}).", userId, matchedTenantId, matchedTenantSlug);
+                }
+                else if (fallbackMatches.Count > 1)
+                {
+                    _logger.LogWarning("Password reset tenant fallback found multiple users for the supplied identifier; no email was sent.");
+                }
+            }
+
             if (userId == Guid.Empty || string.IsNullOrWhiteSpace(email))
+            {
+                _logger.LogInformation("Password reset request did not send email. TenantId={TenantId} TenantSlug={TenantSlug} ExplicitTenantHint={ExplicitTenantHint} UserFound={UserFound} HasEmail={HasEmail}",
+                    currentTenantId,
+                    currentTenant?.Slug,
+                    explicitTenantHint,
+                    userId != Guid.Empty,
+                    !string.IsNullOrWhiteSpace(email));
                 return Ok(generic);
+            }
 
             // Generate a high-entropy token (32 bytes ˜ 256 bits) and store
             // only its SHA-256 hash. Link in the email carries the plaintext.
@@ -1059,9 +1407,12 @@ LIMIT 1;";
             // The frontend uses HashRouter (URLs look like https://site/#/reset-password),
             // so we include the hash here. If you switch to BrowserRouter, change
             // App:ResetPath to "/reset-password" (no '#').
-            var publicUrl  = (_config["App:PublicUrl"] ?? "https://www.mahimaministries.in").TrimEnd('/');
+            var publicUrl  = ResolvePublicBaseUrl();
             var resetPath  = _config["App:ResetPath"] ?? "/#/reset-password";
-            var resetUrl   = $"{publicUrl}{resetPath}?token={WebUtility.UrlEncode(rawToken)}";
+            var tenantSlugParam = !string.IsNullOrWhiteSpace(matchedTenantSlug)
+                ? $"&tenantSlug={WebUtility.UrlEncode(matchedTenantSlug)}"
+                : "";
+            var resetUrl   = $"{publicUrl}{resetPath}?token={WebUtility.UrlEncode(rawToken)}{tenantSlugParam}";
             var greeting  = !string.IsNullOrWhiteSpace(displayName) ? displayName! : (username ?? "there");
 
             var html = BuildResetEmailHtml(greeting, resetUrl);
@@ -1070,10 +1421,19 @@ LIMIT 1;";
             try
             {
                 await _emailService.SendAsync(email!, "Reset your Mahima Ministries password", html, text);
+                _logger.LogInformation("Password reset email sent. TenantId={TenantId} TenantSlug={TenantSlug} UserId={UserId} To={Email}",
+                    matchedTenantId,
+                    matchedTenantSlug,
+                    userId,
+                    MaskEmail(email));
             }
             catch (Exception sendEx)
             {
-                _logger.LogError(sendEx, "Password reset email failed to send for user {UserId}", userId);
+                _logger.LogError(sendEx, "Password reset email failed to send. TenantId={TenantId} TenantSlug={TenantSlug} UserId={UserId} To={Email}",
+                    matchedTenantId,
+                    matchedTenantSlug,
+                    userId,
+                    MaskEmail(email));
                 // Still return the generic message; do not leak failure to client.
             }
 
@@ -1105,6 +1465,10 @@ LIMIT 1;";
 
         try
         {
+            var currentTenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            var currentTenantId = currentTenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+            var explicitTenantHint = HasExplicitTenantHint();
+
             await using var conn = new NpgsqlConnection(_connStr);
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
@@ -1113,19 +1477,43 @@ LIMIT 1;";
             long tokenId = 0;
 
             await using (var look = new NpgsqlCommand(
-                @"SELECT id, user_id
-                    FROM public.password_reset_tokens
-                   WHERE token_hash = @h
-                     AND used_at IS NULL
-                     AND expires_at > now()
+                @"SELECT prt.id, prt.user_id
+                    FROM public.password_reset_tokens prt
+                    JOIN public.users u ON u.id = prt.user_id
+                   WHERE prt.token_hash = @h
+                     AND prt.used_at IS NULL
+                     AND prt.expires_at > now()
+                     AND u.tenant_id = @tenant_id
                    LIMIT 1;", conn, tx))
             {
                 look.Parameters.AddWithValue("h", tokenHash);
+                look.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, currentTenantId);
                 await using var rdr = await look.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
                 {
                     tokenId = rdr.GetInt64(0);
                     userId  = rdr.GetGuid(1);
+                }
+            }
+
+            if (userId == Guid.Empty && !explicitTenantHint)
+            {
+                await using var fallback = new NpgsqlCommand(
+                    @"SELECT prt.id, prt.user_id, u.tenant_id
+                        FROM public.password_reset_tokens prt
+                        JOIN public.users u ON u.id = prt.user_id
+                       WHERE prt.token_hash = @h
+                         AND prt.used_at IS NULL
+                         AND prt.expires_at > now()
+                       LIMIT 1;", conn, tx);
+                fallback.Parameters.AddWithValue("h", tokenHash);
+                await using var rdr = await fallback.ExecuteReaderAsync();
+                if (await rdr.ReadAsync())
+                {
+                    tokenId = rdr.GetInt64(0);
+                    userId = rdr.GetGuid(1);
+                    currentTenantId = rdr.GetGuid(2);
+                    _logger.LogInformation("Password reset token fallback matched user {UserId} in tenant {TenantId}.", userId, currentTenantId);
                 }
             }
 
@@ -1136,10 +1524,11 @@ LIMIT 1;";
             var newHash = _pwHasher.HashPassword(null!, dto.NewPassword!);
 
             await using (var upd = new NpgsqlCommand(
-                @"UPDATE users SET passwordhash = @h WHERE id = @id;", conn, tx))
+                @"UPDATE users SET passwordhash = @h WHERE id = @id AND tenant_id = @tenant_id;", conn, tx))
             {
                 upd.Parameters.AddWithValue("h", newHash);
                 upd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Uuid).Value = userId;
+                upd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, currentTenantId);
                 await upd.ExecuteNonQueryAsync();
             }
 
@@ -1161,6 +1550,106 @@ LIMIT 1;";
         }
     }
 
+    [AllowAnonymous]
+    [HttpPost("reset-password-direct")]
+    public async Task<IActionResult> ResetPasswordDirect([FromBody] DirectResetPasswordDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.UsernameOrEmail))
+            return BadRequest(new { message = "Username or email is required." });
+
+        if (string.IsNullOrWhiteSpace(dto.Phone))
+            return BadRequest(new { message = "Registered mobile number is required." });
+
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            return BadRequest(new { message = "New password must be at least 6 characters." });
+
+        var input = dto.UsernameOrEmail.Trim().ToLowerInvariant();
+        var phoneDigits = DigitsOnly(dto.Phone);
+
+        try
+        {
+            var currentTenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            var currentTenantId = currentTenant?.Id ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
+            var explicitTenantHint = HasExplicitTenantHint();
+
+            await using var conn = new NpgsqlConnection(_connStr);
+            await conn.OpenAsync();
+
+            var matches = new List<(Guid UserId, Guid TenantId, string? Phone)>();
+            var sql = explicitTenantHint
+                ? @"
+SELECT u.id, u.tenant_id, u.phone
+FROM public.users u
+WHERE u.tenant_id = @tenant_id
+  AND (LOWER(TRIM(u.username)) = @u OR LOWER(TRIM(COALESCE(u.email, ''))) = @u)
+LIMIT 2;"
+                : @"
+SELECT u.id, u.tenant_id, u.phone
+FROM public.users u
+LEFT JOIN public.tenants t ON t.id = u.tenant_id
+WHERE (LOWER(TRIM(u.username)) = @u OR LOWER(TRIM(COALESCE(u.email, ''))) = @u)
+  AND COALESCE(t.status, 'active') = 'active'
+LIMIT 2;";
+
+            await using (var cmd = new NpgsqlCommand(sql, conn))
+            {
+                cmd.Parameters.AddWithValue("u", input);
+                if (explicitTenantHint)
+                    cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, currentTenantId);
+
+                await using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    matches.Add((
+                        rdr.GetGuid(0),
+                        rdr.GetGuid(1),
+                        rdr.IsDBNull(2) ? null : rdr.GetString(2)));
+                }
+            }
+
+            if (matches.Count != 1)
+            {
+                _logger.LogWarning("Direct password reset blocked. TenantId={TenantId} ExplicitTenantHint={ExplicitTenantHint} MatchCount={MatchCount}",
+                    currentTenantId,
+                    explicitTenantHint,
+                    matches.Count);
+                return BadRequest(new { message = "We could not verify this account. Please check the username/email and registered mobile number." });
+            }
+
+            var match = matches[0];
+            if (string.IsNullOrWhiteSpace(match.Phone) || DigitsOnly(match.Phone) != phoneDigits)
+            {
+                _logger.LogWarning("Direct password reset blocked due to mobile mismatch. TenantId={TenantId} UserId={UserId}",
+                    match.TenantId,
+                    match.UserId);
+                return BadRequest(new { message = "We could not verify this account. Please check the username/email and registered mobile number." });
+            }
+
+            var newHash = _pwHasher.HashPassword(null!, dto.NewPassword!);
+            await using (var upd = new NpgsqlCommand(
+                @"UPDATE public.users
+                     SET passwordhash = @h
+                   WHERE id = @id AND tenant_id = @tenant_id;", conn))
+            {
+                upd.Parameters.AddWithValue("h", newHash);
+                upd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Uuid, match.UserId);
+                upd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, match.TenantId);
+                await upd.ExecuteNonQueryAsync();
+            }
+
+            _logger.LogInformation("Direct password reset completed. TenantId={TenantId} UserId={UserId}",
+                match.TenantId,
+                match.UserId);
+
+            return Ok(new { message = "Your password has been reset. You can sign in now." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Direct password reset failed");
+            return StatusCode(500, new { message = "Something went wrong. Please try again." });
+        }
+    }
+
     // -------- helpers --------
     private static string GenerateUrlSafeToken(int byteLength)
     {
@@ -1178,6 +1667,56 @@ LIMIT 1;";
         var sb = new StringBuilder(bytes.Length * 2);
         foreach (var b in bytes) sb.Append(b.ToString("x2"));
         return sb.ToString();
+    }
+
+    private static string DigitsOnly(string? value)
+    {
+        return new string((value ?? "").Where(char.IsDigit).ToArray());
+    }
+
+    private string ResolvePublicBaseUrl()
+    {
+        var forwardedProto = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+        var forwardedHost = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(forwardedHost))
+        {
+            var proto = string.IsNullOrWhiteSpace(forwardedProto) ? "https" : forwardedProto.Trim();
+            return $"{proto}://{forwardedHost.Trim()}".TrimEnd('/');
+        }
+
+        if (Request.Host.HasValue)
+        {
+            var scheme = string.IsNullOrWhiteSpace(forwardedProto) ? Request.Scheme : forwardedProto.Trim();
+            if (string.Equals(scheme, "http", StringComparison.OrdinalIgnoreCase) &&
+                !Request.Host.Host.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+                scheme = "https";
+            return $"{scheme}://{Request.Host.Value}".TrimEnd('/');
+        }
+
+        return (_config["Saas:PublicBaseUrl"] ?? _config["App:PublicUrl"] ?? "https://beta.mahimaministries.in").TrimEnd('/');
+    }
+
+    private bool HasExplicitTenantHint()
+    {
+        return !string.IsNullOrWhiteSpace(Request.Headers["X-Tenant-Id"].FirstOrDefault())
+            || !string.IsNullOrWhiteSpace(Request.Headers["X-Tenant-Slug"].FirstOrDefault())
+            || !string.IsNullOrWhiteSpace(Request.Query["tenant"].FirstOrDefault())
+            || !string.IsNullOrWhiteSpace(Request.Query["tenantSlug"].FirstOrDefault());
+    }
+
+    private static string MaskEmail(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return "";
+
+        var at = email.IndexOf('@');
+        if (at <= 1)
+            return "***";
+
+        var name = email[..at];
+        var domain = email[(at + 1)..];
+        var visible = name.Length <= 2 ? name[..1] : name[..Math.Min(2, name.Length)];
+        return $"{visible}***@{domain}";
     }
 
     private static string BuildResetEmailHtml(string greeting, string resetUrl)

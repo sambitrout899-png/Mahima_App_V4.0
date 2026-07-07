@@ -1,5 +1,5 @@
-using Mahima.Api.v3.clean.Data;
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using Mahima.Api.v3.clean.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +30,7 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IPastorBotService _pastorBot;
 
         private static readonly Guid SuperUserGuid = Guid.Parse("ae9dfc94-07d8-469a-a8f6-a4c5aedcf3a9");
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public PrayerRequestsController(
             MahimaDbContext db,
@@ -42,6 +43,11 @@ namespace Mahima.Api.v3.clean.Controllers
             _logger = logger;
             _pastorBot = pastorBot;
         }
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         // ---------- CREATE NEW PRAYER REQUEST ----------
         [HttpPost]
@@ -56,6 +62,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var request = new PrayerRequest
             {
+                TenantId = GetCurrentTenantId(),
                 Title = string.IsNullOrWhiteSpace(dto.Title) ? null : dto.Title.Trim(),
                 Message = dto.Message.Trim(),
                 UserId = userId,
@@ -118,7 +125,8 @@ namespace Mahima.Api.v3.clean.Controllers
             if (!hasStatus && !hasCloseComment && !hasTitle && !hasMessage && !hasAnonymous)
                 return BadRequest("At least one prayer request value is required.");
 
-            var req = await _db.PrayerRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var req = await _db.PrayerRequests.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (req == null)
                 return NotFound();
 
@@ -230,8 +238,15 @@ namespace Mahima.Api.v3.clean.Controllers
             if (currentUserId != null && currentUserId == SuperUserGuid) isPrivileged = true;
             var canManagePrayerDesk = isPrivileged || (currentUserId.HasValue && await HasPrayerDeskAccessAsync(currentUserId.Value));
 
+<<<<<<< HEAD
             IQueryable<PrayerRequest> query = _db.PrayerRequests.AsNoTracking();
             if (!canManagePrayerDesk)
+=======
+            var tenantId = GetCurrentTenantId();
+            IQueryable<PrayerRequest> query = _db.PrayerRequests.AsNoTracking()
+                .Where(p => p.TenantId == tenantId);
+            if (!isPrivileged)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             {
                 if (currentUserId == null)
                     return Forbid();
@@ -803,7 +818,8 @@ GROUP BY prayerrequestid;";
         [AllowAnonymous]
         public async Task<IActionResult> GetResponses(long id)
         {
-            var exists = await _db.PrayerRequests.AnyAsync(p => p.Id == id);
+            var tenantId = GetCurrentTenantId();
+            var exists = await _db.PrayerRequests.AnyAsync(p => p.Id == id && p.TenantId == tenantId);
             if (!exists) return NotFound();
 
             var dict = await LoadResponsesByRawSqlAsync(new List<long> { id });
@@ -821,7 +837,8 @@ GROUP BY prayerrequestid;";
             if (dto == null || string.IsNullOrWhiteSpace(dto.ResponseText))
                 return BadRequest("ResponseText is required.");
 
-            var request = await _db.PrayerRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var request = await _db.PrayerRequests.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (request == null)
                 return NotFound();
 
@@ -878,8 +895,11 @@ GROUP BY prayerrequestid;";
             if (!isPrivileged)
                 return Forbid("Only administrators can delete responses.");
 
+            var tenantId = GetCurrentTenantId();
             var resp = await _db.PrayerResponses
-                .FirstOrDefaultAsync(r => r.Id == responseId && r.PrayerRequestId == id);
+                .Where(r => r.Id == responseId && r.PrayerRequestId == id)
+                .Where(r => _db.PrayerRequests.Any(p => p.Id == r.PrayerRequestId && p.TenantId == tenantId))
+                .FirstOrDefaultAsync();
             if (resp == null) return NotFound();
 
             resp.IsDeleted = true;
@@ -910,7 +930,8 @@ GROUP BY prayerrequestid;";
             if (!isPrivileged && currentUserId.HasValue)
                 isPrivileged = await HasPrayerDeskAccessAsync(currentUserId.Value);
 
-            var request = await _db.PrayerRequests.FirstOrDefaultAsync(p => p.Id == id);
+            var tenantId = GetCurrentTenantId();
+            var request = await _db.PrayerRequests.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantId);
             if (request == null) return NotFound();
 
             if (!isPrivileged && request.UserId != currentUserId)
@@ -989,7 +1010,162 @@ GROUP BY prayerrequestid;";
             }
         }
 
+        [HttpGet("testimonies")]
+        [Authorize]
+        public async Task<IActionResult> GetTestimonies()
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            var roles = GetCurrentUserRoles().ToList();
+            var isPrivileged = IsPrivilegedUser(roles) || currentUserId == SuperUserGuid;
+            var tenantId = GetCurrentTenantId();
+
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT t.id, t.prayerrequestid, t.userid, t.title, t.testimonytext, t.testimonytexthindi, t.imageurl, t.voiceurl,
+                       t.createdat, t.updatedat, p.createdby, p.message AS prayermessage, p.closecomment
+                FROM public.prayertestimonies t
+                JOIN public.prayerrequests p ON p.id = t.prayerrequestid
+                WHERE p.tenant_id = @tenantId
+                  AND (@isAdmin = true OR t.userid = @userId)
+                ORDER BY COALESCE(t.updatedat, t.createdat) DESC;";
+            AddParam(cmd, "tenantId", tenantId);
+            AddParam(cmd, "isAdmin", isPrivileged);
+            AddParam(cmd, "userId", currentUserId ?? Guid.Empty);
+
+            var rows = new List<object>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                rows.Add(MapTestimony(reader));
+            }
+            return Ok(rows);
+        }
+
+        [HttpPut("testimonies/{id:long}")]
+        [Authorize]
+        public async Task<IActionResult> UpdateTestimony(long id, [FromBody] PrayerTestimonyDto dto)
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            if (currentUserId == null) return Unauthorized();
+
+            var roles = GetCurrentUserRoles().ToList();
+            var isPrivileged = IsPrivilegedUser(roles) || currentUserId == SuperUserGuid;
+            var tenantId = GetCurrentTenantId();
+
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE public.prayertestimonies t
+                SET title = @title,
+                    testimonytext = @text,
+                    testimonytexthindi = COALESCE(NULLIF(@textHindi, ''), t.testimonytexthindi),
+                    imageurl = @image,
+                    voiceurl = @voice,
+                    updatedat = now()
+                FROM public.prayerrequests p
+                WHERE t.id = @id
+                  AND p.id = t.prayerrequestid
+                  AND p.tenant_id = @tenantId
+                  AND (@isAdmin = true OR t.userid = @userId)
+                RETURNING t.id, t.prayerrequestid, t.userid, t.title, t.testimonytext, t.testimonytexthindi, t.imageurl, t.voiceurl, t.createdat, t.updatedat,
+                          p.createdby, p.message AS prayermessage, p.closecomment;";
+            AddParam(cmd, "id", id);
+            AddParam(cmd, "tenantId", tenantId);
+            AddParam(cmd, "isAdmin", isPrivileged);
+            AddParam(cmd, "userId", currentUserId.Value);
+            AddParam(cmd, "title", (object?)dto?.Title?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "text", (object?)dto?.TestimonyText?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "textHindi", (object?)dto?.TestimonyTextHindi?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "image", (object?)dto?.ImageUrl?.Trim() ?? DBNull.Value);
+            AddParam(cmd, "voice", (object?)dto?.VoiceUrl?.Trim() ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return NotFound();
+            return Ok(MapTestimony(reader));
+        }
+
+        [HttpPost("testimonies/backfill-hindi")]
+        [Authorize]
+        public async Task<IActionResult> BackfillHindiTestimonies()
+        {
+            await EnsureTestimonySchemaAsync();
+            var currentUserId = GetCurrentUserGuid();
+            var isPrivileged = IsPrivilegedUser(GetCurrentUserRoles()) || currentUserId == SuperUserGuid;
+            if (!isPrivileged) return Forbid("Only administrators can backfill testimony translations.");
+
+            return Ok(new
+            {
+                updated = 0,
+                skipped = 0,
+                message = "Hindi testimony backfill is available in PROD AI flow; DEV tenant-safe endpoint is ready for manual edits."
+            });
+        }
+
         // ---------- HELPERS ----------
+        private async Task EnsureTestimonySchemaAsync()
+        {
+            var conn = _db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open) await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                ALTER TABLE public.prayerrequests
+                    ADD COLUMN IF NOT EXISTS closecomment text NULL;
+
+                CREATE TABLE IF NOT EXISTS public.prayertestimonies (
+                    id bigserial PRIMARY KEY,
+                    prayerrequestid bigint NOT NULL REFERENCES public.prayerrequests(id) ON DELETE CASCADE,
+                    userid uuid NULL,
+                    title text NULL,
+                    testimonytext text NULL,
+                    testimonytexthindi text NULL,
+                    imageurl text NULL,
+                    voiceurl text NULL,
+                    createdat timestamp without time zone NOT NULL DEFAULT now(),
+                    updatedat timestamp without time zone NULL
+                );
+                ALTER TABLE public.prayertestimonies
+                    ADD COLUMN IF NOT EXISTS testimonytexthindi text NULL,
+                    ADD COLUMN IF NOT EXISTS imageurl text NULL,
+                    ADD COLUMN IF NOT EXISTS voiceurl text NULL,
+                    ADD COLUMN IF NOT EXISTS updatedat timestamp without time zone NULL;
+                CREATE INDEX IF NOT EXISTS ix_prayertestimonies_prayerrequestid ON public.prayertestimonies(prayerrequestid);
+                CREATE INDEX IF NOT EXISTS ix_prayertestimonies_userid ON public.prayertestimonies(userid);";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static void AddParam(System.Data.Common.DbCommand cmd, string name, object? value)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = name;
+            p.Value = value ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
+        private static object MapTestimony(System.Data.Common.DbDataReader reader) => new
+        {
+            id = reader.GetInt64(0),
+            prayerRequestId = reader.GetInt64(1),
+            userId = reader.IsDBNull(2) ? null : reader.GetValue(2)?.ToString(),
+            title = reader.IsDBNull(3) ? "" : reader.GetString(3),
+            testimonyText = reader.IsDBNull(4) ? "" : reader.GetString(4),
+            testimonyTextHindi = reader.IsDBNull(5) ? "" : reader.GetString(5),
+            imageUrl = reader.IsDBNull(6) ? "" : reader.GetString(6),
+            voiceUrl = reader.IsDBNull(7) ? "" : reader.GetString(7),
+            createdAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8),
+            updatedAt = reader.IsDBNull(9) ? (DateTime?)null : reader.GetDateTime(9),
+            createdBy = reader.IsDBNull(10) ? "" : reader.GetString(10),
+            prayerMessage = reader.IsDBNull(11) ? "" : reader.GetString(11),
+            closeComment = reader.IsDBNull(12) ? "" : reader.GetString(12)
+        };
+
         private Guid? GetCurrentUserGuid()
         {
             var idClaim = User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
@@ -1205,4 +1381,14 @@ GROUP BY prayerrequestid;";
         // NEW: closing / admin comment; may be null to clear
         public string? CloseComment { get; set; }
     }
+
+    public class PrayerTestimonyDto
+    {
+        public string? Title { get; set; }
+        public string? TestimonyText { get; set; }
+        public string? TestimonyTextHindi { get; set; }
+        public string? ImageUrl { get; set; }
+        public string? VoiceUrl { get; set; }
+    }
 }
+

@@ -6,6 +6,7 @@ namespace Mahima.Api.v3.clean.Models
     public class User
     {
         public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 	public string UserCode { get; set; }
         public string? CognitoSub { get; set; }
         public string? Username { get; set; }
@@ -61,5 +62,7 @@ namespace Mahima.Api.v3.clean.Models
         public bool? IsPastor { get; set; }
 
         public bool PayrollEnabled { get; set; } = false;
+
+        public Tenant? Tenant { get; set; }
     }
 }

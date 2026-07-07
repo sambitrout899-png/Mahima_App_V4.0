@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Languages,
   Loader2,
@@ -269,7 +269,7 @@ export default function AiPastorAgent({ hidden = false, showLauncher = true }) {
         type="button"
         onClick={() => setOpen(true)}
         className="fixed bottom-24 right-5 z-[80] grid h-16 w-16 place-items-center rounded-full bg-emerald-700 text-white shadow-2xl ring-4 ring-white hover:bg-emerald-800"
-        aria-label="Open AI Pastor"
+        aria-label="Open AI Counseller"
       >
         <PastorCharacter className="h-full w-full" />
       </button>
@@ -284,7 +284,7 @@ export default function AiPastorAgent({ hidden = false, showLauncher = true }) {
                   <PastorCharacter className="h-full w-full" />
                 </div>
                 <div>
-                  <div className="text-lg font-black">AI Pastor</div>
+                  <div className="text-lg font-black">AI Counseller</div>
                   <div className="text-xs font-bold text-emerald-100">{status} - {active.title}</div>
                 </div>
               </div>
@@ -292,7 +292,7 @@ export default function AiPastorAgent({ hidden = false, showLauncher = true }) {
                 type="button"
                 onClick={() => setOpen(false)}
                 className="grid h-10 w-10 place-items-center rounded-full bg-white/10 hover:bg-white/20"
-                aria-label="Close AI Pastor"
+                aria-label="Close AI Counseller"
               >
                 <X className="h-5 w-5" />
               </button>

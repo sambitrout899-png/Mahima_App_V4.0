@@ -1,8 +1,14 @@
 ﻿// src/main.jsx
 // Native Android bootstrap: create notification channels + register FCM.
+<<<<<<< HEAD
 // Must run before anything else so channels exist before any notification fires.
 import { initNativeApp } from "./utils/initNativeApp";
 initNativeApp(); // fire-and-forget; returns a Promise, intentionally not awaited
+=======
+// Deferred so the login UI renders first before we request any permissions.
+import { initNativeApp } from "./utils/initNativeApp";
+window.addEventListener("load", () => setTimeout(initNativeApp, 2000));
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 import "./utils/fetch-auth-shim";   // <-- add this line first
 import "./mobileUI.css";
 import React from 'react'
@@ -116,6 +122,23 @@ function installStaleBundleRecovery() {
 }
 
 installStaleBundleRecovery()
+
+function redirectBrowserPathToHashRoute() {
+  try {
+    if (window.location.hash) return
+    const path = window.location.pathname || '/'
+    const hashRoutes = ['/login', '/reset-password', '/saas', '/app-downloads', '/home', '/t/']
+    const shouldRedirect = hashRoutes.some((route) =>
+      route.endsWith('/') ? path.startsWith(route) : path === route || path.startsWith(`${route}/`)
+    )
+    if (!shouldRedirect) return
+
+    const next = `${window.location.origin}/#${path}${window.location.search || ''}`
+    window.location.replace(next)
+  } catch {}
+}
+
+redirectBrowserPathToHashRoute()
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

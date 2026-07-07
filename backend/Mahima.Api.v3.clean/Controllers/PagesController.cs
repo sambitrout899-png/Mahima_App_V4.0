@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -6,6 +6,8 @@ using Npgsql;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace Mahima.Api.v3.clean.Controllers
@@ -25,6 +27,86 @@ namespace Mahima.Api.v3.clean.Controllers
             _env = env ?? throw new ArgumentNullException(nameof(env));
         }
 
+        private static readonly Dictionary<string, string> PageModules = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CHAT"] = "chat",
+            ["TASKS"] = "operations",
+            ["ATTENDANCE"] = "operations",
+            ["PAYROLL"] = "operations",
+            ["COSTS"] = "operations",
+            ["REPORTS"] = "operations",
+            ["AUDIT_TRAIL"] = "operations",
+            ["PASTOR"] = "care_ministry",
+            ["README"] = "care_ministry",
+            ["MARRIAGE"] = "care_ministry",
+            ["BAPTISM"] = "care_ministry",
+            ["COUNSELLING"] = "care_ministry",
+            ["ADMIN_DASHBOARD"] = "admin_tools",
+            ["LIVE_USERS"] = "admin_tools",
+            ["MULTITENANT"] = "admin_tools",
+            ["LANGUAGES"] = "admin_tools",
+            ["APP_DOWNLOADS"] = "communications",
+            ["MESSAGE_CENTER"] = "communications",
+            ["EMAIL_CLIENT"] = "communications",
+            ["GOOGLE_DRIVE"] = "communications",
+            ["SERVER_FILES"] = "communications"
+        };
+
+        private static readonly string[] BasePageKeys =
+        {
+            "DASHBOARD", "LANDING_PAGE", "USERS", "PRAYER_REQUESTS", "SERMONS", "TEAMS", "ROLES", "PAGES"
+        };
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        private static async Task<HashSet<string>> LoadLicensedPageKeysAsync(NpgsqlConnection conn, Guid tenantId)
+        {
+            var keys = new HashSet<string>(BasePageKeys, StringComparer.OrdinalIgnoreCase);
+            if (tenantId == Guid.Parse("00000000-0000-0000-0000-000000000001"))
+            {
+                foreach (var key in PageModules.Keys) keys.Add(key);
+                keys.Add("MULTITENANT");
+                return keys;
+            }
+
+            await using var cmd = new NpgsqlCommand(@"
+SELECT m.code
+FROM public.module_catalog m
+WHERE m.enabled = true
+  AND (
+      m.is_base_module = true
+      OR EXISTS (
+          SELECT 1
+          FROM public.tenant_module_licenses l
+          WHERE l.tenant_id = @tenant_id
+            AND l.module_code = m.code
+            AND l.status = 'active'
+            AND l.starts_at_utc <= now()
+            AND (l.ends_at_utc IS NULL OR l.ends_at_utc > now())
+      )
+  );", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            var modules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (await rdr.ReadAsync())
+            {
+                var code = rdr["code"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(code)) modules.Add(code);
+            }
+
+            foreach (var pair in PageModules)
+            {
+                if (modules.Contains(pair.Value)) keys.Add(pair.Key);
+            }
+
+            keys.Remove("MULTITENANT");
+            return keys;
+        }
+
         // GET api/pages
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -37,6 +119,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
                 await EnsureBuiltInPagesAsync(conn);
+                var licensedKeys = await LoadLicensedPageKeysAsync(conn, GetCurrentTenantId());
 
                 // Select by key (string), not numeric id — compatible with role_permissions.page_key
                 var cmd = new NpgsqlCommand(@"SELECT key, title, description, created_at, updated_at FROM pages ORDER BY key;", conn);
@@ -44,9 +127,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 while (await rdr.ReadAsync())
                 {
+                    var key = rdr["key"] is DBNull ? null : rdr["key"].ToString();
+                    if (string.IsNullOrWhiteSpace(key) || !licensedKeys.Contains(key)) continue;
+
                     items.Add(new
                     {
-                        key = rdr["key"] is DBNull ? null : rdr["key"].ToString(),
+                        key,
                         title = rdr["title"] is DBNull ? null : rdr["title"].ToString(),
                         description = rdr["description"] is DBNull ? null : rdr["description"].ToString(),
                         createdAt = rdr["created_at"] is DBNull ? null : rdr["created_at"].ToString(),
@@ -224,12 +310,20 @@ namespace Mahima.Api.v3.clean.Controllers
                 INSERT INTO pages (key, title, description, created_at, updated_at)
                 VALUES
                     ('DASHBOARD', 'Home', 'Main home dashboard and quick links.', now(), now()),
+<<<<<<< HEAD
+=======
+                    ('CHAT', 'Jai Masih Chat', 'Direct and group chat, voice notes, calls, notifications, and chat safety.', now(), now()),
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                     ('PASTOR', 'AI Counseller', 'Pastoral AI assistant for prayer, Scripture, and daily guidance.', now(), now()),
                     ('APP_DOWNLOADS', 'App Downloads', 'Android and iOS app download and upgrade page.', now(), now()),
                     ('SERMONS', 'Sermons', 'Sermon library and media management.', now(), now()),
                     ('PRAYER_REQUESTS', 'Prayer Requests', 'Prayer request intake, tracking, and updates.', now(), now()),
+<<<<<<< HEAD
                     ('TASKS', 'Tasks', 'Team task management and follow-up tracking.', now(), now()),
                     ('PROJECT_MANAGEMENT', 'Project Management', 'PMO portfolio controls for construction, crusades, and Mahima application demo projects.', now(), now()),
+=======
+                    ('TASKS', 'Tasks', 'Team task management and follow-up tracking.', now(), now()),
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                     ('USERS', 'Users', 'User account and staff profile management.', now(), now()),
                     ('TEAMS', 'Teams', 'Team setup, membership, and ministry group management.', now(), now()),
                     ('ROLES', 'Roles', 'Role setup and page permission assignment.', now(), now()),

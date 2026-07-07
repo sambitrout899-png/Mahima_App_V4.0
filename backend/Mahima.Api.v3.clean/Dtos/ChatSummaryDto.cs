@@ -10,6 +10,7 @@ namespace Mahima.Api.v3.clean.Dtos
         Guid? OtherId = null,
         string? OtherName = null,
         string? OtherUsername = null,
-        string? OtherProfilePhotoUrl = null
+        string? OtherProfilePhotoUrl = null,
+        string? GroupPhotoUrl = null
     );
 }

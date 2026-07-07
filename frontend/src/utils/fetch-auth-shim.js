@@ -45,6 +45,55 @@ function resolveApiBase() {
 const PUBLIC_API_BASE = "https://mahimaministries.in/api";
 const API_BASE = resolveApiBase();
 console.log("FINAL API BASE =", API_BASE);
+const TENANT_SLUG_KEY = "mahima_tenant_slug";
+
+function activeTenantSlug() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = window.location.hash || "";
+    const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashTenantMatch = hash.match(/^#\/t\/([^/?#]+)/i);
+    const fromUrl = (
+      params.get("tenant") ||
+      params.get("tenantSlug") ||
+      hashParams.get("tenant") ||
+      hashParams.get("tenantSlug") ||
+      (hashTenantMatch ? decodeURIComponent(hashTenantMatch[1]) : "") ||
+      ""
+    ).trim();
+    if (fromUrl) {
+      localStorage.setItem(TENANT_SLUG_KEY, fromUrl);
+      localStorage.setItem("tenantSlug", fromUrl);
+      return fromUrl;
+    }
+
+    const host = window.location.hostname.toLowerCase();
+    const isKnownMahimaHost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".local") ||
+      host.includes("mahimaministries.");
+
+    if (!isKnownMahimaHost) {
+      return "";
+    }
+
+    return (
+      localStorage.getItem(TENANT_SLUG_KEY) ||
+      localStorage.getItem("tenantSlug") ||
+      localStorage.getItem("tenant_slug") ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function tenantHeaders() {
+  const tenantSlug = activeTenantSlug();
+  return tenantSlug ? { "X-Tenant-Slug": tenantSlug } : {};
+}
 
 /* ---------------- TOKEN ---------------- */
 function readJsonToken(key) {
@@ -193,6 +242,10 @@ export async function apiFetch(input, init = {}) {
   } = init || {};
   const finalUrl = buildUrl(url);
   const headers = new Headers(fetchInit.headers || {});
+  const tenantSlug = activeTenantSlug();
+  if (tenantSlug && !headers.has("X-Tenant-Slug") && !headers.has("X-Tenant-Id")) {
+    headers.set("X-Tenant-Slug", tenantSlug);
+  }
   const token = readToken();
 
   if (token && !skipAuth) {
@@ -390,7 +443,7 @@ export function register(data) {
     method: "POST",
     skipAuth: true,
     retryPublicApi: true,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...tenantHeaders() },
     body: JSON.stringify(data),
   });
 }
@@ -400,7 +453,17 @@ export function login(data) {
     method: "POST",
     skipAuth: true,
     retryPublicApi: true,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...tenantHeaders() },
+    body: JSON.stringify(data),
+  });
+}
+
+export function googleLogin(data) {
+  return apiFetchJson("/auth/google", {
+    method: "POST",
+    skipAuth: true,
+    retryPublicApi: true,
+    headers: { "Content-Type": "application/json", ...tenantHeaders() },
     body: JSON.stringify(data),
   });
 }

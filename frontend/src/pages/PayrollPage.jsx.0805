@@ -1,0 +1,1503 @@
+// src/pages/PayrollPage.jsx
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
+import dayjs from "dayjs";
+import {
+  FileText,
+  Download,
+  Calendar as CalendarIcon,
+  User as UserIcon,
+  Settings as SettingsIcon,
+  Loader2,
+  History as HistoryIcon,
+  Trash2,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Eye,
+  Printer,
+  RefreshCw,
+  IndianRupee,
+  Clock,
+  TrendingUp,
+  ChevronDown,
+  ChevronUp,
+  Info,
+} from "lucide-react";
+import api from "../api";
+
+/* ======================================================================== */
+/*  Helpers                                                                 */
+/* ======================================================================== */
+
+const INITIAL_SUMMARY = {
+  userId: "",
+  displayName: "",
+  from: "",
+  to: "",
+  totalHours: 0,
+  hourlyRate: 0,
+  fixedAmount: 0,
+  hourlyAmount: 0,
+  allowances: 0,
+  deductions: 0,
+  grossAmount: 0,
+  netAmount: 0,
+  payrollAdvance: 0,
+  fines: 0,
+};
+
+const INITIAL_SETTINGS = {
+  userId: "",
+  hourlyRate: 0,
+  monthlyFixedAmount: 0,
+  allowances: 0,
+  deductions: 0,
+  isActive: true,
+};
+
+const formatINR = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "0.00";
+  return new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
+
+const safeNum = (v, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const arrayFrom = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+};
+
+const monthRange = (anchor = dayjs()) => ({
+  from: anchor.startOf("month").format("YYYY-MM-DD"),
+  to: anchor.endOf("month").format("YYYY-MM-DD"),
+});
+
+const useCurrentUser = () => {
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    try {
+      const raw =
+        localStorage.getItem("mahima:user") ||
+        localStorage.getItem("currentUser");
+      if (raw) setUser(JSON.parse(raw));
+    } catch (e) {
+      console.warn("Cannot parse current user from localStorage", e);
+    }
+  }, []);
+  return user;
+};
+
+const errMsg = (err, fallback = "Something went wrong.") =>
+  err?.response?.data?.message ||
+  (typeof err?.response?.data === "string" ? err.response.data : null) ||
+  err?.message ||
+  fallback;
+
+/* ======================================================================== */
+/*  Toast system                                                            */
+/* ======================================================================== */
+
+const useToasts = () => {
+  const [toasts, setToasts] = useState([]);
+  const idRef = useRef(0);
+
+  const push = useCallback((type, message, ttl = 3500) => {
+    const id = ++idRef.current;
+    setToasts((prev) => [...prev, { id, type, message }]);
+    if (ttl > 0) {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, ttl);
+    }
+    return id;
+  }, []);
+
+  const dismiss = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  return {
+    toasts,
+    success: (m, ttl) => push("success", m, ttl),
+    error: (m, ttl) => push("error", m, ttl ?? 5000),
+    info: (m, ttl) => push("info", m, ttl),
+    dismiss,
+  };
+};
+
+const ToastStack = ({ toasts, onDismiss }) => (
+  <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2 w-[min(92vw,360px)]">
+    {toasts.map((t) => (
+      <div
+        key={t.id}
+        className={`flex items-start gap-2 rounded-xl border px-3 py-2 shadow-lg backdrop-blur bg-white/95 text-xs ${
+          t.type === "success"
+            ? "border-emerald-200 text-emerald-800"
+            : t.type === "error"
+            ? "border-red-200 text-red-800"
+            : "border-slate-200 text-slate-800"
+        }`}
+        role="status"
+      >
+        {t.type === "success" ? (
+          <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+        ) : t.type === "error" ? (
+          <AlertCircle className="w-4 h-4 mt-0.5 text-red-600 shrink-0" />
+        ) : (
+          <Info className="w-4 h-4 mt-0.5 text-slate-500 shrink-0" />
+        )}
+        <div className="flex-1 leading-snug">{t.message}</div>
+        <button
+          onClick={() => onDismiss(t.id)}
+          className="text-slate-400 hover:text-slate-600"
+          aria-label="Dismiss"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    ))}
+  </div>
+);
+
+/* ======================================================================== */
+/*  Confirm modal                                                           */
+/* ======================================================================== */
+
+const ConfirmModal = ({ open, title, body, onConfirm, onCancel, danger }) => {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[180] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{body}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`rounded-xl px-3 py-2 text-xs font-medium text-white ${
+              danger
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-rose-500 hover:bg-rose-600"
+            }`}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ======================================================================== */
+/*  Main component                                                          */
+/* ======================================================================== */
+
+export default function PayrollPage() {
+  const { from: initialFrom, to: initialTo } = monthRange();
+  const currentUser = useCurrentUser();
+  const toast = useToasts();
+
+  const [fromDate, setFromDate] = useState(initialFrom);
+  const [toDate, setToDate] = useState(initialTo);
+
+  const [staffList, setStaffList] = useState([]);
+  const [staffSearch, setStaffSearch] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+
+  const [summary, setSummary] = useState(INITIAL_SUMMARY);
+  const [settings, setSettings] = useState(INITIAL_SETTINGS);
+
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [loadingSlip, setLoadingSlip] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [downloadingHistoryId, setDownloadingHistoryId] = useState(null);
+  const [deletingRunId, setDeletingRunId] = useState(null);
+  const [currentRunId, setCurrentRunId] = useState(null);
+
+  const [confirm, setConfirm] = useState(null); // { title, body, onConfirm, danger }
+  const [showSetup, setShowSetup] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  /* ----- selected staff object --------------------------------------- */
+  const selectedStaff = useMemo(
+    () =>
+      (Array.isArray(staffList) ? staffList : []).find(
+        (u) => (u.id || u.userId) === selectedUserId
+      ) || null,
+    [staffList, selectedUserId]
+  );
+
+  const filteredStaff = useMemo(() => {
+    const q = staffSearch.trim().toLowerCase();
+    if (!q) return staffList;
+    return staffList.filter((u) => {
+      const hay = [
+        u.displayName,
+        u.fullName,
+        u.username,
+        u.email,
+        u.id,
+        u.userId,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [staffList, staffSearch]);
+
+  /* ----- load staff --------------------------------------------------- */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/users", { params: { role: "Staff" } });
+        if (!cancelled) setStaffList(arrayFrom(res?.data));
+      } catch (err) {
+        console.warn("Failed to load staff", err);
+        if (!cancelled) setStaffList([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ----- when staff changes: load settings + history ------------------ */
+  useEffect(() => {
+    if (!selectedUserId) {
+      setSettings({ ...INITIAL_SETTINGS });
+      setHistory([]);
+      setSummary(INITIAL_SUMMARY);
+      setCurrentRunId(null);
+      return;
+    }
+    let cancelled = false;
+
+    const loadSettings = async () => {
+      try {
+        const res = await api.get("/payroll/settings");
+        const all = arrayFrom(res?.data);
+        const s = all.find((x) => x.userId === selectedUserId);
+        if (cancelled) return;
+        setSettings(
+          s
+            ? {
+                userId: s.userId,
+                hourlyRate: safeNum(s.hourlyRate),
+                monthlyFixedAmount: safeNum(s.monthlyFixedAmount),
+                allowances: safeNum(s.allowances),
+                deductions: safeNum(s.deductions),
+                isActive: s.isActive !== false,
+              }
+            : { ...INITIAL_SETTINGS, userId: selectedUserId }
+        );
+      } catch (err) {
+        if (
+          err?.response?.status === 401 ||
+          err?.response?.status === 403
+        ) {
+          console.warn("Not authorized to load payroll settings.");
+          return;
+        }
+        console.error("Failed to load payroll settings", err);
+        toast.error("Couldn't load payroll setup for this staff member.");
+      }
+    };
+
+    const loadHistory = async () => {
+      setLoadingHistory(true);
+      try {
+        const res = await api.get("/payroll/runs", {
+          params: { userId: selectedUserId },
+        });
+        if (!cancelled) setHistory(arrayFrom(res?.data));
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          if (!cancelled) setHistory([]);
+        } else {
+          console.error("Failed to load history", err);
+          if (!cancelled) setHistory([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    };
+
+    loadSettings();
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUserId]);
+
+  const reloadHistory = async () => {
+    if (!selectedUserId) return;
+    setLoadingHistory(true);
+    try {
+      const res = await api.get("/payroll/runs", {
+        params: { userId: selectedUserId },
+      });
+      setHistory(arrayFrom(res?.data));
+    } catch (err) {
+      if (err?.response?.status !== 404) {
+        console.error("Failed to reload history", err);
+      }
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  /* ----- validation --------------------------------------------------- */
+  const validatePeriod = () => {
+    if (!fromDate || !toDate) {
+      toast.error("Please pick a from and to date.");
+      return false;
+    }
+    const a = dayjs(fromDate);
+    const b = dayjs(toDate);
+    if (!a.isValid() || !b.isValid()) {
+      toast.error("Invalid dates selected.");
+      return false;
+    }
+    if (a.isAfter(b)) {
+      toast.error("'From' date cannot be after 'To' date.");
+      return false;
+    }
+    if (b.diff(a, "day") > 92) {
+      toast.error("Period cannot exceed 92 days.");
+      return false;
+    }
+    return true;
+  };
+
+  /* ----- calculate ---------------------------------------------------- */
+  const handleCalculate = async () => {
+    if (!selectedUserId) {
+      toast.error("Select a staff member first.");
+      return;
+    }
+    if (!validatePeriod()) return;
+
+    setLoadingSummary(true);
+    try {
+      const params = { from: fromDate, to: toDate, userId: selectedUserId };
+      const monthKey = dayjs(fromDate).format("YYYY-MM");
+
+      const [payrollRes, attendanceRes, expensesRes] = await Promise.all([
+        api.get("/payroll/summary", { params }),
+        api.get("/attendance", { params }),
+        api.get("/expenses", {
+          params: { month: monthKey, category: "PAYROLL" },
+        }),
+      ]);
+
+      const data = payrollRes?.data || {};
+
+      // Attendance: count present days × 9 hours
+      const attendanceList = arrayFrom(attendanceRes?.data);
+      const presentDays = attendanceList.filter((r) => {
+        const s = (r.status ?? r.Status ?? "").toString().trim().toLowerCase();
+        return s === "present" || s === "p";
+      }).length;
+      const totalHours = presentDays * 9;
+
+      // Pull rates: prefer setting, fallback to backend response
+      const hourlyRate =
+        safeNum(settings.hourlyRate) ||
+        safeNum(data.hourlyRate ?? data.HourlyRate);
+      const fixedAmount =
+        safeNum(data.fixedAmount ?? data.monthlyFixedAmount) ||
+        safeNum(settings.monthlyFixedAmount);
+      const allowances =
+        safeNum(data.allowances ?? data.Allowances) ||
+        safeNum(settings.allowances);
+      const fines = safeNum(settings.deductions);
+
+      // Payroll advances from expenses
+      const expensesList = arrayFrom(expensesRes?.data);
+      const matchKeys = [
+        (selectedStaff?.displayName || "").trim().toLowerCase(),
+        (selectedStaff?.fullName || "").trim().toLowerCase(),
+        (selectedStaff?.username || "").trim().toLowerCase(),
+        (selectedStaff?.email || "").trim().toLowerCase(),
+        String(selectedStaff?.id ?? selectedStaff?.userId ?? selectedUserId)
+          .trim()
+          .toLowerCase(),
+      ].filter(Boolean);
+
+      const payrollAdvance = expensesList
+        .filter((e) => {
+          const person = (e.payrollPerson ?? e.PayrollPerson ?? "")
+            .toString()
+            .trim()
+            .toLowerCase();
+          const month = (e.payrollMonth ?? e.PayrollMonth ?? "")
+            .toString()
+            .trim();
+          if (!person) return false;
+          if (month && month !== monthKey) return false;
+          return matchKeys.includes(person);
+        })
+        .reduce((sum, e) => sum + safeNum(e.amount ?? e.Amount), 0);
+
+      // ---- CORRECT FORMULA -----------------------------------------
+      // Gross   = Fixed + (Hours × Rate) + Allowances
+      // Total deductions = Fines + Payroll advances
+      // Net     = max(0, Gross - Deductions)
+      const hourlyAmount = totalHours * hourlyRate;
+      const grossAmount = fixedAmount + hourlyAmount + allowances;
+      const totalDeductions = Math.max(0, fines + payrollAdvance);
+      const netAmount = Math.max(0, grossAmount - totalDeductions);
+
+      const displayName =
+        data.displayName ||
+        selectedStaff?.displayName ||
+        selectedStaff?.fullName ||
+        selectedStaff?.username ||
+        selectedStaff?.email ||
+        selectedUserId;
+
+      const newSummary = {
+        userId: selectedUserId,
+        displayName,
+        from: data.from || fromDate,
+        to: data.to || toDate,
+        totalHours,
+        hourlyRate,
+        fixedAmount,
+        hourlyAmount,
+        allowances,
+        deductions: totalDeductions,
+        grossAmount,
+        netAmount,
+        payrollAdvance,
+        fines,
+      };
+      setSummary(newSummary);
+
+      // Save snapshot
+      try {
+        const runRes = await api.post("/payroll/runs", {
+          userId: newSummary.userId,
+          displayName: newSummary.displayName,
+          from: newSummary.from,
+          to: newSummary.to,
+          totalHours: newSummary.totalHours,
+          hourlyRate: newSummary.hourlyRate,
+          fixedAmount: newSummary.fixedAmount,
+          hourlyAmount: newSummary.hourlyAmount,
+          allowances: newSummary.allowances,
+          deductions: newSummary.deductions,
+          grossAmount: newSummary.grossAmount,
+          netAmount: newSummary.netAmount,
+        });
+        const created = runRes?.data || {};
+        setCurrentRunId(created.id ?? created.Id ?? null);
+        await reloadHistory();
+      } catch (saveErr) {
+        if (saveErr?.response?.status !== 404) {
+          console.error("Save run failed", saveErr);
+          toast.info(
+            "Calculated, but couldn't store run history. Calculation is shown."
+          );
+        }
+      }
+
+      toast.success("Payroll calculated successfully.");
+    } catch (err) {
+      console.error(err);
+      toast.error(errMsg(err, "Failed to calculate payroll."));
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  /* ----- download slip (current period) ------------------------------- */
+  const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadSlip = async () => {
+    if (!selectedUserId) {
+      toast.error("Select a staff member first.");
+      return;
+    }
+    if (!validatePeriod()) return;
+
+    setLoadingSlip(true);
+    try {
+      const res = await api.get("/payroll/slip", {
+        params: { userId: selectedUserId, from: fromDate, to: toDate },
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const name =
+        summary.displayName ||
+        selectedStaff?.displayName ||
+        selectedStaff?.username ||
+        currentUser?.displayName ||
+        "salary";
+      downloadBlob(
+        blob,
+        `SalarySlip_${name}_${dayjs(fromDate).format("YYYYMM")}.pdf`
+      );
+      toast.success("Salary slip downloaded.");
+    } catch (err) {
+      console.error(err);
+      toast.error(errMsg(err, "Failed to download salary slip."));
+    } finally {
+      setLoadingSlip(false);
+    }
+  };
+
+  /* ----- download slip for history run -------------------------------- */
+  const handleDownloadSlipForHistory = async (record) => {
+    const runId = record?.id || record?.Id;
+    if (!runId) return;
+    setDownloadingHistoryId(runId);
+    try {
+      const res = await api.get(`/payroll/runs/${runId}/slip`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const name =
+        record.displayName ||
+        record.DisplayName ||
+        selectedStaff?.displayName ||
+        record.userId ||
+        record.UserId ||
+        "salary";
+      const fromVal = record.from || record.From;
+      downloadBlob(
+        blob,
+        `SalarySlip_${name}_${dayjs(fromVal).format("YYYYMM")}.pdf`
+      );
+      toast.success("Slip downloaded.");
+    } catch (err) {
+      console.error(err);
+      toast.error(errMsg(err, "Failed to download slip for that run."));
+    } finally {
+      setDownloadingHistoryId(null);
+    }
+  };
+
+  /* ----- delete run --------------------------------------------------- */
+  const handleDeleteRun = (record) => {
+    const runId = record.id || record.Id;
+    if (!runId) return;
+    setConfirm({
+      title: "Delete payroll run?",
+      body: "This permanently removes the saved payroll record. This action cannot be undone.",
+      danger: true,
+      onConfirm: async () => {
+        setConfirm(null);
+        setDeletingRunId(runId);
+        try {
+          await api.delete(`/payroll/runs/${runId}`);
+          await reloadHistory();
+          if (currentRunId === runId) setCurrentRunId(null);
+          toast.success("Payroll run deleted.");
+        } catch (err) {
+          console.error(err);
+          toast.error(errMsg(err, "Failed to delete payroll run."));
+        } finally {
+          setDeletingRunId(null);
+        }
+      },
+    });
+  };
+
+  /* ----- save setup --------------------------------------------------- */
+  const handleSaveSettings = async () => {
+    if (!settings.userId) {
+      toast.error("Select a staff member first.");
+      return;
+    }
+    if (settings.hourlyRate < 0 || settings.monthlyFixedAmount < 0) {
+      toast.error("Rates and amounts cannot be negative.");
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      await api.post("/payroll/settings", {
+        userId: settings.userId,
+        hourlyRate: safeNum(settings.hourlyRate),
+        monthlyFixedAmount: safeNum(settings.monthlyFixedAmount),
+        allowances: safeNum(settings.allowances),
+        deductions: safeNum(settings.deductions),
+        isActive: !!settings.isActive,
+      });
+      toast.success("Payroll setup saved.");
+    } catch (err) {
+      console.error(err);
+      toast.error(errMsg(err, "Failed to save payroll setup."));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  /* ----- date presets ------------------------------------------------- */
+  const setPreset = (preset) => {
+    const now = dayjs();
+    if (preset === "thisMonth") {
+      const r = monthRange(now);
+      setFromDate(r.from);
+      setToDate(r.to);
+    } else if (preset === "lastMonth") {
+      const r = monthRange(now.subtract(1, "month"));
+      setFromDate(r.from);
+      setToDate(r.to);
+    } else if (preset === "last30") {
+      setFromDate(now.subtract(29, "day").format("YYYY-MM-DD"));
+      setToDate(now.format("YYYY-MM-DD"));
+    } else if (preset === "ytd") {
+      setFromDate(now.startOf("year").format("YYYY-MM-DD"));
+      setToDate(now.format("YYYY-MM-DD"));
+    }
+  };
+
+  /* ----- yearly totals (from history) --------------------------------- */
+  const ytd = useMemo(() => {
+    const year = dayjs().year();
+    const list = history.filter((r) => {
+      const f = dayjs(r.from || r.From);
+      return f.isValid() && f.year() === year;
+    });
+    return {
+      runs: list.length,
+      net: list.reduce((s, r) => s + safeNum(r.netAmount ?? r.NetAmount), 0),
+      gross: list.reduce(
+        (s, r) => s + safeNum(r.grossAmount ?? r.GrossAmount),
+        0
+      ),
+    };
+  }, [history]);
+
+  const showSummary = !!summary?.userId && !!summary?.from;
+  const roleLabel = useMemo(() => {
+    if (!currentUser) return "";
+    const primary =
+      currentUser.role ||
+      currentUser.Role ||
+      (Array.isArray(currentUser.roles) && currentUser.roles[0]) ||
+      "";
+    return primary ? String(primary).toUpperCase() : "";
+  }, [currentUser]);
+
+  /* ----- render ------------------------------------------------------- */
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-rose-50 via-orange-50 to-amber-50 px-3 sm:px-6 py-4 sm:py-6">
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        body={confirm?.body}
+        danger={confirm?.danger}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
+
+      {/* Header */}
+      <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-rose-500 text-white shadow-sm">
+              <FileText className="w-5 h-5" />
+            </span>
+            Payroll
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 ml-11">
+            Configure pay setup, calculate salary from attendance, and
+            generate professional payslips.
+          </p>
+        </div>
+        {currentUser && (
+          <div className="flex items-center gap-2 rounded-2xl bg-white/80 px-3 py-2 shadow-sm border border-rose-100">
+            <div className="h-9 w-9 rounded-full flex items-center justify-center bg-gradient-to-br from-rose-400 to-orange-500 text-white text-sm font-semibold shadow">
+              {(currentUser.displayName || currentUser.username || "U")
+                .charAt(0)
+                .toUpperCase()}
+            </div>
+            <div className="leading-tight">
+              <div className="text-xs font-medium text-slate-700">
+                {currentUser.displayName || currentUser.username || "User"}
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-rose-500 font-semibold">
+                {roleLabel || "User"}
+              </div>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* YTD strip */}
+      {selectedUserId && (
+        <div className="mb-4 grid grid-cols-3 gap-2 sm:gap-3">
+          <StatPill
+            icon={<TrendingUp className="w-3.5 h-3.5" />}
+            label="YTD net pay"
+            value={`? ${formatINR(ytd.net)}`}
+          />
+          <StatPill
+            icon={<IndianRupee className="w-3.5 h-3.5" />}
+            label="YTD gross"
+            value={`? ${formatINR(ytd.gross)}`}
+          />
+          <StatPill
+            icon={<HistoryIcon className="w-3.5 h-3.5" />}
+            label="Runs this year"
+            value={ytd.runs}
+          />
+        </div>
+      )}
+
+      {/* Filters */}
+      <section className="mb-4 sm:mb-6 rounded-2xl bg-white/85 border border-rose-100 shadow-sm p-3 sm:p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="w-4 h-4 text-rose-500" />
+            <h2 className="text-sm font-semibold text-slate-800">
+              Payroll period &amp; staff
+            </h2>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {[
+              { id: "thisMonth", label: "This month" },
+              { id: "lastMonth", label: "Last month" },
+              { id: "last30", label: "Last 30d" },
+              { id: "ytd", label: "YTD" },
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPreset(p.id)}
+                className="text-[11px] rounded-full border border-rose-100 bg-white px-2.5 py-1 text-rose-600 hover:bg-rose-50"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Field label="From">
+            <input
+              type="date"
+              className="input"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
+          </Field>
+          <Field label="To">
+            <input
+              type="date"
+              className="input"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
+          </Field>
+          <Field
+            label={
+              <span className="flex items-center gap-1">
+                <UserIcon className="w-3 h-3 text-rose-500" />
+                Search staff
+              </span>
+            }
+            className="col-span-2 sm:col-span-1"
+          >
+            <input
+              type="search"
+              className="input"
+              placeholder="Type name…"
+              value={staffSearch}
+              onChange={(e) => setStaffSearch(e.target.value)}
+            />
+          </Field>
+          <Field label="Staff" className="col-span-2 sm:col-span-1">
+            <select
+              className="input"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+            >
+              <option value="">Choose staff…</option>
+              {filteredStaff.map((u) => (
+                <option key={u.id || u.userId} value={u.id || u.userId}>
+                  {u.displayName ||
+                    u.fullName ||
+                    u.username ||
+                    u.email ||
+                    u.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 pt-1">
+          <button
+            onClick={handleCalculate}
+            disabled={loadingSummary}
+            className="btn-primary"
+          >
+            {loadingSummary ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Calculating…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Calculate payroll
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setShowPreview(true)}
+            disabled={!showSummary}
+            className="btn-secondary"
+          >
+            <Eye className="w-4 h-4" />
+            Preview slip
+          </button>
+          <button
+            onClick={handleDownloadSlip}
+            disabled={loadingSlip || !selectedUserId}
+            className="btn-secondary"
+          >
+            {loadingSlip ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                Download payslip (PDF)
+              </>
+            )}
+          </button>
+        </div>
+      </section>
+
+      {/* Summary */}
+      {showSummary ? (
+        <section className="mb-4 sm:mb-6 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <SummaryCard
+              label="Net pay"
+              value={`? ${formatINR(summary.netAmount)}`}
+              accent="from-orange-400 to-rose-500"
+              big
+              icon={<IndianRupee className="w-4 h-4 text-white/80" />}
+            />
+            <SummaryCard
+              label="Gross"
+              value={`? ${formatINR(summary.grossAmount)}`}
+            />
+            <SummaryCard
+              label="Total hours"
+              value={Number(summary.totalHours).toFixed(2)}
+              icon={<Clock className="w-4 h-4 text-rose-400" />}
+            />
+            <SummaryCard
+              label="Hourly rate"
+              value={`? ${formatINR(summary.hourlyRate)}`}
+            />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <SummaryCard
+              label="Fixed monthly"
+              value={`? ${formatINR(summary.fixedAmount)}`}
+              subtle
+            />
+            <SummaryCard
+              label="Hourly amount"
+              value={`? ${formatINR(summary.hourlyAmount)}`}
+              subtle
+            />
+            <SummaryCard
+              label="Allowances"
+              value={`? ${formatINR(summary.allowances)}`}
+              subtle
+            />
+            <SummaryCard
+              label="Deductions"
+              value={`? ${formatINR(summary.deductions)}`}
+              subtle
+              hint={
+                summary.fines || summary.payrollAdvance
+                  ? `Fines ?${formatINR(summary.fines)} + Adv ?${formatINR(
+                      summary.payrollAdvance
+                    )}`
+                  : undefined
+              }
+            />
+          </div>
+        </section>
+      ) : (
+        <section className="mb-6 rounded-2xl border border-dashed border-rose-200 bg-white/60 p-6 text-center">
+          <FileText className="w-8 h-8 mx-auto text-rose-300" />
+          <p className="mt-2 text-sm text-slate-600">
+            Pick a staff member and a date range, then click{" "}
+            <span className="font-semibold text-rose-600">Calculate payroll</span>{" "}
+            to see a breakdown.
+          </p>
+        </section>
+      )}
+
+      {/* Setup */}
+      <section className="mb-6 rounded-2xl bg-white/85 border border-rose-100 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowSetup((v) => !v)}
+          className="w-full flex items-center justify-between p-3 sm:p-4"
+        >
+          <span className="flex items-center gap-2">
+            <SettingsIcon className="w-4 h-4 text-rose-500" />
+            <span className="text-sm font-semibold text-slate-800">
+              Staff payroll setup
+            </span>
+            {selectedStaff && (
+              <span className="text-[11px] rounded-full bg-rose-50 text-rose-600 px-2 py-0.5">
+                {selectedStaff.displayName ||
+                  selectedStaff.username ||
+                  selectedStaff.email}
+              </span>
+            )}
+          </span>
+          {showSetup ? (
+            <ChevronUp className="w-4 h-4 text-slate-500" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-slate-500" />
+          )}
+        </button>
+
+        {showSetup && (
+          <div className="px-3 sm:px-4 pb-3 sm:pb-4 space-y-3">
+            <p className="text-[11px] text-slate-500">
+              Used when calculating salary from attendance. Fines apply per
+              run; advances are pulled from PAYROLL expenses.
+            </p>
+
+            {!selectedUserId ? (
+              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                Select a staff member to view or edit their setup.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <NumberField
+                    label="Hourly rate (?)"
+                    value={settings.hourlyRate}
+                    onChange={(v) =>
+                      setSettings((s) => ({ ...s, hourlyRate: v }))
+                    }
+                  />
+                  <NumberField
+                    label="Fixed monthly (?)"
+                    value={settings.monthlyFixedAmount}
+                    onChange={(v) =>
+                      setSettings((s) => ({ ...s, monthlyFixedAmount: v }))
+                    }
+                  />
+                  <NumberField
+                    label="Allowances (?)"
+                    value={settings.allowances}
+                    onChange={(v) =>
+                      setSettings((s) => ({ ...s, allowances: v }))
+                    }
+                  />
+                  <NumberField
+                    label="Fines (?)"
+                    value={settings.deductions}
+                    onChange={(v) =>
+                      setSettings((s) => ({ ...s, deductions: v }))
+                    }
+                  />
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[11px] text-slate-500 mb-1">
+                      Active
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings((s) => ({ ...s, isActive: !s.isActive }))
+                      }
+                      className={`inline-flex items-center justify-center px-3 py-2 rounded-xl text-xs font-medium border transition ${
+                        settings.isActive
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-slate-50 border-slate-200 text-slate-500"
+                      }`}
+                    >
+                      {settings.isActive ? "Active" : "Inactive"}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={savingSettings}
+                  className="btn-primary"
+                >
+                  {savingSettings ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    <>
+                      <SettingsIcon className="w-4 h-4" />
+                      Save setup
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* History */}
+      <section className="mb-8 rounded-2xl bg-white/85 border border-rose-100 shadow-sm p-3 sm:p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <HistoryIcon className="w-4 h-4 text-rose-500" />
+            <h2 className="text-sm font-semibold text-slate-800">
+              Payroll history
+            </h2>
+          </div>
+          {selectedUserId && (
+            <button
+              onClick={reloadHistory}
+              className="text-[11px] rounded-full border border-rose-100 bg-white px-2.5 py-1 text-rose-600 hover:bg-rose-50 inline-flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> Reload
+            </button>
+          )}
+        </div>
+
+        {!selectedUserId && (
+          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+            Select a staff member to view history.
+          </div>
+        )}
+
+        {selectedUserId && loadingHistory && (
+          <HistorySkeleton />
+        )}
+
+        {selectedUserId && !loadingHistory && history.length === 0 && (
+          <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+            No payroll runs yet. Calculate a payroll to create the first record.
+          </div>
+        )}
+
+        {selectedUserId && !loadingHistory && history.length > 0 && (
+          <div className="overflow-x-auto -mx-3 sm:mx-0">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="bg-rose-50 text-[11px] text-slate-600">
+                  <th className="px-3 py-2 text-left">Period</th>
+                  <th className="px-3 py-2 text-right">Net (?)</th>
+                  <th className="px-3 py-2 text-right">Gross (?)</th>
+                  <th className="px-3 py-2 text-right">Deductions (?)</th>
+                  <th className="px-3 py-2 text-right">Hours</th>
+                  <th className="px-3 py-2 text-center">Slip</th>
+                  <th className="px-3 py-2 text-center">Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((r) => {
+                  const runId = r.id || r.Id;
+                  const fromVal = r.from || r.From;
+                  const toVal = r.to || r.To;
+                  const net = safeNum(r.netAmount ?? r.NetAmount);
+                  const gross = safeNum(r.grossAmount ?? r.GrossAmount);
+                  const ded = safeNum(r.deductions ?? r.Deductions);
+                  const hours = safeNum(r.totalHours ?? r.TotalHours);
+                  const isCurrent = currentRunId === runId;
+                  return (
+                    <tr
+                      key={runId}
+                      className={`border-b border-slate-100 last:border-0 ${
+                        isCurrent ? "bg-amber-50/60" : ""
+                      }`}
+                    >
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {dayjs(fromVal).format("DD MMM YYYY")} –{" "}
+                        {dayjs(toVal).format("DD MMM YYYY")}
+                        {isCurrent && (
+                          <span className="ml-2 text-[10px] rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 font-semibold">
+                            Latest
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                        {formatINR(net)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatINR(gross)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatINR(ded)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {hours.toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => handleDownloadSlipForHistory(r)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-100 bg-white px-2 py-1 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                          disabled={downloadingHistoryId === runId}
+                        >
+                          {downloadingHistoryId === runId ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Download className="w-3 h-3" />
+                          )}
+                          Slip
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => handleDeleteRun(r)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-60"
+                          disabled={deletingRunId === runId}
+                        >
+                          {deletingRunId === runId ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Bottom padding for mobile FABs etc. */}
+      <div className="h-8" />
+
+      {/* Slip preview modal */}
+      {showPreview && showSummary && (
+        <PayslipPreviewModal
+          summary={summary}
+          onClose={() => setShowPreview(false)}
+          onDownload={handleDownloadSlip}
+          downloading={loadingSlip}
+        />
+      )}
+
+      {/* Local styles for input/btn so we don't have to repeat classes */}
+      <style>{`
+        .input{ width:100%; border-radius:0.75rem; border:1px solid rgb(226,232,240); background:#fff; padding:0.5rem 0.75rem; font-size:12px; outline:none; }
+        .input:focus{ border-color:rgb(244,114,182); box-shadow:0 0 0 1px rgb(244,114,182); }
+        .btn-primary{ display:inline-flex; align-items:center; justify-content:center; gap:0.5rem; border-radius:0.75rem; background:rgb(244,63,94); color:white; font-size:12px; padding:0.55rem 0.9rem; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
+        .btn-primary:hover{ background:rgb(225,29,72); }
+        .btn-primary:disabled{ opacity:0.6; cursor:not-allowed; }
+        .btn-secondary{ display:inline-flex; align-items:center; justify-content:center; gap:0.5rem; border-radius:0.75rem; background:#fff; color:rgb(225,29,72); font-size:12px; padding:0.55rem 0.9rem; font-weight:600; border:1px solid rgb(254,205,211); }
+        .btn-secondary:hover{ background:rgb(255,241,242); }
+        .btn-secondary:disabled{ opacity:0.6; cursor:not-allowed; }
+        @media print {
+          body * { visibility: hidden; }
+          #payslip-print, #payslip-print * { visibility: visible; }
+          #payslip-print { position: absolute; left: 0; top: 0; width: 100%; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ======================================================================== */
+/*  Payslip preview modal                                                   */
+/* ======================================================================== */
+
+function PayslipPreviewModal({ summary, onClose, onDownload, downloading }) {
+  const fromTxt = dayjs(summary.from).format("DD MMM YYYY");
+  const toTxt = dayjs(summary.to).format("DD MMM YYYY");
+
+  const earnings = [
+    ["Fixed monthly", summary.fixedAmount],
+    [
+      `Hourly compensation (${Number(summary.totalHours).toFixed(2)} h × ?${formatINR(
+        summary.hourlyRate
+      )})`,
+      summary.hourlyAmount,
+    ],
+    ["Allowances", summary.allowances],
+  ].filter(([, v]) => safeNum(v) !== 0);
+
+  const deductions = [
+    ["Fines", summary.fines],
+    ["Payroll advances", summary.payrollAdvance],
+  ].filter(([, v]) => safeNum(v) !== 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-[160] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl max-h-[92vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-3 border-b border-slate-100 sticky top-0 bg-white">
+          <div className="text-sm font-semibold text-slate-800">
+            Payslip preview
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.print()}
+              className="text-[11px] rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1"
+            >
+              <Printer className="w-3 h-3" />
+              Print
+            </button>
+            <button
+              onClick={onDownload}
+              disabled={downloading}
+              className="text-[11px] rounded-full bg-rose-500 hover:bg-rose-600 text-white px-3 py-1 inline-flex items-center gap-1 disabled:opacity-60"
+            >
+              {downloading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Download className="w-3 h-3" />
+              )}
+              PDF
+            </button>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-600"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div id="payslip-print" className="p-4 sm:p-6 text-slate-900">
+          <div className="flex items-center justify-between border-b pb-3">
+            <div>
+              <div className="text-lg font-bold">Mahima Ministry</div>
+              <div className="text-[11px] text-slate-500">
+                Restoration • Healing • Mission
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs uppercase tracking-wide text-slate-500">
+                Salary Slip
+              </div>
+              <div className="text-xs font-semibold">
+                {fromTxt} – {toTxt}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 py-3 text-xs">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                Employee
+              </div>
+              <div className="font-semibold mt-0.5">
+                {summary.displayName || summary.userId}
+              </div>
+              <div className="text-slate-500 break-all">{summary.userId}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                Period summary
+              </div>
+              <div className="font-semibold mt-0.5">
+                {Number(summary.totalHours).toFixed(2)} hours
+              </div>
+              <div className="text-slate-500">
+                @ ?{formatINR(summary.hourlyRate)} /hr
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+            <Block title="Earnings" rows={earnings} total={summary.grossAmount} totalLabel="Gross" />
+            <Block title="Deductions" rows={deductions} total={summary.deductions} totalLabel="Total" muted />
+          </div>
+
+          <div className="mt-4 rounded-xl bg-gradient-to-r from-rose-500 to-orange-500 text-white p-3 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide opacity-80">
+                Net pay
+              </div>
+              <div className="text-xl font-bold">
+                ? {formatINR(summary.netAmount)}
+              </div>
+            </div>
+            <FileText className="w-7 h-7 opacity-80" />
+          </div>
+
+          <p className="mt-4 text-[10px] text-slate-500 italic">
+            This is a system-generated payslip. No physical signature required.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Block({ title, rows, total, totalLabel, muted }) {
+  return (
+    <div className={`rounded-xl border ${muted ? "border-slate-200" : "border-rose-100"} p-3`}>
+      <div className="text-xs font-semibold mb-2 text-slate-800">{title}</div>
+      {rows.length === 0 ? (
+        <div className="text-[11px] text-slate-400">None</div>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between text-xs">
+              <span className="text-slate-600 pr-2">{label}</span>
+              <span className="font-medium tabular-nums">
+                ? {formatINR(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center justify-between text-xs font-semibold border-t border-slate-100 pt-2 mt-2">
+        <span>{totalLabel}</span>
+        <span className="tabular-nums">? {formatINR(total)}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================== */
+/*  Small reusable bits                                                     */
+/* ======================================================================== */
+
+function Field({ label, children, className = "" }) {
+  return (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <label className="text-[11px] text-slate-500">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function NumberField({ label, value, onChange }) {
+  return (
+    <Field label={label}>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="0.01"
+        className="input"
+        value={value ?? ""}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw === "") return onChange(0);
+          const n = Number(raw);
+          if (Number.isFinite(n)) onChange(n);
+        }}
+      />
+    </Field>
+  );
+}
+
+function StatPill({ icon, label, value }) {
+  return (
+    <div className="rounded-xl bg-white/80 border border-rose-100 px-3 py-2 shadow-sm flex items-center justify-between">
+      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+        <span className="text-rose-500">{icon}</span>
+        {label}
+      </div>
+      <div className="text-xs font-semibold text-slate-900 tabular-nums">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, accent, subtle, big, hint, icon }) {
+  const gradient = accent || "from-white to-rose-50";
+  const borderColor = subtle ? "border-slate-100" : "border-rose-100";
+  const textColor = accent
+    ? "text-white"
+    : subtle
+    ? "text-slate-700"
+    : "text-slate-900";
+  const labelColor = accent ? "text-white/80" : "text-slate-500";
+  return (
+    <div
+      className={`rounded-2xl bg-gradient-to-br ${gradient} border ${borderColor} shadow-sm px-3 py-3 flex flex-col justify-between min-h-[78px]`}
+    >
+      <div className="flex items-center justify-between">
+        <span className={`text-[11px] ${labelColor}`}>{label}</span>
+        {icon && <span>{icon}</span>}
+      </div>
+      <span
+        className={`mt-1 ${
+          big ? "text-xl sm:text-2xl" : "text-base sm:text-lg"
+        } font-bold ${textColor} tabular-nums`}
+      >
+        {value ?? "-"}
+      </span>
+      {hint && (
+        <span className={`mt-0.5 text-[10px] ${labelColor}`}>{hint}</span>
+      )}
+    </div>
+  );
+}
+
+function HistorySkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-10 rounded-xl bg-gradient-to-r from-slate-50 via-slate-100 to-slate-50 bg-[length:200%_100%] animate-pulse"
+        />
+      ))}
+    </div>
+  );
+}

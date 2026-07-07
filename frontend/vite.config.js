@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     proxy: {
       "/api": {
-        target: "https://mahimaministries.in",
+        target: process.env.VITE_DEV_API_TARGET || "http://srv1620165.hstgr.cloud:5001",
         changeOrigin: true,
         secure: false,
       },

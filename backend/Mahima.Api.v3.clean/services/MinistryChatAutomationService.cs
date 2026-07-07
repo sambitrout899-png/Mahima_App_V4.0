@@ -65,10 +65,22 @@ namespace Mahima.Api.v3.clean.Services
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MahimaDbContext>();
-            var settings = await ReadSettingsAsync(db, ct);
+            var tenantSettings = await ReadSettingsByTenantAsync(db, ct);
 
+            foreach (var tenantEntry in tenantSettings)
+            {
+                await ProcessDueMessagesForTenantAsync(scope.ServiceProvider, db, tenantEntry.Key, tenantEntry.Value, ct);
+            }
+        }
+
+        private async Task ProcessDueMessagesForTenantAsync(
+            IServiceProvider serviceProvider,
+            MahimaDbContext db,
+            Guid tenantId,
+            IReadOnlyDictionary<string, string> settings,
+            CancellationToken ct)
+        {
             if (!GetBool(settings, "Enabled", true)) return;
-
             var nowLocal = GetLocalNow(settings);
             var pastorBot = scope.ServiceProvider.GetRequiredService<IPastorBotService>();
 
@@ -79,16 +91,20 @@ namespace Mahima.Api.v3.clean.Services
                 .ToList();
             if (candidates.Count == 0) return;
 
+<<<<<<< HEAD
+=======
+            var pastorBot = serviceProvider.GetRequiredService<IPastorBotService>();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             foreach (var schedule in candidates)
             {
-                if (await AlreadySentAsync(db, schedule.Key, nowLocal.Date, ct)) continue;
+                if (await AlreadySentAsync(db, tenantId, schedule.Key, nowLocal.Date, ct)) continue;
 
                 var content = schedule.BuildMessage(nowLocal);
-                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
-                await RecordSentAsync(db, schedule.Key, nowLocal.Date, ct);
+                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, tenantId, ct);
+                await RecordSentAsync(db, tenantId, schedule.Key, nowLocal.Date, ct);
                 await NotifyChatAsync(db, sent, ct);
 
-                _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for {LocalDate}", schedule.Key, nowLocal.Date);
+                _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for tenant {TenantId} on {LocalDate}", schedule.Key, tenantId, nowLocal.Date);
             }
         }
 
@@ -162,17 +178,18 @@ WHERE ""Birthday"" IS NOT NULL";
                 await _hub.Clients.Users(memberIds).SendAsync("ReceiveMessage", message, ct);
         }
 
-        private async Task<bool> AlreadySentAsync(MahimaDbContext db, string key, DateTime localDate, CancellationToken ct)
+        private async Task<bool> AlreadySentAsync(MahimaDbContext db, Guid tenantId, string key, DateTime localDate, CancellationToken ct)
         {
             return await db.MinistryScheduledMessageRuns
                 .AsNoTracking()
-                .AnyAsync(r => r.MessageKey == key && r.ScheduledLocalDate == localDate, ct);
+                .AnyAsync(r => r.TenantId == tenantId && r.MessageKey == key && r.ScheduledLocalDate == localDate, ct);
         }
 
-        private static async Task RecordSentAsync(MahimaDbContext db, string key, DateTime localDate, CancellationToken ct)
+        private static async Task RecordSentAsync(MahimaDbContext db, Guid tenantId, string key, DateTime localDate, CancellationToken ct)
         {
             db.MinistryScheduledMessageRuns.Add(new MinistryScheduledMessageRun
             {
+                TenantId = tenantId,
                 MessageKey = key,
                 ScheduledLocalDate = localDate,
                 SentAtUtc = DateTime.UtcNow
@@ -298,11 +315,19 @@ WHERE ""Birthday"" IS NOT NULL";
             return settings.TryGetValue(key, out var raw) && !string.IsNullOrWhiteSpace(raw) ? raw : fallback;
         }
 
-        private static async Task<IReadOnlyDictionary<string, string>> ReadSettingsAsync(MahimaDbContext db, CancellationToken ct)
+        private static async Task<IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, string>>> ReadSettingsByTenantAsync(MahimaDbContext db, CancellationToken ct)
         {
-            return await db.MinistryAutomationSettings
+            var rows = await db.MinistryAutomationSettings
                 .AsNoTracking()
-                .ToDictionaryAsync(s => s.Key, s => s.Value, ct);
+                .ToListAsync(ct);
+
+            return rows
+                .GroupBy(s => s.TenantId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyDictionary<string, string>)g
+                        .GroupBy(s => s.Key)
+                        .ToDictionary(x => x.Key, x => x.OrderByDescending(s => s.UpdatedAtUtc).First().Value));
         }
 
         private sealed class ScheduledMessage

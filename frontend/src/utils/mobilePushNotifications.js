@@ -3,10 +3,39 @@ import { getToken } from "./auth";
 import { showSystemNotification } from "./chatNotifications";
 
 const FCM_TOKEN_KEY = "mahima_fcm_token";
+<<<<<<< HEAD
+=======
+const PENDING_CALL_KEY = "mahima_pending_call_notification";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
 let registrationStarted = false;
 let listenersAttached = false;
 
+<<<<<<< HEAD
+=======
+function openNotificationTarget(data = {}) {
+  if (data.kind === "call" && data.chatId) {
+    try {
+      localStorage.setItem(PENDING_CALL_KEY, JSON.stringify({
+        chatId: data.chatId,
+        callerId: data.callerId || data.fromUserId || "",
+        callerName: data.callerName || "",
+        callType: data.callType || data.type || "audio",
+        tappedAt: new Date().toISOString(),
+      }));
+    } catch {}
+    window.location.hash = `#/home/chat?call=1&chatId=${encodeURIComponent(data.chatId)}`;
+    return;
+  }
+
+  if (data.chatId || data.kind === "message") {
+    window.location.hash = data.chatId
+      ? `#/home/chat?chatId=${encodeURIComponent(data.chatId)}`
+      : "#/home/chat";
+  }
+}
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 function getCapacitor() {
   try {
     return typeof window !== "undefined" ? window.Capacitor : null;
@@ -125,9 +154,13 @@ export async function registerMobilePushNotifications(user = null) {
 
     PushNotifications.addListener?.("pushNotificationActionPerformed", (action) => {
       const data = action?.notification?.data || {};
+<<<<<<< HEAD
       if (data.chatId || data.kind === "message") {
         window.location.hash = "#/home/chat";
       }
+=======
+      openNotificationTarget(data);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     });
   }
 

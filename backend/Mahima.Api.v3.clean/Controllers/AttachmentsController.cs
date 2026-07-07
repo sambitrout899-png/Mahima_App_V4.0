@@ -1,11 +1,11 @@
 using Mahima.Api.v3.clean.Data;
-﻿using Microsoft.AspNetCore.Mvc;
+using Mahima.Api.v3.clean.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
-using System.Threading.Tasks;
 using System.Linq;
-using Mahima.Api.v3.clean;
-using Mahima.Api.v3.clean.Models;
+using System.Security.Claims;
+using System.Threading.Tasks;
 
 namespace Mahima.Api.v3.clean.Controllers
 {
@@ -14,54 +14,60 @@ namespace Mahima.Api.v3.clean.Controllers
     public class AttachmentsController : ControllerBase
     {
         private readonly MahimaDbContext _context;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         public AttachmentsController(MahimaDbContext context) => _context = context;
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         // GET /api/attachments
         [HttpGet]
         public async Task<IActionResult> List()
         {
+            var tenantId = GetCurrentTenantId();
             var items = await _context.Attachments
+                .Where(a => a.TenantId == tenantId)
                 .OrderBy(a => a.Id)
                 .Take(100)
                 .ToListAsync();
+
             return Ok(items);
         }
 
         // PUT /api/attachments/{id}
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Put([FromRoute] string id, [FromBody] Attachment model)
+        [HttpPut("{id:long}")]
+        public async Task<IActionResult> Put([FromRoute] long id, [FromBody] Attachment model)
         {
             if (model == null) return BadRequest("Model missing");
 
-            // Try to parse id into Guid or int, else keep string
-            object key;
-            if (Guid.TryParse(id, out var g)) key = g;
-            else if (int.TryParse(id, out var i)) key = i;
-            else key = id;
+            var tenantId = GetCurrentTenantId();
+            var existing = await _context.Attachments
+                .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
 
-            var dbSet = _context.Set<Attachment>();
-            var existing = await dbSet.FindAsync(new object[] { key });
             if (existing == null) return NotFound();
 
+            model.Id = existing.Id;
+            model.TenantId = tenantId;
             _context.Entry(existing).CurrentValues.SetValues(model);
             await _context.SaveChangesAsync();
+
             return Ok(existing);
         }
 
         // DELETE /api/attachments/{id}
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete([FromRoute] string id)
+        [HttpDelete("{id:long}")]
+        public async Task<IActionResult> Delete([FromRoute] long id)
         {
-            object key;
-            if (Guid.TryParse(id, out var g)) key = g;
-            else if (int.TryParse(id, out var i)) key = i;
-            else key = id;
+            var tenantId = GetCurrentTenantId();
+            var existing = await _context.Attachments
+                .FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
 
-            var dbSet = _context.Set<Attachment>();
-            var existing = await dbSet.FindAsync(new object[] { key });
             if (existing == null) return NotFound();
 
-            dbSet.Remove(existing);
+            _context.Attachments.Remove(existing);
             await _context.SaveChangesAsync();
             return NoContent();
         }

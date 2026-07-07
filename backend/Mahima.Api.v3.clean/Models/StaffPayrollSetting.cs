@@ -6,6 +6,7 @@ namespace Mahima.Api.v3.clean.Models
     public class StaffPayrollSetting
     {
         public int Id { get; set; }
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         // FK to your Users / AspNetUsers table
         public string UserId { get; set; } = null!;

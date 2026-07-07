@@ -413,6 +413,7 @@ export default function ServerFilesPage() {
     setMessage("");
 
     try {
+<<<<<<< HEAD
       const entriesToTransfer = selectedEntries.filter(
         (entry) => !selectedEntries.some(
           (candidate) => candidate.isDirectory && candidate.path !== entry.path && isChildPath(candidate.path, entry.path)
@@ -420,6 +421,9 @@ export default function ServerFilesPage() {
       );
 
       for (const entry of entriesToTransfer) {
+=======
+      for (const entry of selectedEntries) {
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         await apiFetch(`/server-files/${transferModal}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -429,7 +433,11 @@ export default function ServerFilesPage() {
           }),
         });
       }
+<<<<<<< HEAD
       setMessage(`${entriesToTransfer.length} item${entriesToTransfer.length === 1 ? "" : "s"} ${transferModal === "copy" ? "copied" : "moved"}.`);
+=======
+      setMessage(`${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} ${transferModal === "copy" ? "copied" : "moved"}.`);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
       setTransferModal(null);
       await load(currentPath);
     } catch (err) {

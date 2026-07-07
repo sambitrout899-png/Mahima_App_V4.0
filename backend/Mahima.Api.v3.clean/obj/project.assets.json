@@ -7613,11 +7613,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
+      "projectUniqueName": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
       "projectName": "Mahima.Api.v3.clean",
-      "projectPath": "/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
+      "projectPath": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/Mahima.Api.v3.clean.csproj",
       "packagesPath": "/root/.nuget/packages/",
-      "outputPath": "/root/Mahima_App_V4.0/backend/Mahima.Api.v3.clean/obj/",
+      "outputPath": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/root/.nuget/NuGet/NuGet.Config"

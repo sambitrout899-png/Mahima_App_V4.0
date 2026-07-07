@@ -1,13 +1,15 @@
 /var/www/mahima-api/Mahima.Api.v3.clean
-/var/www/mahima-api/publish/web.config
 /var/www/mahima-api/appsettings.Development.json
 /var/www/mahima-api/appsettings.json
+<<<<<<< HEAD
 /var/www/mahima-api/publish/appsettings.Development.json
 /var/www/mahima-api/publish/appsettings.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.deps.json
 /var/www/mahima-api/publish/Mahima.Api.v3.clean.runtimeconfig.json
 /var/www/mahima-api/Scripts/DemoRenderer/package-lock.json
 /var/www/mahima-api/Scripts/DemoRenderer/package.json
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 /var/www/mahima-api/services/Ai/scripture_pack.json
 /var/www/mahima-api/LatoFont/Lato-Black.ttf
 /var/www/mahima-api/LatoFont/Lato-BlackItalic.ttf

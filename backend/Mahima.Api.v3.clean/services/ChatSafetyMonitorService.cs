@@ -95,6 +95,10 @@ namespace Mahima.Api.v3.clean.Services
 
             var messages = await db.Messages
                 .AsNoTracking()
+<<<<<<< HEAD
+=======
+                .Include(m => m.Sender)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .Where(m => pendingIds.Contains(m.Id))
                 .OrderBy(m => m.CreatedAt)
                 .ToListAsync(ct);

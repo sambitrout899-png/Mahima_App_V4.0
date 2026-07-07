@@ -1,5 +1,6 @@
 ﻿using Mahima.Api.v3.clean.Data;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
@@ -27,9 +28,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 
 // Npgsql 6.0+ enforces strict DateTime Kind matching.
+<<<<<<< HEAD
 // This switch restores the pre-6.0 behaviour so that both
 // 'timestamp without time zone' and 'timestamp with time zone' columns
 // accept DateTime values regardless of Kind, matching how the app was built.
+=======
+// This switch preserves the app's existing timestamp behavior.
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -153,6 +158,8 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddScoped<ITenantContextService, TenantContextService>();
+builder.Services.AddScoped<ILicensingService, LicensingService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IMobilePushNotificationService, MobilePushNotificationService>();
@@ -162,15 +169,24 @@ builder.Services.AddScoped<ICounsellingService, CounsellingService>();
 builder.Services.AddScoped<AccountingService>();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient("PastorBot");
+<<<<<<< HEAD
 // AI Counseller — provider-agnostic LLM layer. The concrete provider is selected by
 // the PastorBot:* configuration block and can be a self-hosted model (Ollama,
 // vLLM) or any OpenAI-compatible endpoint — no OpenAI dependency required.
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 builder.Services.AddSingleton<Mahima.Api.v3.clean.Services.Ai.IScriptureService,
                                Mahima.Api.v3.clean.Services.Ai.ScriptureService>();
 builder.Services.AddScoped<Mahima.Api.v3.clean.Services.Ai.ILlmProvider,
                             Mahima.Api.v3.clean.Services.Ai.OpenAiCompatibleLlmProvider>();
 builder.Services.AddScoped<IPastorBotService, PastorBotService>();
+<<<<<<< HEAD
 builder.Services.AddHostedService<MinistryChatAutomationService>();
+=======
+builder.Services.AddHostedService<MinistryChatAutomationService>();
+builder.Services.AddHostedService<SubscriptionRenewalService>();
+builder.Services.AddHostedService<TenantDomainVerificationService>();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 builder.Services.AddHostedService<TaskAutomationQueueService>();
 builder.Services.AddHostedService<PrayerIntelligenceMonitorService>();
 builder.Services.AddSingleton<ChatSafetyMonitorService>();
@@ -207,6 +223,27 @@ app.UseStaticFiles(new StaticFileOptions
     FileProvider = new PhysicalFileProvider(webRootPath),
     RequestPath = ""
 });
+
+var uploadsRoot = app.Configuration["Uploads:Root"]
+    ?? Environment.GetEnvironmentVariable("MAHIMA_UPLOADS_ROOT")
+    ?? (OperatingSystem.IsLinux()
+        ? "/var/www/mahima-uploads"
+        : Path.Combine(webRootPath, "uploads"));
+Directory.CreateDirectory(uploadsRoot);
+var uploadFileProviders = new List<IFileProvider> { new PhysicalFileProvider(uploadsRoot) };
+var legacyWebRootUploads = Path.Combine(webRootPath, "uploads");
+if (Directory.Exists(legacyWebRootUploads) &&
+    !string.Equals(Path.GetFullPath(legacyWebRootUploads), Path.GetFullPath(uploadsRoot), StringComparison.OrdinalIgnoreCase))
+{
+    uploadFileProviders.Add(new PhysicalFileProvider(legacyWebRootUploads));
+}
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = uploadFileProviders.Count == 1
+        ? uploadFileProviders[0]
+        : new CompositeFileProvider(uploadFileProviders),
+    RequestPath = "/api/uploads"
+});
 app.UseRouting();
 
 // ✅ CORS MUST BE HERE
@@ -215,6 +252,7 @@ app.UseCors(CorsPolicy);
 app.UseAuthentication();
 app.UseMiddleware<AuditTrailMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<TenantModuleAccessMiddleware>();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/api/hubs/chat");

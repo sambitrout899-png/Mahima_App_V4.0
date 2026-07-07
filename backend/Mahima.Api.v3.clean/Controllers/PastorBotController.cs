@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Data;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
@@ -204,9 +206,65 @@ namespace Mahima.Api.v3.clean.Controllers
 
             if (roleIds.Count == 0) return false;
 
+            var tenantId = Guid.TryParse(User.FindFirstValue("tenant_id"), out var parsedTenantId)
+                ? parsedTenantId
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+            var tenantPermission = await HasTenantPastorPermissionAsync(tenantId, roleIds);
+            if (tenantPermission.HasValue) return tenantPermission.Value;
+
             return await _db.RolePermissions
                 .AsNoTracking()
                 .AnyAsync(rp => roleIds.Contains(rp.RoleId) && rp.PageKey.ToUpper() == "PASTOR", HttpContext.RequestAborted);
+        }
+
+        private async Task<bool?> HasTenantPastorPermissionAsync(Guid tenantId, IReadOnlyCollection<int> roleIds)
+        {
+            if (roleIds.Count == 0) return false;
+
+            var conn = _db.Database.GetDbConnection();
+            var shouldClose = conn.State != ConnectionState.Open;
+            if (shouldClose) await conn.OpenAsync(HttpContext.RequestAborted);
+
+            try
+            {
+                await using var existsCmd = conn.CreateCommand();
+                existsCmd.CommandText = "SELECT to_regclass('public.tenant_role_permissions') IS NOT NULL;";
+                var tableExists = await existsCmd.ExecuteScalarAsync(HttpContext.RequestAborted) as bool?;
+                if (tableExists != true) return null;
+
+                await using var cmd = conn.CreateCommand();
+                var rolePlaceholders = roleIds.Select((_, index) => $"@role_id_{index}").ToArray();
+                cmd.CommandText = @"
+SELECT EXISTS (
+    SELECT 1
+    FROM public.tenant_role_permissions
+    WHERE tenant_id = @tenant_id
+      AND role_id IN (" + string.Join(", ", rolePlaceholders) + @")
+      AND UPPER(page_key) = 'PASTOR'
+);";
+
+                var tenantParam = cmd.CreateParameter();
+                tenantParam.ParameterName = "tenant_id";
+                tenantParam.Value = tenantId;
+                cmd.Parameters.Add(tenantParam);
+
+                var roleIndex = 0;
+                foreach (var roleId in roleIds)
+                {
+                    var roleParam = cmd.CreateParameter();
+                    roleParam.ParameterName = $"role_id_{roleIndex}";
+                    roleParam.Value = roleId;
+                    cmd.Parameters.Add(roleParam);
+                    roleIndex++;
+                }
+
+                return await cmd.ExecuteScalarAsync(HttpContext.RequestAborted) as bool?;
+            }
+            finally
+            {
+                if (shouldClose) await conn.CloseAsync();
+            }
         }
     }
 }

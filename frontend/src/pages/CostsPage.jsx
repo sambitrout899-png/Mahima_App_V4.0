@@ -40,6 +40,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
+  Pencil,
   Trash2,
   RefreshCw,
   Eye,
@@ -306,6 +307,7 @@ export default function CostsPage() {
   const [incomeModal, setIncomeModal] = useState(false);
   const [transferModal, setTransferModal] = useState(false);
   const [manualJournalModal, setManualJournalModal] = useState(false);
+  const [journalEditModal, setJournalEditModal] = useState(null);
   const [accountModal, setAccountModal] = useState(false);
   const [openingModal, setOpeningModal] = useState(null); // { accountId, accountName }
   const ledgerAutoPickRef = useRef(false);
@@ -471,6 +473,17 @@ export default function CostsPage() {
     await axios.post(accountingUrl("/journal"), payload, authConfig());
   };
 
+  const putJournal = async (entryId, payload) => {
+    await axios.put(accountingUrl(`/journal/${entryId}`), payload, authConfig());
+  };
+
+  const refreshAfterJournalChange = async () => {
+    await fetchAccountsAndBalances();
+    if (selectedAccount) await loadLedger(selectedAccount);
+    if (view === "dashboard" || view === "reports") await loadPnl();
+    fetchPnlTrend();
+  };
+
   const saveExpense = async (form) => {
     try {
       await postJournal({
@@ -483,9 +496,13 @@ export default function CostsPage() {
       });
       toastSuccess("Expense recorded.");
       setExpenseModal(false);
+<<<<<<< HEAD
       await fetchAccountsAndBalances();
       if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
+=======
+      await refreshAfterJournalChange();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     } catch (e) {
       toastError(errMsg(e, "Save failed."));
     }
@@ -504,9 +521,13 @@ export default function CostsPage() {
       });
       toastSuccess("Income recorded.");
       setIncomeModal(false);
+<<<<<<< HEAD
       await fetchAccountsAndBalances();
       if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
+=======
+      await refreshAfterJournalChange();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     } catch (e) {
       toastError(errMsg(e, "Save failed."));
     }
@@ -524,7 +545,7 @@ export default function CostsPage() {
       });
       toastSuccess("Transfer posted.");
       setTransferModal(false);
-      await fetchAccountsAndBalances();
+      await refreshAfterJournalChange();
     } catch (e) {
       toastError(errMsg(e, "Save failed."));
     }
@@ -543,10 +564,14 @@ export default function CostsPage() {
       });
       toastSuccess("Journal entry posted.");
       setManualJournalModal(false);
+<<<<<<< HEAD
       await fetchAccountsAndBalances();
       if (view === "dashboard" || view === "reports") await loadPnl();
       fetchPnlTrend();
       if (selectedAccount) await loadLedger(selectedAccount);
+=======
+      await refreshAfterJournalChange();
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     } catch (e) {
       toastError(errMsg(e, "Journal entry failed."));
     }
@@ -598,6 +623,57 @@ export default function CostsPage() {
     } catch (e) {
       toastError(errMsg(e, "Failed to save opening balance."));
     }
+  };
+
+  const editJournalEntry = async (entryId) => {
+    if (!entryId) return;
+    try {
+      const res = await axios.get(accountingUrl(`/journal/${entryId}`), authConfig());
+      setJournalEditModal(res.data);
+    } catch (e) {
+      toastError(errMsg(e, "Could not load transaction for editing."));
+    }
+  };
+
+  const saveJournalEdit = async (form) => {
+    const entryId = journalEditModal?.id || journalEditModal?.Id;
+    if (!entryId) return;
+    try {
+      await putJournal(entryId, {
+        date: form.date,
+        description: form.description,
+        lines: form.lines.map((line) => ({
+          accountId: Number(line.accountId),
+          debit: safeNum(line.debit),
+          credit: safeNum(line.credit),
+        })),
+      });
+      toastSuccess("Transaction updated. Balances and reports recalculated.");
+      setJournalEditModal(null);
+      await refreshAfterJournalChange();
+    } catch (e) {
+      toastError(errMsg(e, "Could not update transaction."));
+    }
+  };
+
+  const deleteJournalEntry = (entryId) => {
+    if (!entryId) return;
+    setConfirm({
+      title: "Delete transaction?",
+      body: "This removes the full accounting voucher and recalculates balances and reports. This cannot be undone.",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await axios.delete(accountingUrl(`/journal/${entryId}`), authConfig());
+          setConfirm(null);
+          toastSuccess("Transaction deleted. Balances and reports recalculated.");
+          await refreshAfterJournalChange();
+        } catch (e) {
+          setConfirm(null);
+          toastError(errMsg(e, "Could not delete transaction."));
+        }
+      },
+    });
   };
 
   /* ---------------- Date presets ---------------- */
@@ -1123,6 +1199,8 @@ export default function CostsPage() {
           onAccountSelect={loadLedger}
           onDownloadCsv={downloadLedgerCsv}
           onPrintLedger={printLedger}
+          onEditEntry={editJournalEntry}
+          onDeleteEntry={deleteJournalEntry}
         />
       )}
 
@@ -1184,6 +1262,16 @@ export default function CostsPage() {
           accounts={accounts}
           onCancel={() => setManualJournalModal(false)}
           onSave={saveManualJournal}
+        />
+      )}
+      {journalEditModal && (
+        <ManualJournalModal
+          accounts={accounts}
+          initialEntry={journalEditModal}
+          title="Edit transaction"
+          submitLabel="Save changes"
+          onCancel={() => setJournalEditModal(null)}
+          onSave={saveJournalEdit}
         />
       )}
       {accountModal && (
@@ -1400,7 +1488,21 @@ function DashboardView({ totalsByType, cashAndBank, balances, accounts, periodPn
 /*  Transactions view                                                        */
 /* ======================================================================== */
 
-function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerTotal, loading, searchQuery, onSearchChange, onAccountSelect, onDownloadCsv, onPrintLedger }) {
+function TransactionsView({
+  accounts,
+  balances,
+  selectedAccount,
+  ledger,
+  ledgerTotal,
+  loading,
+  searchQuery,
+  onSearchChange,
+  onAccountSelect,
+  onDownloadCsv,
+  onPrintLedger,
+  onEditEntry,
+  onDeleteEntry,
+}) {
   const totals = useMemo(() => {
     return ledger.reduce(
       (acc, l) => ({
@@ -1511,6 +1613,7 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
                   <th className="px-3 py-2 text-right">Debit</th>
                   <th className="px-3 py-2 text-right">Credit</th>
                   <th className="px-3 py-2 text-right">Balance</th>
+<<<<<<< HEAD
                 </tr>
               </thead>
               <tbody>
@@ -1531,6 +1634,54 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
                     </td>
                   </tr>
                 ))}
+=======
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.map((l, i) => {
+                  const entryId = l.journalEntryId || l.JournalEntryId || l.entryId || l.EntryId;
+                  return (
+                    <tr key={l.id || l.Id || `${entryId || "entry"}-${i}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-600">
+                        {l.date ? dayjs(l.date).format("DD MMM YYYY") : "�"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-800">{l.description || "�"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {safeNum(l.debit) ? formatINR(l.debit) : "�"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                        {safeNum(l.credit) ? formatINR(l.credit) : "�"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                        {formatINR(l.balance ?? l.Balance)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onEditEntry?.(entryId)}
+                            disabled={!entryId}
+                            className="icon-btn"
+                            title="Edit transaction"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteEntry?.(entryId)}
+                            disabled={!entryId}
+                            className="icon-btn text-red-600 hover:bg-red-50"
+                            title="Delete transaction"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
@@ -1538,6 +1689,10 @@ function TransactionsView({ accounts, balances, selectedAccount, ledger, ledgerT
                   <td className="px-3 py-2 text-right tabular-nums">{formatINR(totals.debit)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatINR(totals.credit)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-900">{formatINR(endingBalance)}</td>
+<<<<<<< HEAD
+=======
+                  <td className="px-3 py-2" />
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 </tr>
               </tfoot>
             </table>
@@ -2169,15 +2324,34 @@ function JournalEntryModal({ mode, accounts, onCancel, onSave }) {
   );
 }
 
-function ManualJournalModal({ accounts, onCancel, onSave }) {
-  const [form, setForm] = useState({
-    date: dayjs().format("YYYY-MM-DD"),
-    description: "",
-    lines: [
-      { accountId: "", debit: "", credit: "" },
-      { accountId: "", debit: "", credit: "" },
-    ],
-  });
+function ManualJournalModal({
+  accounts,
+  onCancel,
+  onSave,
+  initialEntry = null,
+  title = "Manual journal entry",
+  submitLabel = "Save",
+}) {
+  const [form, setForm] = useState(() => ({
+    date: initialEntry?.date
+      ? dayjs(initialEntry.date).format("YYYY-MM-DD")
+      : dayjs().format("YYYY-MM-DD"),
+    description: initialEntry?.description || "",
+    lines: Array.isArray(initialEntry?.lines) && initialEntry.lines.length > 0
+      ? initialEntry.lines.map((line) => {
+          const debit = safeNum(line.debit ?? line.Debit);
+          const credit = safeNum(line.credit ?? line.Credit);
+          return {
+            accountId: String(line.accountId ?? line.AccountId ?? ""),
+            debit: debit ? String(debit) : "",
+            credit: credit ? String(credit) : "",
+          };
+        })
+      : [
+          { accountId: "", debit: "", credit: "" },
+          { accountId: "", debit: "", credit: "" },
+        ],
+  }));
   const [saving, setSaving] = useState(false);
 
   const debitTotal = form.lines.reduce((s, line) => s + safeNum(line.debit), 0);
@@ -2219,7 +2393,7 @@ function ManualJournalModal({ accounts, onCancel, onSave }) {
   };
 
   return (
-    <ModalShell title="Manual journal entry" onCancel={onCancel} onSubmit={handleSubmit} saving={saving} tone="blue">
+    <ModalShell title={title} onCancel={onCancel} onSubmit={handleSubmit} saving={saving} tone="blue" submitLabel={submitLabel}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <Field label="Voucher date">
           <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" required />
@@ -2389,7 +2563,7 @@ function OpeningBalanceModal({ row, onCancel, onSave }) {
   );
 }
 
-function ModalShell({ title, children, onCancel, onSubmit, saving, tone = "amber" }) {
+function ModalShell({ title, children, onCancel, onSubmit, saving, tone = "amber", submitLabel = "Save" }) {
   const t = TONE_CLASSES[tone] || TONE_CLASSES.amber;
   return (
     <div className="fixed inset-0 z-[160] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-3"
@@ -2408,7 +2582,7 @@ function ModalShell({ title, children, onCancel, onSubmit, saving, tone = "amber
           <button type="button" onClick={onCancel} className="btn-secondary">Cancel</button>
           <button type="submit" disabled={saving} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${t.bg} disabled:opacity-60`}>
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            Save
+            {submitLabel}
           </button>
         </div>
       </form>

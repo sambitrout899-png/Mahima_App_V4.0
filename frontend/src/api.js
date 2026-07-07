@@ -52,6 +52,40 @@ const defaults = {
   },
 };
 
+const TENANT_SLUG_KEY = "mahima_tenant_slug";
+
+function activeTenantSlug() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = window.location.hash || "";
+    const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashTenantMatch = hash.match(/^#\/t\/([^/?#]+)/i);
+    const fromUrl = (
+      params.get("tenant") ||
+      params.get("tenantSlug") ||
+      hashParams.get("tenant") ||
+      hashParams.get("tenantSlug") ||
+      (hashTenantMatch ? decodeURIComponent(hashTenantMatch[1]) : "") ||
+      ""
+    ).trim();
+    if (fromUrl) {
+      localStorage.setItem(TENANT_SLUG_KEY, fromUrl);
+      localStorage.setItem("tenantSlug", fromUrl);
+      return fromUrl;
+    }
+
+    return (
+      localStorage.getItem(TENANT_SLUG_KEY) ||
+      localStorage.getItem("tenantSlug") ||
+      localStorage.getItem("tenant_slug") ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
 function appendParams(url, params) {
   if (!params) return url;
 
@@ -94,6 +128,11 @@ function bodyFor(data, headers) {
 function request(method, url, data, options = {}) {
   const { params, headers: optionHeaders, ...rest } = options || {};
   const headers = headersWithDefaults(optionHeaders);
+<<<<<<< HEAD
+=======
+  const tenantSlug = activeTenantSlug();
+  if (tenantSlug && !headers["X-Tenant-Slug"] && !headers["X-Tenant-Id"]) headers["X-Tenant-Slug"] = tenantSlug;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
   const activePositionId = activePositionHeaderValue();
   if (activePositionId && !headers["X-Mahima-Position-Id"]) headers["X-Mahima-Position-Id"] = activePositionId;
   const init = {

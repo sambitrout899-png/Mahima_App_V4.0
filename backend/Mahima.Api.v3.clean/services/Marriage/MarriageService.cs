@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Dtos;
 using Mahima.Api.v3.clean.Models;
 using Mahima.Api.v3.clean.Models.Marriage;
+using Mahima.Api.v3.clean.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mahima.Api.v3.clean.services.Marriage
@@ -45,10 +46,19 @@ namespace Mahima.Api.v3.clean.services.Marriage
     public class MarriageService : IMarriageService
     {
         private readonly MahimaDbContext _db;
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-        public MarriageService(MahimaDbContext db)
+        public MarriageService(MahimaDbContext db, ITenantContextService tenantContext)
         {
             _db = db;
+            _tenantContext = tenantContext;
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            return tenant?.Id ?? RootTenantId;
         }
 
         private static DateTime ToUtc(DateTime dt)
@@ -66,10 +76,12 @@ namespace Mahima.Api.v3.clean.services.Marriage
             CancellationToken ct = default)
         {
             var now = DateTime.UtcNow;
+            var tenantId = await GetCurrentTenantIdAsync();
 
             var entity = new MarriageApplication
             {
                 Id = Guid.NewGuid(),
+                TenantId = tenantId,
                 GroomFullName = dto.GroomFullName,
                 BrideFullName = dto.BrideFullName,
                 GroomPhone = dto.GroomPhone,
@@ -98,7 +110,9 @@ namespace Mahima.Api.v3.clean.services.Marriage
             string? status,
             CancellationToken ct = default)
         {
-            IQueryable<MarriageApplication> q = _db.MarriageApplications.AsNoTracking();
+            var tenantId = await GetCurrentTenantIdAsync();
+            IQueryable<MarriageApplication> q = _db.MarriageApplications.AsNoTracking()
+                .Where(m => m.TenantId == tenantId);
             var statusAliases = NormalizeStatusAliases(status);
 
             if (statusAliases.Count > 0)
@@ -137,8 +151,9 @@ namespace Mahima.Api.v3.clean.services.Marriage
             string? approverUserId,
             CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var entity = await _db.MarriageApplications
-                .FirstOrDefaultAsync(m => m.Id == id, ct);
+                .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId, ct);
 
             if (entity == null)
                 throw new InvalidOperationException($"Application {id} not found.");
@@ -162,8 +177,9 @@ namespace Mahima.Api.v3.clean.services.Marriage
             ScheduleMarriageDto dto,
             CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var entity = await _db.MarriageApplications
-                .FirstOrDefaultAsync(m => m.Id == id, ct);
+                .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId, ct);
 
             if (entity == null)
                 throw new InvalidOperationException($"Application {id} not found.");
@@ -182,8 +198,9 @@ namespace Mahima.Api.v3.clean.services.Marriage
             CompleteMarriageDto dto,
             CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var entity = await _db.MarriageApplications
-                .FirstOrDefaultAsync(m => m.Id == id, ct);
+                .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId, ct);
 
             if (entity == null)
                 throw new InvalidOperationException($"Application {id} not found.");
@@ -202,8 +219,14 @@ namespace Mahima.Api.v3.clean.services.Marriage
             Guid id,
             CancellationToken ct = default)
         {
+<<<<<<< HEAD
             var entity = await _db.MarriageApplications
                 .FirstOrDefaultAsync(m => m.Id == id, ct);
+=======
+            var tenantId = await GetCurrentTenantIdAsync();
+            var entity = await _db.MarriageApplications
+                .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId, ct);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             if (entity == null)
                 throw new InvalidOperationException($"Application {id} not found.");

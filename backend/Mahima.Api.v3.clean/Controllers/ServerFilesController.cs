@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO.Compression;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -25,6 +26,7 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<ServerFilesController> _logger;
         private readonly FileExtensionContentTypeProvider _contentTypeProvider = new();
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public ServerFilesController(IConfiguration config, IWebHostEnvironment env, ILogger<ServerFilesController> logger)
         {
@@ -407,9 +409,15 @@ namespace Mahima.Api.v3.clean.Controllers
                     : Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "downloads");
             }
 
-            Directory.CreateDirectory(configured);
-            return Path.GetFullPath(configured);
+            var tenantRoot = Path.Combine(configured, "tenants", GetCurrentTenantId().ToString("N"));
+            Directory.CreateDirectory(tenantRoot);
+            return Path.GetFullPath(tenantRoot);
         }
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         private static string ResolveSafePath(string root, string? relativePath)
         {

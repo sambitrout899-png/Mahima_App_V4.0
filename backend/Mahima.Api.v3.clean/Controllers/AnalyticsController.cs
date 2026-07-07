@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Models;
+using Mahima.Api.v3.clean.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,10 +15,19 @@ namespace Mahima.Api.v3.clean.Controllers
     public class AnalyticsController : ControllerBase
     {
         private readonly MahimaDbContext _db;
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-        public AnalyticsController(MahimaDbContext db)
+        public AnalyticsController(MahimaDbContext db, ITenantContextService tenantContext)
         {
             _db = db;
+            _tenantContext = tenantContext;
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            return tenant?.Id ?? RootTenantId;
         }
 
         // --------------------------------------------------------------------
@@ -42,6 +52,7 @@ namespace Mahima.Api.v3.clean.Controllers
         public async Task<IActionResult> GetOverview()
         {
             var now = DateTime.UtcNow;
+            var tenantId = await GetCurrentTenantIdAsync();
 
             // ---------- ROLE LOOKUP (numeric -> name) ----------
             var rolesLookup = await _db.Roles
@@ -53,6 +64,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             // ---------- USER MIX ----------
             var usersRaw = await _db.Users
+                .Where(u => u.TenantId == tenantId)
                 .Select(u => new { u.Role, u.JoinDate })
                 .ToListAsync();
 
@@ -110,10 +122,11 @@ namespace Mahima.Api.v3.clean.Controllers
             };
 
             // ---------- TASKS (TOTAL + BY ROLE FROM SNAPSHOT TABLE) ----------
-            var totalTasks = await _db.Tasks.CountAsync();
+            var totalTasks = await _db.Tasks.CountAsync(t => t.TenantId == tenantId);
 
             // latest snapshot from analytics_task_by_role
             DateTime? latestTaskSnapshot = await _db.AnalyticsTaskByRole
+                .Where(a => a.TenantId == tenantId)
                 .MaxAsync(a => (DateTime?)a.SnapshotAt);
 
             var tasksByRole = new List<object>();
@@ -121,7 +134,7 @@ namespace Mahima.Api.v3.clean.Controllers
             if (latestTaskSnapshot != null)
             {
                 var rows = await _db.AnalyticsTaskByRole
-                    .Where(a => a.SnapshotAt == latestTaskSnapshot)
+                    .Where(a => a.TenantId == tenantId && a.SnapshotAt == latestTaskSnapshot)
                     .ToListAsync();
 
                 tasksByRole = rows
@@ -158,6 +171,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             // ---------- TEAM PRODUCTIVITY ----------
             var teamsList = await _db.Teams
+                .Where(t => t.TenantId == tenantId)
                 .Select(t => new { t.Id })
                 .ToListAsync();
 
@@ -166,8 +180,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
             try
             {
-                var allTimesheets = await _db.Timesheets.ToListAsync();
-                var allAttendance = await _db.AttendanceRecords.ToListAsync();
+                var allTimesheets = await _db.Timesheets.Where(t => t.TenantId == tenantId).ToListAsync();
+                var allAttendance = await _db.AttendanceRecords.Where(a => a.TenantId == tenantId).ToListAsync();
 
                 var totalHours = allTimesheets.Sum(ts => (double)ts.Hours);
                 var distinctTimesheetUsers = allTimesheets
@@ -287,6 +301,7 @@ namespace Mahima.Api.v3.clean.Controllers
             [FromQuery] string? windows = "7,15,30,60,90,180,365")
         {
             var now = DateTime.UtcNow;
+            var tenantId = await GetCurrentTenantIdAsync();
 
             var windowsParsed = (windows ?? "7,15,30,60,90,180,365")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -305,11 +320,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 var fromDate = now.AddDays(-days);
 
                 var total = await _db.PrayerRequests
-                    .CountAsync(p => p.CreatedAt >= fromDate);
+                    .CountAsync(p => p.TenantId == tenantId && p.CreatedAt >= fromDate);
 
                 var responded = await _db.PrayerResponses
                     .Include(r => r.PrayerRequest)
                     .Where(r => r.PrayerRequest != null &&
+                                r.PrayerRequest.TenantId == tenantId &&
                                 r.PrayerRequest.CreatedAt >= fromDate)
                     .Select(r => r.PrayerRequestId)
                     .Distinct()
@@ -339,16 +355,23 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             var now = DateTime.UtcNow;
             var from30 = now.AddDays(-30);
+            var tenantId = await GetCurrentTenantIdAsync();
 
+<<<<<<< HEAD
             var rolesLookup = await _db.Roles
                 .Select(r => new { r.Id, r.Name })
                 .ToDictionaryAsync(r => r.Id.ToString(), r => r.Name ?? string.Empty);
 
             var rawUsersByRole = await _db.Users
+=======
+            var usersByRole = await _db.Users
+                .Where(u => u.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .GroupBy(u => u.Role ?? "Unassigned")
                 .Select(g => new { role = g.Key, count = g.Count() })
                 .ToListAsync();
 
+<<<<<<< HEAD
             var usersByRole = rawUsersByRole
                 .GroupBy(x => NormalizeRoleLabel(x.role, rolesLookup))
                 .Select(g => new { role = g.Key, count = g.Sum(x => x.count) })
@@ -356,10 +379,15 @@ namespace Mahima.Api.v3.clean.Controllers
                 .ToList();
 
             var rawTaskStatus = await _db.Tasks
+=======
+            var taskStatus = await _db.Tasks
+                .Where(t => t.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .GroupBy(t => t.Status)
                 .Select(g => new { status = g.Key, count = g.Count() })
                 .ToListAsync();
 
+<<<<<<< HEAD
             var taskStatus = rawTaskStatus
                 .GroupBy(x => NormalizeTaskStatusLabel(x.status))
                 .Select(g => new { status = g.Key, count = g.Sum(x => x.count) })
@@ -367,10 +395,15 @@ namespace Mahima.Api.v3.clean.Controllers
                 .ToList();
 
             var rawTaskPriority = await _db.Tasks
+=======
+            var taskPriority = await _db.Tasks
+                .Where(t => t.TenantId == tenantId)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                 .GroupBy(t => t.Priority)
                 .Select(g => new { priority = g.Key, count = g.Count() })
                 .ToListAsync();
 
+<<<<<<< HEAD
             var taskPriority = rawTaskPriority
                 .Select(x => new { priority = NormalizeTaskPriorityLabel(x.priority), count = x.count })
                 .ToList();
@@ -378,11 +411,18 @@ namespace Mahima.Api.v3.clean.Controllers
             var recentMessages = await _db.Messages.CountAsync(m => m.CreatedAt >= from30);
             var totalChats = await _db.Chats.CountAsync();
             var groupChats = await _db.Chats.CountAsync(c => c.IsGroup);
+=======
+            var recentMessages = await _db.Messages
+                .Include(m => m.Chat)
+                .CountAsync(m => m.Chat != null && m.Chat.TenantId == tenantId && m.CreatedAt >= from30);
+            var totalChats = await _db.Chats.CountAsync(c => c.TenantId == tenantId);
+            var groupChats = await _db.Chats.CountAsync(c => c.TenantId == tenantId && c.IsGroup);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             var journalLines = await _db.JournalLines
                 .Include(l => l.Account)
                 .Include(l => l.JournalEntry)
-                .Where(l => l.JournalEntry.Date >= from30)
+                .Where(l => l.JournalEntry.TenantId == tenantId && l.JournalEntry.Date >= from30)
                 .ToListAsync();
 
             var accountingByType = journalLines
@@ -397,13 +437,13 @@ namespace Mahima.Api.v3.clean.Controllers
                 .OrderBy(x => x.type)
                 .ToList();
 
-            var prayer30 = await _db.PrayerRequests.CountAsync(p => p.CreatedAt >= from30);
+            var prayer30 = await _db.PrayerRequests.CountAsync(p => p.TenantId == tenantId && p.CreatedAt >= from30);
 
             return Ok(new
             {
                 snapshotAt = now,
-                users = new { byRole = usersByRole, total = await _db.Users.CountAsync() },
-                tasks = new { byStatus = taskStatus, byPriority = taskPriority, total = await _db.Tasks.CountAsync() },
+                users = new { byRole = usersByRole, total = await _db.Users.CountAsync(u => u.TenantId == tenantId) },
+                tasks = new { byStatus = taskStatus, byPriority = taskPriority, total = await _db.Tasks.CountAsync(t => t.TenantId == tenantId) },
                 chats = new { total = totalChats, groupChats, directChats = totalChats - groupChats, recentMessages30d = recentMessages },
                 accounting = new { last30Days = accountingByType },
                 prayers = new { created30d = prayer30 }

@@ -68,27 +68,37 @@ WHERE id = {id};", ct);
         [HttpPost("scan-now")]
         public async Task<IActionResult> ScanNow(CancellationToken ct)
         {
+<<<<<<< HEAD
             await ChatSafetyMonitorService.EnsureTablesAsync(_db, ct);
             var eligibleBefore = await CountEligibleUnscannedMessagesAsync(ct);
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             var monitor = _services.GetService<ChatSafetyMonitorService>();
             if (monitor == null)
             {
                 return StatusCode(503, new
                 {
                     success = false,
+<<<<<<< HEAD
                     eligibleBefore,
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
                     message = "Chat safety monitor service is not registered. Deploy the updated Program.cs registration or restart the API after deployment."
                 });
             }
 
             var scanned = await monitor.RunFullScanAsync(ct: ct);
             var pastorFollowupsSent = await monitor.SendPendingPastorFollowupsAsync(ct);
+<<<<<<< HEAD
             var eligibleAfter = await CountEligibleUnscannedMessagesAsync(ct);
             var message = scanned == 0 && eligibleBefore > 0
                 ? "No messages were processed even though eligible unscanned messages exist. Check API logs for chat safety scan errors."
                 : "Chat safety scan completed.";
 
             return Ok(new { success = true, scanned, pastorFollowupsSent, eligibleBefore, eligibleAfter, message });
+=======
+            return Ok(new { success = true, scanned, pastorFollowupsSent });
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         }
 
         [HttpPost("users/{userId:guid}/block")]
@@ -134,6 +144,7 @@ WHERE user_id = {userId};", ct);
             return Convert.ToInt32(value);
         }
 
+<<<<<<< HEAD
         private async Task<int> CountEligibleUnscannedMessagesAsync(CancellationToken ct)
         {
             var conn = _db.Database.GetDbConnection();
@@ -156,6 +167,8 @@ WHERE s.message_id IS NULL
             return Convert.ToInt32(value);
         }
 
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         private async Task<List<object>> LoadCategoryCountsAsync(CancellationToken ct)
         {
             var rows = new List<object>();

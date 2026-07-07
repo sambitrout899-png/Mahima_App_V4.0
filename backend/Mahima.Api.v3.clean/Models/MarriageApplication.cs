@@ -15,6 +15,7 @@ namespace Mahima.Api.v3.clean.Models.Marriage
     public class MarriageApplication
     {
         public Guid Id { get; set; }
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         // Couple details
         public string GroomFullName { get; set; } = null!;

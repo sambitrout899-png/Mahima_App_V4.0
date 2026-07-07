@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw, X } from "lucide-react";
+<<<<<<< HEAD
 import mahimaLogo from "../assets/mahima-logo.png";
 import { API_BASE } from "../api";
+=======
+import { API_BASE } from "../api";
+import TenantLogo from "./TenantLogo";
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
 function isNativeAppMode() {
   try {
@@ -164,9 +169,7 @@ export default function AppUpdatePrompt() {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center gap-3 bg-emerald-800 px-5 py-4 text-white">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-white p-1.5">
-            <img src={mahimaLogo} alt="Mahima Ministry" className="h-full w-full object-contain" />
-          </div>
+          <TenantLogo name="App Update" className="h-12 w-12 rounded-xl" fallbackClassName="bg-white text-emerald-800" />
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-black">Mahima App Update</h2>
             <p className="text-xs font-bold text-emerald-100">

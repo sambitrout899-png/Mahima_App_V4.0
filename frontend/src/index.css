@@ -2369,4 +2369,13 @@ th,
   }
 }
 
+<<<<<<< HEAD
+=======
+/* ── Spin keyframe (used by Loader2 inline animation) ────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 

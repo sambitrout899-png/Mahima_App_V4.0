@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Dtos;
 using Mahima.Api.v3.clean.Models;                  // Candidate / CounsellingCase / CounsellingSession
 using Mahima.Api.v3.clean.Models.Counselling;      // CounsellingSessionStatus (enum)
+using Mahima.Api.v3.clean.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mahima.Api.v3.clean.services.Counselling
@@ -39,10 +40,19 @@ namespace Mahima.Api.v3.clean.services.Counselling
     public class CounsellingService : ICounsellingService
     {
         private readonly MahimaDbContext _db;
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-        public CounsellingService(MahimaDbContext db)
+        public CounsellingService(MahimaDbContext db, ITenantContextService tenantContext)
         {
             _db = db;
+            _tenantContext = tenantContext;
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            return tenant?.Id ?? RootTenantId;
         }
 
         // Helper: convert nullable DateTime to UTC Kind
@@ -64,17 +74,19 @@ namespace Mahima.Api.v3.clean.services.Counselling
             CancellationToken ct = default)
         {
             var now = DateTime.UtcNow;
+            var tenantId = await GetCurrentTenantIdAsync();
 
             // 1) Find or create candidate (by phone + name)
             var candidate = await _db.Candidates
                 .FirstOrDefaultAsync(
-                    c => c.Phone == dto.Phone && c.FullName == dto.FullName,
+                    c => c.TenantId == tenantId && c.Phone == dto.Phone && c.FullName == dto.FullName,
                     ct);
 
             if (candidate == null)
             {
                 candidate = new Candidate
                 {
+                    TenantId = tenantId,
                     FullName = dto.FullName,
                     Email = dto.Email,
                     Phone = dto.Phone,
@@ -127,6 +139,8 @@ namespace Mahima.Api.v3.clean.services.Counselling
                 .AsNoTracking()
                 .Include(s => s.Case)
                 .ThenInclude(c => c.Candidate);
+            var tenantId = await GetCurrentTenantIdAsync();
+            q = q.Where(s => s.Case.Candidate.TenantId == tenantId);
 
             if (TryNormalizeStatus(status, out var parsedStatus))
             {
@@ -149,10 +163,11 @@ namespace Mahima.Api.v3.clean.services.Counselling
             ScheduleSessionDto dto,
             CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var session = await _db.CounsellingSessions
                 .Include(s => s.Case)
                 .ThenInclude(c => c.Candidate)
-                .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+                .FirstOrDefaultAsync(s => s.Id == sessionId && s.Case.Candidate.TenantId == tenantId, ct);
 
             if (session == null)
             {
@@ -197,9 +212,10 @@ namespace Mahima.Api.v3.clean.services.Counselling
             CompleteSessionDto dto,
             CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var session = await _db.CounsellingSessions
                 .Include(s => s.Case)
-                .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+                .FirstOrDefaultAsync(s => s.Id == sessionId && s.Case.Candidate.TenantId == tenantId, ct);
 
             if (session == null)
             {
@@ -246,11 +262,15 @@ namespace Mahima.Api.v3.clean.services.Counselling
 
             await _db.SaveChangesAsync(ct);
         }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         public async Task DeleteSessionAsync(
             Guid sessionId,
             CancellationToken ct = default)
         {
+<<<<<<< HEAD
             var session = await _db.CounsellingSessions
                 .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
 
@@ -327,6 +347,19 @@ namespace Mahima.Api.v3.clean.services.Counselling
                 CreatedAt = session.CreatedAt,
                 CompletedAt = session.CompletedAt
             };
+=======
+            var tenantId = await GetCurrentTenantIdAsync();
+            var session = await _db.CounsellingSessions
+                .Include(s => s.Case)
+                .ThenInclude(c => c.Candidate)
+                .FirstOrDefaultAsync(s => s.Id == sessionId && s.Case.Candidate.TenantId == tenantId, ct);
+
+            if (session == null)
+                throw new InvalidOperationException($"Session {sessionId} not found.");
+
+            _db.CounsellingSessions.Remove(session);
+            await _db.SaveChangesAsync(ct);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         }
     }
 }

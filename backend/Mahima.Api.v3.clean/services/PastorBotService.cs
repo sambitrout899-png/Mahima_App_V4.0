@@ -20,40 +20,91 @@ namespace Mahima.Api.v3.clean.Services
         public const string BotUsername = "pastor.bot";
         public const string BotUserCode = "BOTPASTOR";
         public const string JaiMasihChatName = "Jai Masih";
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         private readonly MahimaDbContext _db;
         private readonly IChatService _chatService;
+<<<<<<< HEAD
         private readonly ILlmProvider _llm;
         private readonly IScriptureService _scripture;
+=======
+        private readonly ITenantContextService _tenantContext;
+        private readonly ILlmProvider _llmProvider;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _config;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         private readonly ILogger<PastorBotService> _logger;
 
         public PastorBotService(
             MahimaDbContext db,
             IChatService chatService,
+<<<<<<< HEAD
             ILlmProvider llm,
             IScriptureService scripture,
+=======
+            ITenantContextService tenantContext,
+            ILlmProvider llmProvider,
+            IHttpClientFactory httpClientFactory,
+            IConfiguration config,
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             ILogger<PastorBotService> logger)
         {
             _db = db;
             _chatService = chatService;
+<<<<<<< HEAD
             _llm = llm;
             _scripture = scripture;
+=======
+            _tenantContext = tenantContext;
+            _llmProvider = llmProvider;
+            _httpClientFactory = httpClientFactory;
+            _config = config;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             _logger = logger;
         }
 
         public async Task<Guid> EnsurePastorBotUserAsync(CancellationToken ct = default)
         {
+<<<<<<< HEAD
             var conn = _db.Database.GetDbConnection();
             if (conn.State != ConnectionState.Open)
                 await conn.OpenAsync(ct);
+=======
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await EnsurePastorBotUserAsync(tenantId, ct);
+        }
+
+        public async Task<Guid> EnsurePastorBotUserAsync(Guid tenantId, CancellationToken ct = default)
+        {
+            var username = tenantId == RootTenantId ? BotUsername : $"pastor.bot.{tenantId:N}";
+            var userCode = tenantId == RootTenantId ? BotUserCode : $"BOT{tenantId:N}";
+
+            var bot = await _db.Users.FirstOrDefaultAsync(u =>
+                u.TenantId == tenantId &&
+                (u.Username == username || u.UserCode == userCode), ct);
+            if (bot != null) return bot.Id;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             static void AddParam(System.Data.Common.DbCommand cmd, string name, object value)
             {
+<<<<<<< HEAD
                 var p = cmd.CreateParameter();
                 p.ParameterName = name;
                 p.Value = value;
                 cmd.Parameters.Add(p);
             }
+=======
+                TenantId = tenantId,
+                Username = username,
+                UserCode = userCode,
+                DisplayName = "AI Pastor",
+                Email = tenantId == RootTenantId
+                    ? "pastor.bot@mahimaministries.local"
+                    : $"pastor.bot+{tenantId:N}@mahimaministries.local",
+                Role = "admin",
+                JoinDate = DateTime.UtcNow
+            };
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             await using (var find = conn.CreateCommand())
             {
@@ -108,10 +159,20 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
         }
         public async Task<Chat> EnsureJaiMasihChatAsync(CancellationToken ct = default)
         {
-            var botUserId = await EnsurePastorBotUserAsync(ct);
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await EnsureJaiMasihChatAsync(tenantId, ct);
+        }
+
+        public async Task<Chat> EnsureJaiMasihChatAsync(Guid tenantId, CancellationToken ct = default)
+        {
+            var botUserId = await EnsurePastorBotUserAsync(tenantId, ct);
 
             var chat = await _db.Chats
-                .FirstOrDefaultAsync(c => c.IsGroup && c.Name != null && c.Name.ToLower() == JaiMasihChatName.ToLower(), ct);
+                .FirstOrDefaultAsync(c =>
+                    c.TenantId == tenantId &&
+                    c.IsGroup &&
+                    c.Name != null &&
+                    c.Name.ToLower() == JaiMasihChatName.ToLower(), ct);
 
             if (chat == null)
             {
@@ -119,6 +180,7 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
                 {
                     Name = JaiMasihChatName,
                     IsGroup = true,
+                    TenantId = tenantId,
                     CreatedBy = botUserId,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -126,6 +188,7 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
                 await _db.SaveChangesAsync(ct);
             }
 
+<<<<<<< HEAD
             var allUserIds = new List<Guid>();
             var conn = _db.Database.GetDbConnection();
             if (conn.State != ConnectionState.Open)
@@ -139,6 +202,13 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
                     if (!reader.IsDBNull(0)) allUserIds.Add(reader.GetGuid(0));
                 }
             }
+=======
+            var allUserIds = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId)
+                .Select(u => u.Id)
+                .ToListAsync(ct);
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
             if (!allUserIds.Contains(botUserId))
                 allUserIds.Add(botUserId);
@@ -172,9 +242,42 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
 
         public async Task<MessageDto> SendJaiMasihMessageAsync(string content, CancellationToken ct = default)
         {
-            var chat = await EnsureJaiMasihChatAsync(ct);
-            var botUserId = await EnsurePastorBotUserAsync(ct);
-            return await _chatService.AddMessageAsync(chat.Id, botUserId, content, "text");
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await SendJaiMasihMessageAsync(content, tenantId, ct);
+        }
+
+        public async Task<MessageDto> SendJaiMasihMessageAsync(string content, Guid tenantId, CancellationToken ct = default)
+        {
+            var chat = await EnsureJaiMasihChatAsync(tenantId, ct);
+            var botUserId = await EnsurePastorBotUserAsync(tenantId, ct);
+
+            var msg = new Message
+            {
+                ChatId = chat.Id,
+                SenderId = botUserId,
+                Content = content ?? string.Empty,
+                ContentType = "text",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.Messages.Add(msg);
+            await _db.SaveChangesAsync(ct);
+
+            return new MessageDto(
+                msg.Id,
+                msg.ChatId,
+                msg.SenderId,
+                msg.Content,
+                msg.CreatedAt)
+            {
+                ContentType = msg.ContentType
+            };
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync(CancellationToken ct = default)
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(ct);
+            return tenant?.Id ?? RootTenantId;
         }
 
         public async Task<PastorBotReplyDto> AskAsync(Guid userId, string question, bool sendToJaiMasih = false, string? language = null, string? persona = null, IReadOnlyList<PastorBotMessageDto>? conversation = null, CancellationToken ct = default)
@@ -619,8 +722,53 @@ Respond as a pastoral counsellor using this shape:
 
             request.Messages.Add(LlmMessage.User(question));
 
+<<<<<<< HEAD
             var result = await _llm.CompleteAsync(request, ct);
             if (!result.Success)
+=======
+        private static List<LlmMessage> BuildLlmMessages(string system, string question, IReadOnlyList<PastorBotMessageDto>? conversation)
+        {
+            var messages = new List<LlmMessage> { LlmMessage.System(system) };
+            foreach (var message in (conversation ?? Array.Empty<PastorBotMessageDto>()).TakeLast(12))
+            {
+                var text = (message.Text ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(text)) continue;
+
+                var role = string.Equals(message.Role, "pastor", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase)
+                    ? "assistant"
+                    : "user";
+
+                messages.Add(new LlmMessage(role, text));
+            }
+
+            messages.Add(LlmMessage.User(question));
+            return messages;
+        }
+
+        private async Task<string?> TryAskConfiguredAiAsync(Guid userId, string question, string language, string persona, IReadOnlyList<PastorBotMessageDto>? conversation, CancellationToken ct)
+        {
+            if (_llmProvider.IsConfigured)
+            {
+                var system = BuildSystemPrompt(language, persona);
+                var result = await _llmProvider.CompleteAsync(new LlmRequest
+                {
+                    Messages = BuildLlmMessages(system, question, conversation),
+                    Temperature = 0.6,
+                    MaxTokens = 700
+                }, ct);
+
+                if (result.Success && !string.IsNullOrWhiteSpace(result.Text))
+                    return result.Text;
+
+                _logger.LogWarning("PastorBot LLM provider {Provider} failed: {Error}", result.Provider, result.Error);
+            }
+
+            var apiKey = _config["PastorBot:OpenAiApiKey"];
+            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+
+            try
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             {
                 _logger.LogWarning("AI Counseller LLM call failed ({Provider}/{Model}): {Error}",
                     result.Provider, result.Model, result.Error);
@@ -632,7 +780,29 @@ Respond as a pastoral counsellor using this shape:
 
         private async Task<string?> TryAskConfiguredVisionAsync(Guid userId, string imageDataUrl, string note, string language, string persona, CancellationToken ct)
         {
+<<<<<<< HEAD
             if (!_llm.IsConfigured) return null;
+=======
+            if (_llmProvider.IsConfigured && IsSupportedImageDataUrl(imageDataUrl))
+            {
+                var result = await _llmProvider.CompleteVisionAsync(new LlmVisionRequest
+                {
+                    SystemPrompt = BuildReadMeSystemPrompt(language, persona),
+                    UserText = BuildReadMeVisionPrompt(note, language),
+                    ImageUrl = imageDataUrl,
+                    Temperature = 0.55,
+                    MaxTokens = 850
+                }, ct);
+
+                if (result.Success && !string.IsNullOrWhiteSpace(result.Text))
+                    return result.Text;
+
+                _logger.LogWarning("PastorBot vision provider {Provider} failed: {Error}", result.Provider, result.Error);
+            }
+
+            var apiKey = _config["PastorBot:OpenAiApiKey"];
+            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
             if (!IsSupportedImageDataUrl(imageDataUrl)) return null;
 
             var request = new LlmVisionRequest

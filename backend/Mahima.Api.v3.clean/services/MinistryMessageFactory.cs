@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace Mahima.Api.v3.clean.Services
 {
@@ -35,7 +35,7 @@ namespace Mahima.Api.v3.clean.Services
         {
             var name = string.IsNullOrWhiteSpace(displayName) ? "new member" : displayName.Trim();
             return
-                $"AI Pastor Welcome\n\n" +
+                $"AI Counseller Welcome\n\n" +
                 $"English:\nJai Masih, {name}. Welcome to the Mahima Ministry family. May your home be filled with peace, your faith grow stronger every day, and your journey with Christ be full of grace.\n\n" +
                 $"Hindi:\nजय मसीह, {name}. महिमा मिनिस्ट्री परिवार में आपका स्वागत है। प्रभु आपके घर में शांति दे, आपके विश्वास को हर दिन बढ़ाए, और मसीह के साथ आपकी यात्रा अनुग्रह से भरी रहे।\n\n" +
                 $"Punjabi:\nਜੈ ਮਸੀਹ, {name}. ਮਹਿਮਾ ਮਿਨਿਸਟਰੀ ਪਰਿਵਾਰ ਵਿੱਚ ਤੁਹਾਡਾ ਸੁਆਗਤ ਹੈ। ਪ੍ਰਭੂ ਤੁਹਾਡੇ ਘਰ ਵਿੱਚ ਸ਼ਾਂਤੀ ਦੇਵੇ, ਤੁਹਾਡੇ ਵਿਸ਼ਵਾਸ ਨੂੰ ਹਰ ਰੋਜ਼ ਮਜ਼ਬੂਤ ਕਰੇ, ਅਤੇ ਮਸੀਹ ਨਾਲ ਤੁਹਾਡਾ ਸਫ਼ਰ ਕਿਰਪਾ ਨਾਲ ਭਰਿਆ ਰਹੇ।";
@@ -82,7 +82,7 @@ namespace Mahima.Api.v3.clean.Services
                 $"Daily Word - {verse.ReferenceEn}\n" +
                 $"\"{verse.TextEn}\"\n" +
                 $"Reflection: {verse.ReflectionEn}\n" +
-                $"AI Pastor Morning Sermon: This morning, do not leave this word as a line on a screen. Carry it into your first decision, your first conversation, and your first burden. Christ is not only giving instruction; He is forming your heart for today.\n" +
+                $"AI Counseller Morning Sermon: This morning, do not leave this word as a line on a screen. Carry it into your first decision, your first conversation, and your first burden. Christ is not only giving instruction; He is forming your heart for today.\n" +
                 $"Prayer: Lord, help us live this word today. Amen.";
         }
 
@@ -92,7 +92,7 @@ namespace Mahima.Api.v3.clean.Services
             return
                 $"Night Prayer - {verse.ReferenceEn}\n" +
                 $"\"{verse.TextEn}\"\n" +
-                $"AI Pastor Night Sermon: As this day closes, place both your victories and your failures before Jesus. The Lord who watched over you in the morning is still faithful at night. Rest with a clean heart and rise again under mercy.\n" +
+                $"AI Counseller Night Sermon: As this day closes, place both your victories and your failures before Jesus. The Lord who watched over you in the morning is still faithful at night. Rest with a clean heart and rise again under mercy.\n" +
                 $"Prayer: Lord Jesus, thank You for carrying us through this day. Forgive our shortcomings, heal our hearts, protect every family, and give peaceful sleep. Amen.";
         }
 
@@ -103,7 +103,7 @@ namespace Mahima.Api.v3.clean.Services
                 $"आज का वचन - {verse.ReferenceHi}\n" +
                 $"\"{verse.TextHi}\"\n" +
                 $"मनन: {verse.ReflectionHi}\n" +
-                $"AI Pastor सुबह का छोटा संदेश: आज इस वचन को केवल पढ़कर न छोड़ें। इसे अपने पहले निर्णय, पहली बातचीत और पहली चिंता में साथ लेकर चलें। मसीह केवल शिक्षा नहीं देते, वह आज के लिए आपका हृदय तैयार करते हैं।\n" +
+                $"AI Counseller सुबह का छोटा संदेश: आज इस वचन को केवल पढ़कर न छोड़ें। इसे अपने पहले निर्णय, पहली बातचीत और पहली चिंता में साथ लेकर चलें। मसीह केवल शिक्षा नहीं देते, वह आज के लिए आपका हृदय तैयार करते हैं।\n" +
                 $"प्रार्थना: प्रभु, आज हमें आपके वचन में चलना सिखाएँ। आमीन।";
         }
 
@@ -113,7 +113,7 @@ namespace Mahima.Api.v3.clean.Services
             return
                 $"रात्रि प्रार्थना - {verse.ReferenceHi}\n" +
                 $"\"{verse.TextHi}\"\n" +
-                $"AI Pastor रात का छोटा संदेश: दिन समाप्त होते समय अपनी जीत और अपनी कमियाँ दोनों यीशु के सामने रख दें। जिस प्रभु ने सुबह आपको संभाला, वही रात में भी विश्वासयोग्य है। साफ मन से विश्राम करें और नई दया के साथ उठें।\n" +
+                $"AI Counseller रात का छोटा संदेश: दिन समाप्त होते समय अपनी जीत और अपनी कमियाँ दोनों यीशु के सामने रख दें। जिस प्रभु ने सुबह आपको संभाला, वही रात में भी विश्वासयोग्य है। साफ मन से विश्राम करें और नई दया के साथ उठें।\n" +
                 $"प्रार्थना: प्रभु यीशु, आज हमें संभालने के लिए धन्यवाद। हमारी कमियों को क्षमा करें, हमारे मनों को चंगा करें, हर परिवार की रक्षा करें और शांतिपूर्ण नींद दें। आमीन।";
         }
 
@@ -124,7 +124,7 @@ namespace Mahima.Api.v3.clean.Services
                 $"ਅੱਜ ਦਾ ਵਚਨ - {verse.ReferencePa}\n" +
                 $"\"{verse.TextPa}\"\n" +
                 $"ਵਿਚਾਰ: {verse.ReflectionPa}\n" +
-                $"AI Pastor ਸਵੇਰ ਦਾ ਛੋਟਾ ਸੁਨੇਹਾ: ਅੱਜ ਇਸ ਵਚਨ ਨੂੰ ਸਿਰਫ਼ ਪੜ੍ਹ ਕੇ ਨਾ ਛੱਡੋ। ਇਸ ਨੂੰ ਆਪਣੇ ਪਹਿਲੇ ਫੈਸਲੇ, ਪਹਿਲੀ ਗੱਲਬਾਤ ਅਤੇ ਪਹਿਲੀ ਚਿੰਤਾ ਵਿੱਚ ਨਾਲ ਲੈ ਕੇ ਚੱਲੋ। ਮਸੀਹ ਸਿਰਫ਼ ਸਿਖਾਉਂਦਾ ਨਹੀਂ, ਉਹ ਅੱਜ ਲਈ ਤੁਹਾਡਾ ਦਿਲ ਤਿਆਰ ਕਰਦਾ ਹੈ।\n" +
+                $"AI Counseller ਸਵੇਰ ਦਾ ਛੋਟਾ ਸੁਨੇਹਾ: ਅੱਜ ਇਸ ਵਚਨ ਨੂੰ ਸਿਰਫ਼ ਪੜ੍ਹ ਕੇ ਨਾ ਛੱਡੋ। ਇਸ ਨੂੰ ਆਪਣੇ ਪਹਿਲੇ ਫੈਸਲੇ, ਪਹਿਲੀ ਗੱਲਬਾਤ ਅਤੇ ਪਹਿਲੀ ਚਿੰਤਾ ਵਿੱਚ ਨਾਲ ਲੈ ਕੇ ਚੱਲੋ। ਮਸੀਹ ਸਿਰਫ਼ ਸਿਖਾਉਂਦਾ ਨਹੀਂ, ਉਹ ਅੱਜ ਲਈ ਤੁਹਾਡਾ ਦਿਲ ਤਿਆਰ ਕਰਦਾ ਹੈ।\n" +
                 $"ਪ੍ਰਾਰਥਨਾ: ਪ੍ਰਭੂ, ਅੱਜ ਸਾਨੂੰ ਆਪਣੇ ਵਚਨ ਵਿੱਚ ਤੁਰਨਾ ਸਿਖਾਓ। ਆਮੀਨ।";
         }
 
@@ -134,7 +134,7 @@ namespace Mahima.Api.v3.clean.Services
             return
                 $"ਰਾਤ ਦੀ ਪ੍ਰਾਰਥਨਾ - {verse.ReferencePa}\n" +
                 $"\"{verse.TextPa}\"\n" +
-                $"AI Pastor ਰਾਤ ਦਾ ਛੋਟਾ ਸੁਨੇਹਾ: ਦਿਨ ਮੁੱਕਣ ਵੇਲੇ ਆਪਣੀਆਂ ਜਿੱਤਾਂ ਅਤੇ ਕਮੀਆਂ ਦੋਵੇਂ ਯਿਸੂ ਦੇ ਸਾਹਮਣੇ ਰੱਖ ਦਿਓ। ਜਿਸ ਪ੍ਰਭੂ ਨੇ ਸਵੇਰੇ ਤੁਹਾਡੀ ਸੰਭਾਲ ਕੀਤੀ, ਉਹ ਰਾਤ ਨੂੰ ਵੀ ਵਫ਼ਾਦਾਰ ਹੈ। ਸਾਫ਼ ਦਿਲ ਨਾਲ ਆਰਾਮ ਕਰੋ ਅਤੇ ਨਵੀਂ ਦਇਆ ਨਾਲ ਉੱਠੋ।\n" +
+                $"AI Counseller ਰਾਤ ਦਾ ਛੋਟਾ ਸੁਨੇਹਾ: ਦਿਨ ਮੁੱਕਣ ਵੇਲੇ ਆਪਣੀਆਂ ਜਿੱਤਾਂ ਅਤੇ ਕਮੀਆਂ ਦੋਵੇਂ ਯਿਸੂ ਦੇ ਸਾਹਮਣੇ ਰੱਖ ਦਿਓ। ਜਿਸ ਪ੍ਰਭੂ ਨੇ ਸਵੇਰੇ ਤੁਹਾਡੀ ਸੰਭਾਲ ਕੀਤੀ, ਉਹ ਰਾਤ ਨੂੰ ਵੀ ਵਫ਼ਾਦਾਰ ਹੈ। ਸਾਫ਼ ਦਿਲ ਨਾਲ ਆਰਾਮ ਕਰੋ ਅਤੇ ਨਵੀਂ ਦਇਆ ਨਾਲ ਉੱਠੋ।\n" +
                 $"ਪ੍ਰਾਰਥਨਾ: ਪ੍ਰਭੂ ਯਿਸੂ, ਅੱਜ ਸਾਨੂੰ ਸੰਭਾਲਣ ਲਈ ਧੰਨਵਾਦ। ਸਾਡੀਆਂ ਕਮੀਆਂ ਮਾਫ਼ ਕਰੋ, ਦਿਲਾਂ ਨੂੰ ਚੰਗਾ ਕਰੋ, ਹਰ ਪਰਿਵਾਰ ਦੀ ਰੱਖਿਆ ਕਰੋ ਅਤੇ ਸ਼ਾਂਤ ਨੀਂਦ ਦਿਓ। ਆਮੀਨ।";
         }
 

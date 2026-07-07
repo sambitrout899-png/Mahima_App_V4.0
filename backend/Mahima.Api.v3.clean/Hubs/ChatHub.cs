@@ -21,18 +21,42 @@ namespace Mahima.Api.v3.clean.Hubs
         private readonly ILogger<ChatHub> _logger;
         private readonly IChatService _chatService;
         private readonly IMobilePushNotificationService? _mobilePush;
+<<<<<<< HEAD
         private readonly IPastorBotService _pastorBot;
 
         public ChatHub(ILogger<ChatHub> logger, IChatService chatService, IEnumerable<IMobilePushNotificationService> mobilePushServices, IPastorBotService pastorBot)
+=======
+        private readonly ITenantContextService _tenantContext;
+        private readonly ILicensingService _licensing;
+
+        public ChatHub(ILogger<ChatHub> logger, IChatService chatService, IEnumerable<IMobilePushNotificationService> mobilePushServices, ITenantContextService tenantContext, ILicensingService licensing)
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
             _mobilePush = mobilePushServices?.FirstOrDefault();
+<<<<<<< HEAD
             _pastorBot = pastorBot ?? throw new ArgumentNullException(nameof(pastorBot));
+=======
+            _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
+            _licensing = licensing ?? throw new ArgumentNullException(nameof(licensing));
+        }
+
+        private async Task RequireChatModuleAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync();
+            if (tenant == null)
+                throw new HubException("Tenant not found.");
+
+            if (!await _licensing.HasModuleAsync(tenant.Id, LicensingService.ChatModule))
+                throw new HubException("The Jai Masih Chat module is not active for this church.");
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
         }
 
         public override async Task OnConnectedAsync()
         {
+            await RequireChatModuleAsync();
+
             var userId = GetUserId();
             if (userId != Guid.Empty)
             {
@@ -86,6 +110,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task<object> SendMessage(SendMessagePayload payload)
         {
+            await RequireChatModuleAsync();
+
             if (payload == null || payload.ChatId == Guid.Empty)
                 throw new HubException("chatId is required.");
 
@@ -145,6 +171,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task Typing(TypingPayload p)
         {
+            await RequireChatModuleAsync();
+
             if (p == null || p.ChatId == Guid.Empty) return;
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(p.ChatId, userId);
@@ -164,6 +192,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task StartCall(CallOffer offer)
         {
+            await RequireChatModuleAsync();
+
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(offer.ChatId, userId);
             try
@@ -206,6 +236,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task CallSignal(CallSignalMsg s)
         {
+            await RequireChatModuleAsync();
+
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(s.ChatId, userId);
             try
@@ -222,6 +254,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task EndCall(Guid chatId)
         {
+            await RequireChatModuleAsync();
+
             var userId = GetUserId();
             var members = await RequireChatMembershipAsync(chatId, userId);
             ActiveCallOffers.TryRemove(chatId, out _);
@@ -253,6 +287,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task JoinGroup(string chatId)
         {
+            await RequireChatModuleAsync();
+
             if (string.IsNullOrWhiteSpace(chatId))
             {
                 _logger.LogWarning("JoinGroup called with empty chatId. ConnectionId={ConnectionId}", Context.ConnectionId);
@@ -279,6 +315,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task LeaveGroup(string chatId)
         {
+            await RequireChatModuleAsync();
+
             if (string.IsNullOrWhiteSpace(chatId))
             {
                 _logger.LogWarning("LeaveGroup called with empty chatId. ConnectionId={ConnectionId}", Context.ConnectionId);
@@ -298,6 +336,8 @@ namespace Mahima.Api.v3.clean.Hubs
 
         public async Task SendToGroup(string chatId, string text)
         {
+            await RequireChatModuleAsync();
+
             if (string.IsNullOrWhiteSpace(chatId)) return;
             if (!Guid.TryParse(chatId, out var parsedChatId)) return;
 

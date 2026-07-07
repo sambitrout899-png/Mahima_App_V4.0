@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   BellRing,
@@ -214,9 +214,9 @@ export default function MinistryAutomationPage() {
       setWelcomeDraft(data?.message || "");
       const ids = Array.isArray(data?.users) ? data.users.map((user) => user.id) : targetIds;
       setSelectedWelcomeUserIds(ids);
-      setNotice(data?.count > 0 ? `AI Pastor welcome draft is ready for ${data.count} new users.` : "No pending new users found for this range.");
+      setNotice(data?.count > 0 ? `AI Counseller welcome draft is ready for ${data.count} new users.` : "No pending new users found for this range.");
     } catch (err) {
-      setNotice(err.message || "Could not generate AI Pastor welcome draft.");
+      setNotice(err.message || "Could not generate AI Counseller welcome draft.");
     } finally {
       setWelcomeDrafting(false);
     }
@@ -501,7 +501,7 @@ export default function MinistryAutomationPage() {
                 <UserPlus className="h-4 w-4" />
                 New Joiner Welcome Control
               </div>
-              <h2 className="mt-3 text-2xl font-black">AI Pastor welcome approval</h2>
+              <h2 className="mt-3 text-2xl font-black">AI Counseller welcome approval</h2>
               <p className="mt-1 max-w-3xl text-sm font-semibold text-slate-500">
                 Analyze new members by period, generate a pastor welcome draft, review it here, then approve the Jai Masih send.
               </p>
@@ -641,7 +641,7 @@ export default function MinistryAutomationPage() {
               <div>
                 <div className="flex items-center gap-2 font-black text-emerald-950">
                   <Wand2 className="h-5 w-5" />
-                  Reviewable AI Pastor Draft
+                  Reviewable AI Counseller Draft
                 </div>
                 <p className="mt-1 text-sm font-semibold text-emerald-900">
                   {selectedWelcomeCount} selected for approval. Edit the message before sending if needed.
@@ -673,7 +673,7 @@ export default function MinistryAutomationPage() {
               onChange={(e) => setWelcomeDraft(e.target.value)}
               rows={8}
               maxLength={12000}
-              placeholder="Generate an AI Pastor welcome draft for the selected new users..."
+              placeholder="Generate an AI Counseller welcome draft for the selected new users..."
               className="mt-4 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-4 text-base font-semibold leading-7 outline-none focus:border-emerald-700"
             />
             <div className="mt-1 text-right text-xs font-bold text-emerald-900">{welcomeDraft.length}/12000</div>
@@ -776,7 +776,7 @@ export default function MinistryAutomationPage() {
                 <Bot className="h-7 w-7" />
               </div>
               <div>
-                <h2 className="text-2xl font-black">AI Pastor</h2>
+                <h2 className="text-2xl font-black">AI Counseller</h2>
                 <p className="font-medium text-slate-500">Trigger pastor guidance from UI only.</p>
               </div>
             </div>

@@ -985,9 +985,15 @@ export default function UsersPageCathedralAdvanced() {
       }
 
       if (form.id) {
-        await api.put(`/users/${form.id}`, payload);
+        const result = await api.put(`/users/${form.id}`, payload);
+        if (result?.ok === false) {
+          throw new Error(result.error || result.statusText || "Save failed.");
+        }
       } else {
-        await api.post("/users", payload);
+        const result = await api.post("/users", payload);
+        if (result?.ok === false) {
+          throw new Error(result.error || result.statusText || "Create user failed.");
+        }
       }
 
       setShowModal(false);
