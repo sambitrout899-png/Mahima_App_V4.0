@@ -27,17 +27,20 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IPastorBotService _pastorBot;
         private readonly IHubContext<ChatHub> _hub;
         private readonly MinistrySmsDelivery _sms;
+        private readonly ITenantContextService _tenantContext;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
         private const string WelcomeSentUserIdsKey = "NewUserWelcomeSentUserIds";
         private const string WelcomeLastApprovedAtKey = "NewUserWelcomeLastApprovedAtUtc";
         private const string WelcomeLastApprovedCountKey = "NewUserWelcomeLastApprovedCount";
         private const string WelcomeLastApprovedMessageKey = "NewUserWelcomeLastApprovedMessage";
 
-        public MinistryAutomationController(MahimaDbContext db, IPastorBotService pastorBot, IHubContext<ChatHub> hub, MinistrySmsDelivery sms)
+        public MinistryAutomationController(MahimaDbContext db, IPastorBotService pastorBot, IHubContext<ChatHub> hub, MinistrySmsDelivery sms, ITenantContextService tenantContext)
         {
             _db = db;
             _pastorBot = pastorBot;
             _hub = hub;
             _sms = sms;
+            _tenantContext = tenantContext;
         }
 
         public class NewUserWelcomeDraftRequest
@@ -82,13 +85,15 @@ namespace Mahima.Api.v3.clean.Controllers
                 ["SundayReminderEnabled"] = dto.SundayReminderEnabled.ToString()
             };
 
+            var tenantId = await GetCurrentTenantIdAsync();
             foreach (var pair in values)
             {
-                var setting = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == pair.Key);
+                var setting = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId && s.Key == pair.Key);
                 if (setting == null)
                 {
                     _db.MinistryAutomationSettings.Add(new MinistryAutomationSetting
                     {
+                        TenantId = tenantId,
                         Key = pair.Key,
                         Value = pair.Value,
                         UpdatedAtUtc = DateTime.UtcNow
@@ -153,8 +158,10 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("runs")]
         public async Task<IActionResult> Runs()
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var runs = await _db.MinistryScheduledMessageRuns
                 .AsNoTracking()
+                .Where(r => r.TenantId == tenantId)
                 .OrderByDescending(r => r.SentAtUtc)
                 .Take(50)
                 .Select(r => new { r.MessageKey, r.ScheduledLocalDate, r.SentAtUtc })
@@ -278,8 +285,10 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private async Task<Dictionary<string, string>> ReadSettingsAsync()
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var values = await _db.MinistryAutomationSettings
                 .AsNoTracking()
+                .Where(s => s.TenantId == tenantId)
                 .ToDictionaryAsync(s => s.Key, s => s.Value);
 
             MigrateSundaySettings(values);
@@ -443,6 +452,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private async Task<List<WelcomeCandidate>> QueryWelcomeCandidatesAsync(IEnumerable<Guid>? ids, System.Threading.CancellationToken ct)
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var idList = (ids ?? Array.Empty<Guid>()).Distinct().ToList();
             var conn = _db.Database.GetDbConnection();
             if (conn.State != ConnectionState.Open)
@@ -472,6 +482,8 @@ namespace Mahima.Api.v3.clean.Controllers
             var userCodeExpr = Expr("UserCode", "usercode");
             var isDeletedExpr = Expr("isdeleted", "IsDeleted");
 
+            var tenantIdExpr = Expr("tenant_id", "TenantId");
+
             var conditions = new List<string>
             {
                 $"COALESCE(({usernameExpr})::text, '') <> @botUsername",
@@ -483,6 +495,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
             if (isDeletedExpr != "NULL")
                 conditions.Add($"COALESCE(({isDeletedExpr})::boolean, false) = false");
+            if (tenantIdExpr != "NULL")
+                conditions.Add($"({tenantIdExpr}) = @tenantId");
 
             await using var cmd = conn.CreateCommand();
             var botUsername = cmd.CreateParameter();
@@ -494,6 +508,11 @@ namespace Mahima.Api.v3.clean.Controllers
             botCode.ParameterName = "@botCode";
             botCode.Value = PastorBotService.BotUserCode;
             cmd.Parameters.Add(botCode);
+
+            var tenantParam = cmd.CreateParameter();
+            tenantParam.ParameterName = "@tenantId";
+            tenantParam.Value = tenantId;
+            cmd.Parameters.Add(tenantParam);
 
             if (idList.Count > 0)
             {
@@ -571,9 +590,10 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private async Task<HashSet<Guid>> ReadWelcomeSentUserIdsAsync()
         {
+            var tenantId = await GetCurrentTenantIdAsync();
             var raw = await _db.MinistryAutomationSettings
                 .AsNoTracking()
-                .Where(s => s.Key == WelcomeSentUserIdsKey)
+                .Where(s => s.TenantId == tenantId && s.Key == WelcomeSentUserIdsKey)
                 .Select(s => s.Value)
                 .FirstOrDefaultAsync(HttpContext.RequestAborted);
 
@@ -597,11 +617,13 @@ namespace Mahima.Api.v3.clean.Controllers
 
         private async Task UpsertSettingAsync(string key, string value)
         {
-            var setting = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.Key == key, HttpContext.RequestAborted);
+            var tenantId = await GetCurrentTenantIdAsync();
+            var setting = await _db.MinistryAutomationSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId && s.Key == key, HttpContext.RequestAborted);
             if (setting == null)
             {
                 _db.MinistryAutomationSettings.Add(new MinistryAutomationSetting
                 {
+                    TenantId = tenantId,
                     Key = key,
                     Value = value,
                     UpdatedAtUtc = DateTime.UtcNow
@@ -612,6 +634,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 setting.Value = value;
                 setting.UpdatedAtUtc = DateTime.UtcNow;
             }
+        }
+
+        private async Task<Guid> GetCurrentTenantIdAsync()
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(HttpContext.RequestAborted);
+            return tenant?.Id ?? RootTenantId;
         }
 
         private async Task<string> GenerateWelcomeDraftAsync(IReadOnlyList<WelcomeCandidate> users, IReadOnlyList<LanguageChoice> languages)

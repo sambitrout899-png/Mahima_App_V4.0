@@ -11,6 +11,7 @@ namespace Mahima.Api.v3.clean.Models
 
         public string? Name { get; set; }
         public bool IsGroup { get; set; }
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         // FK stored in DB as createdby
         public Guid CreatedBy { get; set; }

@@ -19,6 +19,7 @@ namespace Mahima.Api.Controllers
     public class AttendanceController : ControllerBase
     {
         private readonly MahimaDbContext _db;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public AttendanceController(MahimaDbContext db)
         {
@@ -39,6 +40,11 @@ namespace Mahima.Api.Controllers
         }
 
         private string? GetActorIdString() => GetActorId()?.ToString();
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         private bool HasAnyRole(params string[] roles)
         {
@@ -75,6 +81,7 @@ namespace Mahima.Api.Controllers
         {
             var log = new AuditLog
             {
+                TenantId = GetCurrentTenantId(),
                 ActorId = GetActorId(),
                 Action = action,
                 EntityType = entityType,
@@ -124,7 +131,8 @@ namespace Mahima.Api.Controllers
                 userId = actorId;
             }
 
-            IQueryable<AttendanceRecord> query = _db.AttendanceRecords;
+            var tenantId = GetCurrentTenantId();
+            IQueryable<AttendanceRecord> query = _db.AttendanceRecords.Where(a => a.TenantId == tenantId);
 
             if (from.HasValue)
             {
@@ -174,6 +182,7 @@ namespace Mahima.Api.Controllers
             if (!canManageOthers && !IsActor(dto.UserId))
                 return Forbid();
 
+            dto.TenantId = GetCurrentTenantId();
             dto.UserId = dto.UserId.Trim().ToLowerInvariant();
             dto.Date = DateTime.SpecifyKind(dto.Date.Date, DateTimeKind.Unspecified);
             var nextDay = dto.Date.AddDays(1);
@@ -202,7 +211,8 @@ namespace Mahima.Api.Controllers
         [HttpGet("{id:int}")]
         public async Task<ActionResult<AttendanceRecord>> GetById(int id)
         {
-            var item = await _db.AttendanceRecords.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var item = await _db.AttendanceRecords.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (item == null) return NotFound();
             if (!CanManageOthers() && !IsActor(item.UserId)) return Forbid();
             return Ok(item);
@@ -216,7 +226,8 @@ namespace Mahima.Api.Controllers
 
         private async Task<IActionResult> UpdateCore(int id, AttendanceRecord dto)
         {
-            var existing = await _db.AttendanceRecords.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var existing = await _db.AttendanceRecords.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (existing == null) return NotFound();
 
             var canManageOthers = CanManageOthers();
@@ -285,7 +296,8 @@ namespace Mahima.Api.Controllers
 
         private async Task<IActionResult> DeleteCore(int id)
         {
-            var existing = await _db.AttendanceRecords.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var existing = await _db.AttendanceRecords.FirstOrDefaultAsync(a => a.Id == id && a.TenantId == tenantId);
             if (existing == null) return NotFound();
 
             if (!CanManageOthers() && !IsActor(existing.UserId))

@@ -65,14 +65,26 @@ namespace Mahima.Api.v3.clean.Services
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MahimaDbContext>();
-            var settings = await ReadSettingsAsync(db, ct);
+            var tenantSettings = await ReadSettingsByTenantAsync(db, ct);
 
+            foreach (var tenantEntry in tenantSettings)
+            {
+                await ProcessDueMessagesForTenantAsync(scope.ServiceProvider, db, tenantEntry.Key, tenantEntry.Value, ct);
+            }
+        }
+
+        private async Task ProcessDueMessagesForTenantAsync(
+            IServiceProvider serviceProvider,
+            MahimaDbContext db,
+            Guid tenantId,
+            IReadOnlyDictionary<string, string> settings,
+            CancellationToken ct)
+        {
             if (!GetBool(settings, "Enabled", true)) return;
-
             var nowLocal = GetLocalNow(settings);
-            var pastorBot = scope.ServiceProvider.GetRequiredService<IPastorBotService>();
+            var pastorBot = serviceProvider.GetRequiredService<IPastorBotService>();
 
-            await ProcessBirthdayGreetingsAsync(db, pastorBot, settings, nowLocal, ct);
+            await ProcessBirthdayGreetingsAsync(db, pastorBot, tenantId, settings, nowLocal, ct);
 
             var candidates = BuildSchedules(nowLocal, settings)
                 .Where(s => IsDue(nowLocal, s, settings))
@@ -81,21 +93,22 @@ namespace Mahima.Api.v3.clean.Services
 
             foreach (var schedule in candidates)
             {
-                if (await AlreadySentAsync(db, schedule.Key, nowLocal.Date, ct)) continue;
+                if (await AlreadySentAsync(db, tenantId, schedule.Key, nowLocal.Date, ct)) continue;
 
                 var content = schedule.BuildMessage(nowLocal);
-                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
-                await RecordSentAsync(db, schedule.Key, nowLocal.Date, ct);
+                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, tenantId, ct);
+                await RecordSentAsync(db, tenantId, schedule.Key, nowLocal.Date, ct);
                 await NotifyChatAsync(db, sent, ct);
                 await DeliverSmsAsync(db, sent, SmsCostPolicy.Notification(schedule.Key), ct);
 
-                _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for {LocalDate}", schedule.Key, nowLocal.Date);
+                _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for tenant {TenantId} on {LocalDate}", schedule.Key, tenantId, nowLocal.Date);
             }
         }
 
         private async Task ProcessBirthdayGreetingsAsync(
             MahimaDbContext db,
             IPastorBotService pastorBot,
+            Guid tenantId,
             IReadOnlyDictionary<string, string> settings,
             DateTime nowLocal,
             CancellationToken ct)
@@ -113,7 +126,11 @@ namespace Mahima.Api.v3.clean.Services
                 cmd.CommandText = @"
 SELECT id, displayname, username, ""Birthday""
 FROM public.users
-WHERE ""Birthday"" IS NOT NULL";
+WHERE ""Birthday"" IS NOT NULL AND tenant_id = @tenantId";
+                var tenantParam = cmd.CreateParameter();
+                tenantParam.ParameterName = "tenantId";
+                tenantParam.Value = tenantId;
+                cmd.Parameters.Add(tenantParam);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
@@ -132,7 +149,7 @@ WHERE ""Birthday"" IS NOT NULL";
             foreach (var user in birthdayUsers)
             {
                 var key = $"birthday-greeting:{user.Id}";
-                if (await AlreadySentAsync(db, key, nowLocal.Date, ct)) continue;
+                if (await AlreadySentAsync(db, tenantId, key, nowLocal.Date, ct)) continue;
 
                 var name = string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
                 var content =
@@ -142,8 +159,8 @@ WHERE ""Birthday"" IS NOT NULL";
                     "Scripture: \"The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.\" - Numbers 6:24-25\n\n" +
                     "With love and prayers,\nAI Counseller";
 
-                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
-                await RecordSentAsync(db, key, nowLocal.Date, ct);
+                MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, tenantId, ct);
+                await RecordSentAsync(db, tenantId, key, nowLocal.Date, ct);
                 await NotifyChatAsync(db, sent, ct);
                 using var smsScope = _scopeFactory.CreateScope();
                 await smsScope.ServiceProvider.GetRequiredService<MinistrySmsDelivery>().SendAsync(content, new[] { user.Id }, ct);
@@ -171,17 +188,18 @@ WHERE ""Birthday"" IS NOT NULL";
                 await _hub.Clients.Users(memberIds).SendAsync("ReceiveMessage", message, ct);
         }
 
-        private async Task<bool> AlreadySentAsync(MahimaDbContext db, string key, DateTime localDate, CancellationToken ct)
+        private async Task<bool> AlreadySentAsync(MahimaDbContext db, Guid tenantId, string key, DateTime localDate, CancellationToken ct)
         {
             return await db.MinistryScheduledMessageRuns
                 .AsNoTracking()
-                .AnyAsync(r => r.MessageKey == key && r.ScheduledLocalDate == localDate, ct);
+                .AnyAsync(r => r.TenantId == tenantId && r.MessageKey == key && r.ScheduledLocalDate == localDate, ct);
         }
 
-        private static async Task RecordSentAsync(MahimaDbContext db, string key, DateTime localDate, CancellationToken ct)
+        private static async Task RecordSentAsync(MahimaDbContext db, Guid tenantId, string key, DateTime localDate, CancellationToken ct)
         {
             db.MinistryScheduledMessageRuns.Add(new MinistryScheduledMessageRun
             {
+                TenantId = tenantId,
                 MessageKey = key,
                 ScheduledLocalDate = localDate,
                 SentAtUtc = DateTime.UtcNow
@@ -307,13 +325,24 @@ WHERE ""Birthday"" IS NOT NULL";
             return settings.TryGetValue(key, out var raw) && !string.IsNullOrWhiteSpace(raw) ? raw : fallback;
         }
 
-        private static async Task<IReadOnlyDictionary<string, string>> ReadSettingsAsync(MahimaDbContext db, CancellationToken ct)
+        private static async Task<IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, string>>> ReadSettingsByTenantAsync(MahimaDbContext db, CancellationToken ct)
         {
-            var values = await db.MinistryAutomationSettings
+            var rows = await db.MinistryAutomationSettings
                 .AsNoTracking()
-                .ToDictionaryAsync(s => s.Key, s => s.Value, ct);
-            MigrateSundaySettings(values);
-            return values;
+                .ToListAsync(ct);
+
+            return rows
+                .GroupBy(s => s.TenantId)
+                .ToDictionary(
+                    g => g.Key,
+                    g =>
+                    {
+                        var values = g
+                            .GroupBy(s => s.Key)
+                            .ToDictionary(x => x.Key, x => x.OrderByDescending(s => s.UpdatedAtUtc).First().Value);
+                        MigrateSundaySettings(values);
+                        return (IReadOnlyDictionary<string, string>)values;
+                    });
         }
 
         internal static void MigrateSundaySettings(Dictionary<string, string> values)

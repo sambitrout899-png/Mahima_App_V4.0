@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -53,6 +54,7 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly IConfiguration _config;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<UploadsController> _logger;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public UploadsController(IConfiguration config, IWebHostEnvironment env, ILogger<UploadsController> logger)
         {
@@ -60,6 +62,11 @@ namespace Mahima.Api.v3.clean.Controllers
             _env = env ?? throw new ArgumentNullException(nameof(env));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
 
         [HttpPost]
         [RequestSizeLimit(MaxBytes)]
@@ -104,7 +111,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 }
             }
 
-            var relativeFolder = Path.Combine("chat", DateTime.UtcNow.ToString("yyyy"), DateTime.UtcNow.ToString("MM"));
+            var relativeFolder = Path.Combine("tenants", GetCurrentTenantId().ToString("N"), "chat", DateTime.UtcNow.ToString("yyyy"), DateTime.UtcNow.ToString("MM"));
             var targetFolder = Path.Combine(uploadRoot, relativeFolder);
 
             try
@@ -140,7 +147,7 @@ namespace Mahima.Api.v3.clean.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, "Upload failed.");
             }
 
-            var publicPath = "/uploads/" + Path.Combine(relativeFolder, fileName).Replace('\\', '/');
+            var publicPath = "/api/uploads/" + Path.Combine(relativeFolder, fileName).Replace('\\', '/');
             var absoluteUrl = $"{Request.Scheme}://{Request.Host}{publicPath}";
 
             return Ok(new
@@ -151,6 +158,54 @@ namespace Mahima.Api.v3.clean.Controllers
                 size = file.Length,
                 fileName
             });
+        }
+
+        [AllowAnonymous]
+        [HttpGet("{**path}")]
+        public IActionResult GetUpload(string path)
+        {
+            var cleanPath = (path ?? string.Empty).Replace('\\', '/').TrimStart('/');
+            if (string.IsNullOrWhiteSpace(cleanPath) ||
+                cleanPath.Contains("..", StringComparison.Ordinal) ||
+                cleanPath.StartsWith("/", StringComparison.Ordinal))
+                return BadRequest("Invalid upload path.");
+
+            var uploadRoot = _config["Uploads:Root"]
+                ?? Environment.GetEnvironmentVariable("MAHIMA_UPLOADS_ROOT");
+            if (string.IsNullOrWhiteSpace(uploadRoot))
+            {
+                uploadRoot = OperatingSystem.IsLinux()
+                    ? "/var/www/mahima-uploads"
+                    : Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads");
+            }
+
+            var fullPath = Path.GetFullPath(Path.Combine(uploadRoot, cleanPath));
+            var rootPath = Path.GetFullPath(uploadRoot);
+            if (!fullPath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(fullPath))
+                return NotFound();
+
+            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            var contentType = ext switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                ".mp4" => "video/mp4",
+                ".webm" => "video/webm",
+                ".mov" => "video/quicktime",
+                ".mp3" => "audio/mpeg",
+                ".m4a" => "audio/mp4",
+                ".ogg" => "audio/ogg",
+                ".wav" => "audio/wav",
+                ".pdf" => "application/pdf",
+                ".txt" => "text/plain",
+                ".csv" => "text/csv",
+                ".zip" => "application/zip",
+                _ => "application/octet-stream"
+            };
+
+            return PhysicalFile(fullPath, contentType);
         }
     }
 }

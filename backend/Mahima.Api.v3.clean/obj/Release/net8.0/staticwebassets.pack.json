@@ -1,0 +1,85 @@
+{
+  "Files": [
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/certificates/baptisms/BaptismCertificate_6_20260511154144.pdf",
+      "PackagePath": "staticwebassets/certificates/baptisms/BaptismCertificate_6_20260511154144.pdf"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/2026/05/1e27a52f5d1c4f4e91d2e1966928e1d7.jpg",
+      "PackagePath": "staticwebassets/uploads/2026/05/1e27a52f5d1c4f4e91d2e1966928e1d7.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/2026/05/50f0461683a94e1ab8e398d32317779d.png",
+      "PackagePath": "staticwebassets/uploads/2026/05/50f0461683a94e1ab8e398d32317779d.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/2026/05/bf86d818e81742b9bd48ac3bc5f0eadc.jpg",
+      "PackagePath": "staticwebassets/uploads/2026/05/bf86d818e81742b9bd48ac3bc5f0eadc.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/2026/05/e129c08d349b4b4380dd34196947ae98.jpg",
+      "PackagePath": "staticwebassets/uploads/2026/05/e129c08d349b4b4380dd34196947ae98.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/2026/05/ef352bbec4904b75b2f5275ae71dd6b6.jpg",
+      "PackagePath": "staticwebassets/uploads/2026/05/ef352bbec4904b75b2f5275ae71dd6b6.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/17363bce66e5425fa098e0aab10c87dc.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/17363bce66e5425fa098e0aab10c87dc.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/2c26c7d162f042b1a61f708852790c86.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/2c26c7d162f042b1a61f708852790c86.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/528fabab856e4e93ab646e3c71b8baa6.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/528fabab856e4e93ab646e3c71b8baa6.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/99f6453a995e4eeeb8e507aff01e5841.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/99f6453a995e4eeeb8e507aff01e5841.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/ab6411e95d1f48f48ef1efe1730e64f9.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/ab6411e95d1f48f48ef1efe1730e64f9.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/c3adda267a9742cb8ab435a59991ad9c.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/c3adda267a9742cb8ab435a59991ad9c.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/e48f799eb63543f9a8531a96a74b4470.jpg",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/e48f799eb63543f9a8531a96a74b4470.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/f72a48242ff9466f82c4c88f9e384d3d.jpg",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/f72a48242ff9466f82c4c88f9e384d3d.jpg"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/fbb7d334813a4c78b2b2d8fd39615542.png",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/fbb7d334813a4c78b2b2d8fd39615542.png"
+    },
+    {
+      "Id": "/root/Mahima_App_V4.1/backend/Mahima.Api.v3.clean/wwwroot/uploads/chat/2026/05/ff0e7c6b2b2e413f9995566317b39477.jpg",
+      "PackagePath": "staticwebassets/uploads/chat/2026/05/ff0e7c6b2b2e413f9995566317b39477.jpg"
+    },
+    {
+      "Id": "obj/Release/net8.0/staticwebassets/msbuild.Mahima.Api.v3.clean.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj/Release/net8.0/staticwebassets/msbuild.build.Mahima.Api.v3.clean.props",
+      "PackagePath": "build\\Mahima.Api.v3.clean.props"
+    },
+    {
+      "Id": "obj/Release/net8.0/staticwebassets/msbuild.buildMultiTargeting.Mahima.Api.v3.clean.props",
+      "PackagePath": "buildMultiTargeting\\Mahima.Api.v3.clean.props"
+    },
+    {
+      "Id": "obj/Release/net8.0/staticwebassets/msbuild.buildTransitive.Mahima.Api.v3.clean.props",
+      "PackagePath": "buildTransitive\\Mahima.Api.v3.clean.props"
+    }
+  ],
+  "ElementsToRemove": []
+}

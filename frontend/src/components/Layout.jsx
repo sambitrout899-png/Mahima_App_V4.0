@@ -58,9 +58,12 @@ import {
   BriefcaseBusiness,
   Radio,
   Store,
+  Building2,
+  Globe2,
+  CreditCard,
 } from "lucide-react";
 import { logout as authLogout } from "../features/auth/authService";
-import mahimaLogo from "../assets/mahima-logo.png";
+import TenantLogo from "./TenantLogo";
 import { getCurrentUser } from "../features/auth/permissionService";
 import { getToken } from "../utils/auth";
 import { API_BASE } from "../api";
@@ -76,6 +79,7 @@ import { ensurePushTokenRegistered, flushPendingFcmToken, runNotificationSelfTes
 import { useLanguage } from "../i18n/LanguageContext";
 import { assignedPositions, getActivePosition, resetActivePosition, scopeLabel, setActivePosition } from "../utils/positionContext";
 import { isPrayerDeskManager } from "../utils/prayerAccess";
+import { fetchTenantEntitlements, pageIsLicensed } from "../licensing";
 
 /* ======================================================================== */
 /*  Navigation                                                               */
@@ -91,6 +95,7 @@ const NAV_GROUPS = [
     label: "General",
     items: [
       { key: "DASHBOARD",       label: "Home",            to: "/home",                icon: Home },
+      { key: "SUBSCRIPTIONS",    label: "Subscriptions",   to: "/home/subscriptions", icon: CreditCard },
       { key: "PASTOR",          label: "AI Counseller",       to: "/home/pastor",         icon: Bot },
       { key: "README",          permissionKey: "PASTOR",  label: "ReadMe",           to: "/home/readme",         icon: Camera },
       { key: "APP_DOWNLOADS",   label: "App Downloads",   to: "/home/app-downloads",  icon: Download },
@@ -133,6 +138,9 @@ const NAV_GROUPS = [
       { key: "ADMIN_DASHBOARD", label: "Admin Dashboard", to: "/home/admin/dashboard", icon: ShieldCheck },
       { key: "LIVE_USERS", label: "Live Users", to: "/home/admin/live-users", icon: Activity },
       { key: "MESSAGE_CENTER", label: "Message Center", to: "/home/admin/ministry-automation", icon: CalendarClock },
+      { key: "MULTITENANT", label: "Tenant Admin", to: "/home/admin/multitenant", icon: Building2 },
+      { key: "SAAS_BILLING", label: "SAAS Billing", to: "/home/admin/billing", icon: Receipt },
+      { key: "LANDING_PAGE", label: "Landing Page", to: "/home/admin/landing", icon: Globe2 },
       { key: "LANGUAGES", label: "Languages", to: "/home/admin/languages", icon: Languages },
       { key: "EMAIL_CLIENT", label: "Email Client", to: "/home/admin/email", icon: Mail },
       { key: "GOOGLE_DRIVE", label: "Google Drive", to: "/home/admin/google-drive", icon: Cloud },
@@ -148,6 +156,7 @@ const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items);
 
 const NAV_LABEL_KEYS = {
   DASHBOARD: "nav.home",
+  SUBSCRIPTIONS: "Subscriptions",
   PASTOR: "nav.aiPastor",
   README: "nav.readMe",
   APP_DOWNLOADS: "nav.appDownloads",
@@ -169,6 +178,9 @@ const NAV_LABEL_KEYS = {
   ADMIN_DASHBOARD: "nav.adminDashboard",
   LIVE_USERS: "nav.liveUsers",
   MESSAGE_CENTER: "nav.messageCenter",
+  MULTITENANT: "Tenant Admin",
+  SAAS_BILLING: "SAAS Billing",
+  LANDING_PAGE: "Landing Page",
   LANGUAGES: "nav.languages",
   EMAIL_CLIENT: "nav.emailClient",
   GOOGLE_DRIVE: "nav.googleDrive",
@@ -195,10 +207,10 @@ function navLabel(item, t) {
 // Default keys per role when the user has no `pages` claim of their own.
 const ROLE_DEFAULT_KEYS = {
   admin: ALL_NAV.map((n) => n.key),
-  member: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "PAGES"],
-  staff: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PROJECT_MANAGEMENT", "ATTENDANCE", "PAGES"],
-  volunteer: ["DASHBOARD", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PAGES"],
-  pastor: ["DASHBOARD", "APP_DOWNLOADS", "USERS", "ATTENDANCE", "BAPTISM", "COUNSELLING", "PAYROLL"],
+  member: ["DASHBOARD", "SUBSCRIPTIONS", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "PAGES"],
+  staff: ["DASHBOARD", "SUBSCRIPTIONS", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PROJECT_MANAGEMENT", "ATTENDANCE", "PAGES"],
+  volunteer: ["DASHBOARD", "SUBSCRIPTIONS", "APP_DOWNLOADS", "SERMONS", "PRAYER_REQUESTS", "TASKS", "PAGES"],
+  pastor: ["DASHBOARD", "SUBSCRIPTIONS", "APP_DOWNLOADS", "USERS", "ATTENDANCE", "BAPTISM", "COUNSELLING", "PAYROLL"],
 };
 
 /* ======================================================================== */
@@ -206,6 +218,12 @@ const ROLE_DEFAULT_KEYS = {
 /* ======================================================================== */
 
 const SIDEBAR_KEY = "mahima_sidebar_collapsed";
+const ROOT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+
+function isRootTenantUser(user) {
+  const tenantId = String(user?.tenantId || user?.tenant_id || user?.TenantId || "").toLowerCase();
+  return user?.isRootTenant === true || user?.IsRootTenant === true || tenantId === ROOT_TENANT_ID;
+}
 
 function isMobileAppMode() {
   try {
@@ -223,6 +241,17 @@ function resolveProfilePhoto(url = "") {
   if (!value) return "";
   if (/^(https?:|data:|blob:)/i.test(value)) return value;
   const origin = API_BASE.replace(/\/api\/?$/i, "");
+  return `${origin}${value.startsWith("/") ? "" : "/"}${value}`;
+}
+
+function resolveBrandAsset(url = "") {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  const apiBase = API_BASE.replace(/\/+$/, "");
+  const origin = apiBase.replace(/\/api\/?$/i, "");
+  if (value.startsWith("/api/uploads/")) return `${origin}${value}`;
+  if (value.startsWith("/uploads/")) return `${apiBase}${value}`;
   return `${origin}${value.startsWith("/") ? "" : "/"}${value}`;
 }
 
@@ -276,6 +305,7 @@ export default function Layout() {
     return readStoredLayoutUser();
   });
   const [allowedKeys, setAllowedKeys] = useState(new Set());
+  const [licensedModules, setLicensedModules] = useState([]);
   const [permissionRefreshKey, setPermissionRefreshKey] = useState(0);
 
   // UI state
@@ -292,6 +322,10 @@ export default function Layout() {
   const [profileMessage, setProfileMessage] = useState("");
   const [notificationTesting, setNotificationTesting] = useState(false);
   const [activePosition, setActivePositionState] = useState(() => getActivePosition());
+  const [tenantBrand, setTenantBrand] = useState({
+    name: "Church",
+    logoUrl: "",
+  });
   const userMenuRef = useRef(null);
   const chatToken = getToken();
   const chatConnection = useChatConnection(chatToken);
@@ -435,7 +469,24 @@ export default function Layout() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const fromApi = await getCurrentUser().catch(() => null);
+      const [fromApi, entitlements] = await Promise.all([
+        getCurrentUser().catch(() => null),
+        fetchTenantEntitlements().catch(() => null),
+      ]);
+      if (!cancelled) {
+        setLicensedModules(Array.isArray(entitlements?.modules) ? entitlements.modules : []);
+        if (entitlements?.tenant) {
+          const nextName = entitlements.tenant.name || entitlements.tenant.heroTitle || "Church";
+          setTenantBrand({
+            name: nextName,
+            logoUrl: entitlements.tenant.logoUrl || "",
+          });
+          if (entitlements.tenant.slug) {
+            localStorage.setItem("mahima_tenant_slug", entitlements.tenant.slug);
+            localStorage.setItem("tenantSlug", entitlements.tenant.slug);
+          }
+        }
+      }
       let finalUser = fromApi;
       if (fromApi) {
         storeLayoutUser(fromApi);
@@ -460,7 +511,10 @@ export default function Layout() {
       if (isPrayerDeskManager(finalUser) && !keys.includes("PRAYER_REQUESTS")) {
         keys.push("PRAYER_REQUESTS");
       }
-      setAllowedKeys(new Set(keys));
+      const tenantScopedKeys = isRootTenantUser(finalUser)
+        ? Array.from(new Set([...keys, "MULTITENANT"]))
+        : keys.filter((key) => key !== "MULTITENANT");
+      setAllowedKeys(new Set(tenantScopedKeys));
     })();
     return () => { cancelled = true; };
   }, [permissionRefreshKey]);
@@ -495,6 +549,47 @@ export default function Layout() {
     refreshProfile();
     return () => { cancelled = true; };
   }, [user?.id, user?.Id, user?.userId]);
+
+  useEffect(() => {
+    const onBrandChanged = (event) => {
+      const detail = event?.detail || {};
+      setTenantBrand((current) => ({
+        name: detail.name || detail.heroTitle || current.name || "Church",
+        logoUrl: detail.logoUrl || current.logoUrl || "",
+      }));
+    };
+    window.addEventListener("mahima:tenant-brand-changed", onBrandChanged);
+    return () => window.removeEventListener("mahima:tenant-brand-changed", onBrandChanged);
+  }, []);
+
+  useEffect(() => {
+    const tenantSlug = (
+      user?.tenantSlug ||
+      user?.TenantSlug ||
+      localStorage.getItem("mahima_tenant_slug") ||
+      localStorage.getItem("tenantSlug") ||
+      ""
+    ).trim();
+    if (!tenantSlug) return;
+
+    let cancelled = false;
+    fetch(`${API_BASE}/public/tenants/${encodeURIComponent(tenantSlug)}/landing`, {
+      headers: { Accept: "application/json" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setTenantBrand({
+          name: data?.tenant?.name || data?.landing?.heroTitle || "Church",
+          logoUrl: data?.landing?.logoUrl || "",
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.tenantSlug, user?.TenantSlug, user?.tenantId, user?.TenantId]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -640,7 +735,12 @@ function onLogout() {
 const visibleGroups = NAV_GROUPS
     .map((g) => ({
       ...g,
-      items: g.items.filter((i) => i.key === "CHICKEN_SALE" ? chickenAccess.enabled : allowedKeys.has(i.permissionKey || i.key)),
+      items: g.items.filter((i) => {
+        if (i.key === "CHICKEN_SALE") return chickenAccess.enabled;
+        if ((i.key === "MULTITENANT" || i.key === "SAAS_BILLING") && !isRootTenantUser(user)) return false;
+        const key = i.permissionKey || i.key;
+        return allowedKeys.has(key) && pageIsLicensed(key, licensedModules, isRootTenantUser(user));
+      }),
     }))
     .filter((g) => g.items.length > 0);
 
@@ -696,6 +796,11 @@ const visibleGroups = NAV_GROUPS
   const activePositionIsPrimary = Boolean(activePositionRecord?.isPrimary);
   const activePositionKind = activePositionRecord ? (activePositionIsPrimary ? "Primary" : "Secondary") : "Not assigned";
   const canSwitchPositions = userPositions.length > 1;
+  const brandName = tenantBrand.name || "Church";
+  const brandWords = brandName.split(/\s+/).filter(Boolean);
+  const brandPrimary = brandWords.slice(0, 2).join(" ") || "Church";
+  const brandSecondary = "Powered by MIC";
+  const brandLogo = tenantBrand.logoUrl || "";
 
   return (
     <div className="mahima-app-shell min-h-screen flex">
@@ -708,15 +813,11 @@ const visibleGroups = NAV_GROUPS
       >
         {/* Brand */}
         <Link to="/home" className="h-14 flex items-center gap-2 px-4 border-b border-slate-100">
-          <img
-            src={mahimaLogo}
-            alt=""
-            className="w-12 h-12 rounded-full mahima-logo-spin-y"
-          />
+          <TenantLogo src={brandLogo} name={brandName} className="mahima-logo-spin-y h-12 w-12 rounded-lg" />
           {!collapsed && (
             <div className="leading-tight">
-              <div className="text-sm font-bold text-slate-900">Mahima</div>
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Ministry</div>
+              <div className="text-sm font-bold text-slate-900">{brandPrimary}</div>
+              <div className="text-[10px] text-slate-500 uppercase tracking-wider">{brandSecondary}</div>
             </div>
           )}
         </Link>
@@ -763,14 +864,10 @@ const visibleGroups = NAV_GROUPS
               className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 px-4"
             >
               <Link to="/home" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
-                <img
-                  src={mahimaLogo}
-                  alt=""
-                  className="w-12 h-12 rounded-full mahima-logo-spin-y"
-                />
+                <TenantLogo src={brandLogo} name={brandName} className="mahima-logo-spin-y h-12 w-12 rounded-lg" />
                 <div className="leading-tight">
-                  <div className="text-sm font-bold">Mahima</div>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Ministry</div>
+                  <div className="text-sm font-bold">{brandPrimary}</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">{brandSecondary}</div>
                 </div>
               </Link>
               <button
@@ -822,12 +919,8 @@ const visibleGroups = NAV_GROUPS
 
           {/* Mobile-only mini brand */}
           <Link to="/home" className="md:hidden flex min-w-0 items-center gap-1.5">
-            <img
-              src={mahimaLogo}
-              alt=""
-              className="w-9 h-9 rounded-full mahima-logo-spin-y"
-            />
-            <span className="mahima-mobile-brand-text text-sm font-bold text-slate-900">Mahima</span>
+            <TenantLogo src={brandLogo} name={brandName} className="mahima-logo-spin-y h-9 w-9 rounded-lg" />
+            <span className="mahima-mobile-brand-text text-sm font-bold text-slate-900">{brandPrimary}</span>
           </Link>
 
           {/* Page title */}

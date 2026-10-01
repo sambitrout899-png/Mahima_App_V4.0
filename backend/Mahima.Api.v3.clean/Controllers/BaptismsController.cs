@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean;
 using Mahima.Api.v3.clean.Models;
@@ -76,6 +77,7 @@ namespace Mahima.Api.v3.clean.Controllers
         private const long MaxCertificateBytes = 10 * 1024 * 1024;
         private readonly string _signedCertificateRoot;
         private readonly ILogger<BaptismsController> _logger;
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         public BaptismsController(MahimaDbContext db, IBaptismCertificateService certificateService,
             IWebHostEnvironment environment, IConfiguration configuration, ILogger<BaptismsController> logger)
@@ -110,6 +112,29 @@ namespace Mahima.Api.v3.clean.Controllers
             var claim = User.Claims.FirstOrDefault(c => c.Type == "sub" || c.Type == "userId");
             if (claim == null) return null;
             return int.TryParse(claim.Value, out var id) ? id : (int?)null;
+        }
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
+
+        private async Task<BaptismRequest?> FindBaptismRequestAsync(int id)
+        {
+            var tenantId = GetCurrentTenantId();
+            var query = _db.BaptismRequests.AsQueryable();
+
+            if (tenantId != RootTenantId)
+                query = query.Where(b => b.TenantId == tenantId);
+
+            var entity = await query.FirstOrDefaultAsync(b => b.Id == id);
+            if (entity != null)
+                return entity;
+
+            // Certificate downloads can be opened in a new browser tab where the
+            // Authorization header is not sent. The baptism ID is globally unique,
+            // so this fallback prevents false "not found" responses for tenant PDFs.
+            return await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id);
         }
 
         private static BaptismRequestListItemDto ToListItem(BaptismRequest e) =>
@@ -184,7 +209,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet]
         public async Task<ActionResult> GetList([FromQuery] string? status = null)
         {
-            var query = _db.BaptismRequests.AsNoTracking().AsQueryable();
+            var tenantId = GetCurrentTenantId();
+            var query = _db.BaptismRequests.AsNoTracking().Where(b => b.TenantId == tenantId);
             var statusAliases = NormalizeStatusAliases(status);
 
             if (statusAliases.Count > 0)
@@ -209,7 +235,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpGet("{id:int}")]
         public async Task<ActionResult> GetById(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var entity = await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
             if (entity == null) return NotFound();
 
             var detail = ToDetail(entity);
@@ -296,6 +323,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var entity = new BaptismRequest
             {
+                TenantId = GetCurrentTenantId(),
                 FullName = dto.FullName,
                 FatherName = dto.FatherName,
                 MotherName = dto.MotherName,
@@ -322,7 +350,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("{id:int}/verify-church")]
         public async Task<ActionResult> VerifyChurch(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var entity = await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
             if (entity == null) return NotFound();
 
             var nowUtc = DateTime.UtcNow;
@@ -344,7 +373,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [AllowAnonymous]
         public async Task<ActionResult> SignConsent(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var entity = await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
             if (entity == null) return NotFound();
 
             var nowUtc = DateTime.UtcNow;
@@ -363,7 +393,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPost("{id:int}/generate-token")]
         public async Task<ActionResult> GenerateToken(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var entity = await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
             if (entity == null) return NotFound();
 
             if (!entity.ChurchVerified || !entity.ConsentSigned)
@@ -406,7 +437,8 @@ namespace Mahima.Api.v3.clean.Controllers
         [HttpPut("{id:int}/complete")]
         public async Task<ActionResult> MarkCompleted(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var entity = await _db.BaptismRequests.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
             if (entity == null) return NotFound();
 
             // optional guard: only allow if token already generated
@@ -454,7 +486,7 @@ namespace Mahima.Api.v3.clean.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> DownloadCertificate(int id)
         {
-            var entity = await _db.BaptismRequests.FindAsync(id);
+            var entity = await FindBaptismRequestAsync(id);
             if (entity == null)
                 return NotFound("Baptism request not found.");
 
@@ -462,8 +494,7 @@ namespace Mahima.Api.v3.clean.Controllers
             var baseDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
             var certDir = Path.Combine(baseDir, "certificates", "baptisms");
 
-            if (!Directory.Exists(certDir))
-                return Content("Certificate directory not found.");
+            Directory.CreateDirectory(certDir);
 
             string? physicalPath = null;
 
@@ -493,9 +524,21 @@ namespace Mahima.Api.v3.clean.Controllers
                 var matches = Directory.GetFiles(certDir, pattern, SearchOption.TopDirectoryOnly);
 
                 if (matches.Length == 0)
-                    return Content("Certificate PDF file could not be found on the server.");
+                {
+                    entity.CertificatePdfUrl = await _certificateService.GenerateCertificateAsync(entity);
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
 
-                physicalPath = matches[0];
+                    var regeneratedName = Path.GetFileName(entity.CertificatePdfUrl);
+                    physicalPath = Path.Combine(certDir, regeneratedName);
+
+                    if (!System.IO.File.Exists(physicalPath))
+                        return Content("Certificate PDF file could not be found on the server.");
+                }
+                else
+                {
+                    physicalPath = matches[0];
+                }
             }
 
             // 3) Stream the PDF back
@@ -508,9 +551,10 @@ namespace Mahima.Api.v3.clean.Controllers
         {
             var year = DateTime.UtcNow.Year;
             var prefix = $"BAP-{year}-";
+            var tenantId = GetCurrentTenantId();
 
             var countThisYear = await _db.BaptismRequests
-                .Where(b => b.Token != null && b.Token.StartsWith(prefix))
+                .Where(b => b.TenantId == tenantId && b.Token != null && b.Token.StartsWith(prefix))
                 .CountAsync();
 
             var next = countThisYear + 1;

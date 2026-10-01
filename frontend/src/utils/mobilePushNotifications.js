@@ -1,4 +1,4 @@
-import { apiFetch } from "./fetch-auth-shim";
+﻿import { apiFetch } from "./fetch-auth-shim";
 import { getToken } from "./auth";
 import { showSystemNotification } from "./chatNotifications";
 

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -27,7 +28,7 @@ namespace Mahima.Api.v3.clean.Helpers
             _expireMinutes = Math.Max(configuredMinutes, 43200);
         }
 
-        public string GenerateToken(Guid userId, string username, string displayName, string role = "member")
+        public string GenerateToken(Guid userId, string username, string displayName, string role = "member", Guid? tenantId = null)
         {
             var roleName = role switch
             {
@@ -42,7 +43,7 @@ namespace Mahima.Api.v3.clean.Helpers
             var tokenHandler = new JwtSecurityTokenHandler();
             var keyBytes = Encoding.UTF8.GetBytes(_key);
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
@@ -52,6 +53,8 @@ namespace Mahima.Api.v3.clean.Helpers
                 new Claim("role_code", role ?? string.Empty),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
+            if (tenantId.HasValue && tenantId.Value != Guid.Empty)
+                claims.Add(new Claim("tenant_id", tenantId.Value.ToString()));
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {

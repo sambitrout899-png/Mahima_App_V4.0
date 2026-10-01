@@ -34,5 +34,11 @@ namespace Mahima.Api.v3.clean.Extensions
 
             return Guid.TryParse(id, out userId);
         }
+
+        public static Guid GetTenantIdGuid(this ClaimsPrincipal user)
+        {
+            var id = user.FindFirst("tenant_id")?.Value;
+            return Guid.TryParse(id, out var guid) ? guid : Guid.Empty;
+        }
     }
 }

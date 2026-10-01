@@ -168,6 +168,7 @@ BEGIN
         displayname = ''Deleted duplicate user'',
         profilephotourl = NULL';
 
+<<<<<<< HEAD
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
@@ -178,6 +179,8 @@ BEGIN
         set_clause := set_clause || ', passwordhash = md5(random()::text || clock_timestamp()::text)';
     END IF;
 
+=======
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
     SELECT column_name
     INTO is_deleted_column
     FROM information_schema.columns

@@ -10,6 +10,9 @@ namespace Mahima.Api.v3.clean.Models
     [Table("analytics_user_overview", Schema = "public")]
     public class AnalyticsUserOverview
     {
+        [Column("tenant_id")]
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         [Key]
         [Column("id")]
         public int Id { get; set; }
@@ -43,6 +46,9 @@ namespace Mahima.Api.v3.clean.Models
     [Table("analytics_team_productivity", Schema = "public")]
     public class AnalyticsTeamProductivity
     {
+        [Column("tenant_id")]
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         [Key]
         [Column("id")]
         public int Id { get; set; }
@@ -75,6 +81,9 @@ namespace Mahima.Api.v3.clean.Models
     [Table("analytics_prayer_overview", Schema = "public")]
     public class AnalyticsPrayerOverview
     {
+        [Column("tenant_id")]
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         [Key]
         [Column("id")]
         public int Id { get; set; }

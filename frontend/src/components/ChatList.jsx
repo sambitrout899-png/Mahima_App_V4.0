@@ -37,7 +37,7 @@ const mediaUrlFrom = (url) => {
 };
 
 const avatarUrlFor = (chat) =>
-  mediaUrlFrom(chat?.avatarUrl || chat?.otherProfilePhotoUrl || chat?.otherAvatarUrl || chat?.profilePhotoUrl);
+  mediaUrlFrom(chat?.groupPhotoUrl || chat?.GroupPhotoUrl || chat?.photoUrl || chat?.avatarUrl || chat?.otherProfilePhotoUrl || chat?.otherAvatarUrl || chat?.profilePhotoUrl);
 
 const colorFromId = (id) => {
   const palette = [

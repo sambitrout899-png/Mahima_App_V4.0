@@ -1,4 +1,4 @@
-// src/features/admin/AdminDashboard.jsx  v3.0
+﻿// src/features/admin/AdminDashboard.jsx  v3.0
 // ── Fixes: Members=0 (arrayFrom shape), compact() decimals, snapshotAt null, chatStats key
 // ── New:   Prayer RAG donut · Church Community · Upcoming Week · Team Performance
 //           Quick Actions bar · Recent Joiners · Ministry Milestones · trend arrows

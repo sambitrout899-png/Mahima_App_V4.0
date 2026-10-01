@@ -1,4 +1,4 @@
-// src/api.js
+﻿// src/api.js
 
 import { apiFetchJson } from "./utils/fetch-auth-shim";
 import { activePositionHeaderValue } from "./utils/positionContext";

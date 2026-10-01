@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -20,9 +20,11 @@ namespace Mahima.Api.v3.clean.Services
         public const string BotUsername = "pastor.bot";
         public const string BotUserCode = "BOTPASTOR";
         public const string JaiMasihChatName = "Jai Masih";
+        private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         private readonly MahimaDbContext _db;
         private readonly IChatService _chatService;
+        private readonly ITenantContextService _tenantContext;
         private readonly ILlmProvider _llm;
         private readonly IScriptureService _scripture;
         private readonly ILogger<PastorBotService> _logger;
@@ -30,19 +32,39 @@ namespace Mahima.Api.v3.clean.Services
         public PastorBotService(
             MahimaDbContext db,
             IChatService chatService,
+            ITenantContextService tenantContext,
             ILlmProvider llm,
             IScriptureService scripture,
             ILogger<PastorBotService> logger)
         {
             _db = db;
             _chatService = chatService;
+            _tenantContext = tenantContext;
             _llm = llm;
             _scripture = scripture;
             _logger = logger;
         }
 
+        private async Task<Guid> GetCurrentTenantIdAsync(CancellationToken ct = default)
+        {
+            var tenant = await _tenantContext.GetCurrentTenantAsync(ct);
+            return tenant?.Id ?? RootTenantId;
+        }
+
         public async Task<Guid> EnsurePastorBotUserAsync(CancellationToken ct = default)
         {
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await EnsurePastorBotUserAsync(tenantId, ct);
+        }
+
+        public async Task<Guid> EnsurePastorBotUserAsync(Guid tenantId, CancellationToken ct = default)
+        {
+            var username = tenantId == RootTenantId ? BotUsername : $"pastor.bot.{tenantId:N}";
+            var userCode = tenantId == RootTenantId ? BotUserCode : $"BOT{tenantId:N}";
+            var email = tenantId == RootTenantId
+                ? "pastor.bot@mahimaministries.local"
+                : $"pastor.bot+{tenantId:N}@mahimaministries.local";
+
             var conn = _db.Database.GetDbConnection();
             if (conn.State != ConnectionState.Open)
                 await conn.OpenAsync(ct);
@@ -60,10 +82,11 @@ namespace Mahima.Api.v3.clean.Services
                 find.CommandText = @"
 SELECT id
 FROM public.users
-WHERE username = @username OR ""UserCode"" = @userCode
+WHERE tenant_id = @tenantId AND (username = @username OR ""UserCode"" = @userCode)
 LIMIT 1";
-                AddParam(find, "@username", BotUsername);
-                AddParam(find, "@userCode", BotUserCode);
+                AddParam(find, "@tenantId", tenantId);
+                AddParam(find, "@username", username);
+                AddParam(find, "@userCode", userCode);
 
                 var existing = await find.ExecuteScalarAsync(ct);
                 if (existing is Guid existingId)
@@ -78,10 +101,10 @@ SET username = COALESCE(NULLIF(username, ''), @username),
     role = COALESCE(NULLIF(role, ''), @role)
 WHERE id = @id";
                     AddParam(update, "@id", existingId);
-                    AddParam(update, "@username", BotUsername);
-                    AddParam(update, "@userCode", BotUserCode);
+                    AddParam(update, "@username", username);
+                    AddParam(update, "@userCode", userCode);
                     AddParam(update, "@displayName", "AI Pastor");
-                    AddParam(update, "@email", "pastor.bot@mahimaministries.local");
+                    AddParam(update, "@email", email);
                     AddParam(update, "@role", "admin");
                     await update.ExecuteNonQueryAsync(ct);
                     return existingId;
@@ -92,13 +115,14 @@ WHERE id = @id";
             await using (var insert = conn.CreateCommand())
             {
                 insert.CommandText = @"
-INSERT INTO public.users (id, username, ""UserCode"", displayname, email, role, joindate)
-VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
+INSERT INTO public.users (id, tenant_id, username, ""UserCode"", displayname, email, role, joindate)
+VALUES (@id, @tenantId, @username, @userCode, @displayName, @email, @role, @joinDate)";
                 AddParam(insert, "@id", botId);
-                AddParam(insert, "@username", BotUsername);
-                AddParam(insert, "@userCode", BotUserCode);
+                AddParam(insert, "@tenantId", tenantId);
+                AddParam(insert, "@username", username);
+                AddParam(insert, "@userCode", userCode);
                 AddParam(insert, "@displayName", "AI Pastor");
-                AddParam(insert, "@email", "pastor.bot@mahimaministries.local");
+                AddParam(insert, "@email", email);
                 AddParam(insert, "@role", "admin");
                 AddParam(insert, "@joinDate", DateTime.UtcNow);
                 await insert.ExecuteNonQueryAsync(ct);
@@ -108,10 +132,16 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
         }
         public async Task<Chat> EnsureJaiMasihChatAsync(CancellationToken ct = default)
         {
-            var botUserId = await EnsurePastorBotUserAsync(ct);
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await EnsureJaiMasihChatAsync(tenantId, ct);
+        }
+
+        public async Task<Chat> EnsureJaiMasihChatAsync(Guid tenantId, CancellationToken ct = default)
+        {
+            var botUserId = await EnsurePastorBotUserAsync(tenantId, ct);
 
             var chat = await _db.Chats
-                .FirstOrDefaultAsync(c => c.IsGroup && c.Name != null && c.Name.ToLower() == JaiMasihChatName.ToLower(), ct);
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.IsGroup && c.Name != null && c.Name.ToLower() == JaiMasihChatName.ToLower(), ct);
 
             if (chat == null)
             {
@@ -119,6 +149,7 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
                 {
                     Name = JaiMasihChatName,
                     IsGroup = true,
+                    TenantId = tenantId,
                     CreatedBy = botUserId,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -126,19 +157,11 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
                 await _db.SaveChangesAsync(ct);
             }
 
-            var allUserIds = new List<Guid>();
-            var conn = _db.Database.GetDbConnection();
-            if (conn.State != ConnectionState.Open)
-                await conn.OpenAsync(ct);
-            await using (var usersCmd = conn.CreateCommand())
-            {
-                usersCmd.CommandText = "SELECT id FROM public.users";
-                await using var reader = await usersCmd.ExecuteReaderAsync(ct);
-                while (await reader.ReadAsync(ct))
-                {
-                    if (!reader.IsDBNull(0)) allUserIds.Add(reader.GetGuid(0));
-                }
-            }
+            var allUserIds = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId)
+                .Select(u => u.Id)
+                .ToListAsync(ct);
 
             if (!allUserIds.Contains(botUserId))
                 allUserIds.Add(botUserId);
@@ -172,8 +195,14 @@ VALUES (@id, @username, @userCode, @displayName, @email, @role, @joinDate)";
 
         public async Task<MessageDto> SendJaiMasihMessageAsync(string content, CancellationToken ct = default)
         {
-            var chat = await EnsureJaiMasihChatAsync(ct);
-            var botUserId = await EnsurePastorBotUserAsync(ct);
+            var tenantId = await GetCurrentTenantIdAsync(ct);
+            return await SendJaiMasihMessageAsync(content, tenantId, ct);
+        }
+
+        public async Task<MessageDto> SendJaiMasihMessageAsync(string content, Guid tenantId, CancellationToken ct = default)
+        {
+            var chat = await EnsureJaiMasihChatAsync(tenantId, ct);
+            var botUserId = await EnsurePastorBotUserAsync(tenantId, ct);
             return await _chatService.AddMessageAsync(chat.Id, botUserId, content, "text");
         }
 

@@ -65,16 +65,23 @@ public class AccountingController : ControllerBase
     };
 
     private readonly MahimaDbContext _db;
+    private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
     public AccountingController(MahimaDbContext db)
     {
         _db = db;
     }
 
+    private Guid GetCurrentTenantId() =>
+        Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+            ? id
+            : RootTenantId;
+
     [HttpPost("bootstrap")]
     public async Task<IActionResult> BootstrapChartOfAccounts()
     {
         var existingNames = await _db.Accounts
+            .Where(a => a.TenantId == GetCurrentTenantId())
             .Select(a => a.Name.ToLower())
             .ToListAsync();
 
@@ -87,6 +94,7 @@ public class AccountingController : ControllerBase
 
             var account = new Account
             {
+                TenantId = GetCurrentTenantId(),
                 Name = item.Name,
                 Type = item.Type,
                 CreatedAt = DateTime.UtcNow
@@ -112,6 +120,7 @@ public class AccountingController : ControllerBase
     {
         var accounts = await _db.Accounts
             .AsNoTracking()
+            .Where(a => a.TenantId == GetCurrentTenantId())
             .OrderBy(a => a.Type)
             .ThenBy(a => a.Name)
             .ToListAsync();
@@ -137,12 +146,13 @@ public class AccountingController : ControllerBase
         if (!ValidAccountTypes.Contains(type))
             return BadRequest(new { message = "Account type must be ASSET, LIABILITY, EQUITY, INCOME, or EXPENSE." });
 
-        var duplicate = await _db.Accounts.AnyAsync(a => a.Name.ToLower() == name.ToLower());
+        var duplicate = await _db.Accounts.AnyAsync(a => a.TenantId == GetCurrentTenantId() && a.Name.ToLower() == name.ToLower());
         if (duplicate)
             return Conflict(new { message = "An account with this name already exists." });
 
         var account = new Account
         {
+            TenantId = GetCurrentTenantId(),
             Name = name,
             Type = type,
             CreatedAt = DateTime.UtcNow
@@ -170,6 +180,7 @@ public class AccountingController : ControllerBase
             .AsNoTracking()
             .Include(e => e.Lines)
             .ThenInclude(l => l.Account)
+            .Where(e => e.TenantId == GetCurrentTenantId())
             .AsQueryable();
 
         var from = NormalizeQueryDate(fromDate);
@@ -201,7 +212,7 @@ public class AccountingController : ControllerBase
             .AsNoTracking()
             .Include(e => e.Lines)
             .ThenInclude(l => l.Account)
-            .FirstOrDefaultAsync(e => e.Id == entryId);
+            .FirstOrDefaultAsync(e => e.Id == entryId && e.TenantId == GetCurrentTenantId());
 
         if (entry == null)
             return NotFound(new { message = "Journal entry not found." });
@@ -218,6 +229,7 @@ public class AccountingController : ControllerBase
 
         var entry = new JournalEntry
         {
+            TenantId = GetCurrentTenantId(),
             Date = ToUtc(dto.Date),
             Description = (dto.Description ?? string.Empty).Trim(),
             CreatedAt = DateTime.UtcNow,
@@ -244,7 +256,7 @@ public class AccountingController : ControllerBase
 
         var entry = await _db.JournalEntries
             .Include(e => e.Lines)
-            .FirstOrDefaultAsync(e => e.Id == entryId);
+            .FirstOrDefaultAsync(e => e.Id == entryId && e.TenantId == GetCurrentTenantId());
 
         if (entry == null)
             return NotFound(new { message = "Journal entry not found." });
@@ -270,7 +282,7 @@ public class AccountingController : ControllerBase
     {
         var entry = await _db.JournalEntries
             .Include(e => e.Lines)
-            .FirstOrDefaultAsync(e => e.Id == entryId);
+            .FirstOrDefaultAsync(e => e.Id == entryId && e.TenantId == GetCurrentTenantId());
 
         if (entry == null)
             return NotFound(new { message = "Journal entry not found." });
@@ -544,17 +556,18 @@ public class AccountingController : ControllerBase
         if (amount <= 0)
             return BadRequest(new { message = "Opening balance must be greater than zero." });
 
-        var account = await _db.Accounts.FindAsync(dto.AccountId);
+        var account = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == dto.AccountId && a.TenantId == GetCurrentTenantId());
         if (account == null)
             return NotFound(new { message = "Account not found." });
 
         var equity = await _db.Accounts
-            .FirstOrDefaultAsync(a => a.Name == "Opening Balance Equity" || a.Name == "Opening Balance");
+            .FirstOrDefaultAsync(a => a.TenantId == GetCurrentTenantId() && (a.Name == "Opening Balance Equity" || a.Name == "Opening Balance"));
 
         if (equity == null)
         {
             equity = new Account
             {
+                TenantId = GetCurrentTenantId(),
                 Name = "Opening Balance Equity",
                 Type = "EQUITY",
                 CreatedAt = DateTime.UtcNow
@@ -570,6 +583,7 @@ public class AccountingController : ControllerBase
 
         var entry = new JournalEntry
         {
+            TenantId = GetCurrentTenantId(),
             Date = DateTime.UtcNow,
             Description = $"Opening balance - {account.Name}",
             CreatedAt = DateTime.UtcNow,
@@ -599,7 +613,7 @@ public class AccountingController : ControllerBase
     [HttpGet("ledger/{accountId:long}")]
     public async Task<IActionResult> GetLedger(long accountId, DateTime? fromDate, DateTime? toDate)
     {
-        var account = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId);
+        var account = await _db.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == GetCurrentTenantId());
         if (account == null)
             return NotFound(new { message = "Account not found." });
 
@@ -609,7 +623,7 @@ public class AccountingController : ControllerBase
         var allLines = _db.JournalLines
             .AsNoTracking()
             .Include(l => l.JournalEntry)
-            .Where(l => l.AccountId == accountId);
+            .Where(l => l.AccountId == accountId && l.JournalEntry.TenantId == GetCurrentTenantId());
 
         decimal openingRaw = 0;
         if (from.HasValue)
@@ -1029,6 +1043,7 @@ public class AccountingController : ControllerBase
     {
         var accounts = await _db.Accounts
             .AsNoTracking()
+            .Where(a => a.TenantId == GetCurrentTenantId())
             .OrderBy(a => a.Type)
             .ThenBy(a => a.Name)
             .ToListAsync();
@@ -1036,6 +1051,7 @@ public class AccountingController : ControllerBase
         var lineQuery = _db.JournalLines
             .AsNoTracking()
             .Include(l => l.JournalEntry)
+            .Where(l => l.JournalEntry.TenantId == GetCurrentTenantId())
             .AsQueryable();
 
         if (fromDate.HasValue)
@@ -1168,7 +1184,7 @@ public class AccountingController : ControllerBase
             return JournalValidationResult.Fail("A journal entry must affect at least two different accounts.");
 
         var accountIds = normalizedLines.Select(l => l.AccountId).Distinct().ToList();
-        var existingCount = await _db.Accounts.CountAsync(a => accountIds.Contains(a.Id));
+        var existingCount = await _db.Accounts.CountAsync(a => a.TenantId == GetCurrentTenantId() && accountIds.Contains(a.Id));
 
         if (existingCount != accountIds.Count)
             return JournalValidationResult.Fail("One or more journal accounts do not exist.");

@@ -1,5 +1,6 @@
 using Mahima.Api.v3.clean.Data;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
@@ -156,6 +157,8 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddScoped<ITenantContextService, TenantContextService>();
+builder.Services.AddScoped<ILicensingService, LicensingService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IMobilePushNotificationService, MobilePushNotificationService>();
@@ -180,6 +183,8 @@ builder.Services.AddScoped<Mahima.Api.v3.clean.Services.Ai.ILlmProvider,
                             Mahima.Api.v3.clean.Services.Ai.OpenAiCompatibleLlmProvider>();
 builder.Services.AddScoped<IPastorBotService, PastorBotService>();
 builder.Services.AddHostedService<MinistryChatAutomationService>();
+builder.Services.AddHostedService<SubscriptionRenewalService>();
+builder.Services.AddHostedService<TenantDomainVerificationService>();
 builder.Services.AddHostedService<TaskAutomationQueueService>();
 builder.Services.AddHostedService<PrayerIntelligenceMonitorService>();
 builder.Services.AddSingleton<ChatSafetyMonitorService>();
@@ -243,6 +248,27 @@ app.UseStaticFiles(new StaticFileOptions
     FileProvider = new PhysicalFileProvider(webRootPath),
     RequestPath = ""
 });
+
+var uploadsRoot = app.Configuration["Uploads:Root"]
+    ?? Environment.GetEnvironmentVariable("MAHIMA_UPLOADS_ROOT")
+    ?? (OperatingSystem.IsLinux()
+        ? "/var/www/mahima-uploads"
+        : Path.Combine(webRootPath, "uploads"));
+Directory.CreateDirectory(uploadsRoot);
+var uploadFileProviders = new List<IFileProvider> { new PhysicalFileProvider(uploadsRoot) };
+var legacyWebRootUploads = Path.Combine(webRootPath, "uploads");
+if (Directory.Exists(legacyWebRootUploads) &&
+    !string.Equals(Path.GetFullPath(legacyWebRootUploads), Path.GetFullPath(uploadsRoot), StringComparison.OrdinalIgnoreCase))
+{
+    uploadFileProviders.Add(new PhysicalFileProvider(legacyWebRootUploads));
+}
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = uploadFileProviders.Count == 1
+        ? uploadFileProviders[0]
+        : new CompositeFileProvider(uploadFileProviders),
+    RequestPath = "/api/uploads"
+});
 app.UseRouting();
 
 // ✅ CORS MUST BE HERE
@@ -251,6 +277,7 @@ app.UseCors(CorsPolicy);
 app.UseAuthentication();
 app.UseMiddleware<AuditTrailMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<TenantModuleAccessMiddleware>();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/api/hubs/chat");

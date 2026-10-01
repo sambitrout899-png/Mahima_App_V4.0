@@ -1,4 +1,4 @@
-// src/utils/chatNotifications.js
+﻿// src/utils/chatNotifications.js
 //
 // Cross-platform notification helpers for the Jai Masih chat:
 //   - Plays a short two-tone beep / "Jai Masih" voice when a new message arrives

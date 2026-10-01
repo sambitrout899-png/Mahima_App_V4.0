@@ -1,7 +1,11 @@
 ﻿// src/features/auth/permissionService.js
 // Permission helpers for AdminDashboard.jsx and TimesheetPage.jsx
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://www.mahimaministries.com/api";
+const API_BASE = import.meta.env.VITE_API_BASE;
+
+if (!API_BASE) {
+  throw new Error("🚨 VITE_API_BASE is not defined");
+}
 
 let _rolesCache = null;
 let _rolesPromise = null;

@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 # AI Pastor — LLM Provider Layer
 
 This folder replaces the AI Pastor's direct OpenAI dependency with a
+=======
+﻿# AI Counseller — LLM Provider Layer
+
+This folder replaces the AI Counseller's direct OpenAI dependency with a
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 **provider-agnostic LLM layer**. The pastor logic no longer knows or cares
 which model answers — it talks to an `ILlmProvider`, selected by configuration.
 
@@ -19,7 +25,11 @@ After:
 - `PastorBotService` — refactored to use both. All personas, languages, and
   offline fallbacks are unchanged.
 
+<<<<<<< HEAD
 The result: you can drop OpenAI entirely and run the AI Pastor on a model you
+=======
+The result: you can drop OpenAI entirely and run the AI Counseller on a model you
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 host yourself, or on a cheaper hosted endpoint — by editing config only.
 
 ## Configuration
@@ -115,7 +125,11 @@ Also works with **Together.ai**, **OpenRouter**, **vLLM**, **LM Studio**,
 
 If `BaseUrl` is unset, the endpoint is down, or the call errors, `PastorBotService`
 falls back to its built-in pastoral answers (`Source = "fallback"` on the reply).
+<<<<<<< HEAD
 The AI Pastor never returns a hard error to the user — it degrades gracefully.
+=======
+The AI Counseller never returns a hard error to the user — it degrades gracefully.
+>>>>>>> 6b902a41 (Update Mahima app server files and related changes)
 
 ## Scripture grounding
 

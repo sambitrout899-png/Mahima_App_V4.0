@@ -1,4 +1,4 @@
-// src/features/home/HomeLanding.jsx
+﻿// src/features/home/HomeLanding.jsx
 //
 // Mahima Ministry landing page — sleeker, leaner, no duplicates.
 //

@@ -11,6 +11,9 @@ namespace Mahima.Api.v3.clean.Models
         [Column("Id")]
         public int Id { get; set; }          // <-- int, NOT Guid
 
+        [Column("TenantId")]
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         [Column("UserId")]
         public string UserId { get; set; } = string.Empty;
 

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace Mahima.Api.v3.clean.Controllers
@@ -26,6 +27,151 @@ namespace Mahima.Api.v3.clean.Controllers
             _env = env ?? throw new ArgumentNullException(nameof(env));
         }
 
+        private static readonly Dictionary<string, string> PageModules = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CHAT"] = "chat",
+            ["TASKS"] = "operations",
+            ["ATTENDANCE"] = "operations",
+            ["PAYROLL"] = "operations",
+            ["COSTS"] = "operations",
+            ["REPORTS"] = "operations",
+            ["AUDIT_TRAIL"] = "operations",
+            ["PASTOR"] = "care_ministry",
+            ["README"] = "care_ministry",
+            ["MARRIAGE"] = "care_ministry",
+            ["BAPTISM"] = "care_ministry",
+            ["COUNSELLING"] = "care_ministry",
+            ["ADMIN_DASHBOARD"] = "admin_tools",
+            ["LIVE_USERS"] = "admin_tools",
+            ["MULTITENANT"] = "admin_tools",
+            ["LANGUAGES"] = "admin_tools",
+            ["APP_DOWNLOADS"] = "communications",
+            ["MESSAGE_CENTER"] = "communications",
+            ["EMAIL_CLIENT"] = "communications",
+            ["GOOGLE_DRIVE"] = "communications",
+            ["SERVER_FILES"] = "communications"
+        };
+
+        private static readonly string[] BasePageKeys =
+        {
+            "DASHBOARD", "LANDING_PAGE", "USERS", "PRAYER_REQUESTS", "SERMONS", "TEAMS", "ROLES", "PAGES"
+        };
+
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        private static async Task EnsureTenantRolePermissionsTableAsync(NpgsqlConnection conn)
+        {
+            await using var cmd = new NpgsqlCommand(@"
+CREATE TABLE IF NOT EXISTS public.tenant_role_permissions (
+    tenant_id uuid NOT NULL,
+    role_id integer NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+    page_key text NOT NULL,
+    created_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at_utc timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, role_id, page_key)
+);
+
+CREATE INDEX IF NOT EXISTS ix_tenant_role_permissions_role
+    ON public.tenant_role_permissions(role_id, page_key);", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task<HashSet<string>> LoadLicensedPageKeysAsync(NpgsqlConnection conn, Guid tenantId)
+        {
+            var keys = new HashSet<string>(BasePageKeys, StringComparer.OrdinalIgnoreCase);
+            if (tenantId == Guid.Parse("00000000-0000-0000-0000-000000000001"))
+            {
+                foreach (var key in PageModules.Keys) keys.Add(key);
+                keys.Add("MULTITENANT");
+                return keys;
+            }
+
+            await using var cmd = new NpgsqlCommand(@"
+SELECT m.code
+FROM public.module_catalog m
+WHERE m.enabled = true
+  AND (
+      m.is_base_module = true
+      OR EXISTS (
+          SELECT 1
+          FROM public.tenant_module_licenses l
+          WHERE l.tenant_id = @tenant_id
+            AND l.module_code = m.code
+            AND l.status = 'active'
+            AND l.starts_at_utc <= now()
+            AND (l.ends_at_utc IS NULL OR l.ends_at_utc > now())
+      )
+  );", conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            var modules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (await rdr.ReadAsync())
+            {
+                var code = rdr["code"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(code)) modules.Add(code);
+            }
+
+            foreach (var pair in PageModules)
+            {
+                if (modules.Contains(pair.Value)) keys.Add(pair.Key);
+            }
+
+            keys.Remove("MULTITENANT");
+            return keys;
+        }
+
+        private static async Task<List<object>> ReadRolesAsync(NpgsqlConnection conn, Guid tenantId, HashSet<string> licensedKeys, int? roleId = null)
+        {
+            await EnsureTenantRolePermissionsTableAsync(conn);
+            var sql = @"
+WITH tenant_roles AS (
+    SELECT role_id, page_key
+    FROM public.tenant_role_permissions
+    WHERE tenant_id = @tenant_id
+),
+role_rows AS (
+    SELECT r.id, r.name, r.description,
+           CASE
+             WHEN EXISTS (SELECT 1 FROM tenant_roles tr WHERE tr.role_id = r.id)
+             THEN COALESCE(ARRAY_AGG(DISTINCT UPPER(tr.page_key)) FILTER (WHERE tr.page_key IS NOT NULL), ARRAY[]::text[])
+             ELSE COALESCE(ARRAY_AGG(DISTINCT UPPER(rp.page_key)) FILTER (WHERE rp.page_key IS NOT NULL), ARRAY[]::text[])
+           END AS pages
+    FROM roles r
+    LEFT JOIN tenant_roles tr ON tr.role_id = r.id
+    LEFT JOIN role_permissions rp ON rp.role_id = r.id
+    WHERE (@role_id IS NULL OR r.id = @role_id)
+    GROUP BY r.id, r.name, r.description
+)
+SELECT id, name, description, pages
+FROM role_rows
+ORDER BY id;";
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
+            cmd.Parameters.AddWithValue("role_id", NpgsqlTypes.NpgsqlDbType.Integer, roleId.HasValue ? (object)roleId.Value : DBNull.Value);
+
+            var items = new List<object>();
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                var pages = rdr["pages"] is DBNull
+                    ? Array.Empty<string>()
+                    : ((string[])rdr["pages"]).Where(licensedKeys.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                items.Add(new
+                {
+                    id = Convert.ToInt32(rdr["id"]),
+                    name = rdr["name"] is DBNull ? null : rdr["name"].ToString(),
+                    description = rdr["description"] is DBNull ? null : rdr["description"].ToString(),
+                    pages
+                });
+            }
+
+            return items;
+        }
+
         // GET api/roles
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -36,28 +182,9 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
-
-                var sql = @"
-SELECT r.id, r.name, r.description,
-       COALESCE(ARRAY_AGG(DISTINCT UPPER(rp.page_key)) FILTER (WHERE rp.page_key IS NOT NULL), ARRAY[]::text[]) AS pages
-FROM roles r
-LEFT JOIN role_permissions rp ON rp.role_id = r.id
-GROUP BY r.id, r.name, r.description
-ORDER BY r.id;
-";
-                await using var cmd = new NpgsqlCommand(sql, conn);
-                var items = new List<object>();
-                await using var rdr = await cmd.ExecuteReaderAsync();
-                while (await rdr.ReadAsync())
-                {
-                    items.Add(new
-                    {
-                        id = Convert.ToInt32(rdr["id"]),
-                        name = rdr["name"] is DBNull ? null : rdr["name"].ToString(),
-                        description = rdr["description"] is DBNull ? null : rdr["description"].ToString(),
-                        pages = rdr["pages"] is DBNull ? new string[0] : (string[])rdr["pages"]
-                    });
-                }
+                var tenantId = GetCurrentTenantId();
+                var licensedKeys = await LoadLicensedPageKeysAsync(conn, tenantId);
+                var items = await ReadRolesAsync(conn, tenantId, licensedKeys);
 
                 return Ok(new { items, total = items.Count });
             }
@@ -78,30 +205,10 @@ ORDER BY r.id;
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
-
-                var sql = @"
-SELECT r.id, r.name, r.description,
-       COALESCE(ARRAY_AGG(DISTINCT UPPER(rp.page_key)) FILTER (WHERE rp.page_key IS NOT NULL), ARRAY[]::text[]) AS pages
-FROM roles r
-LEFT JOIN role_permissions rp ON rp.role_id = r.id
-WHERE r.id = @id
-GROUP BY r.id, r.name, r.description;
-";
-                await using var cmd = new NpgsqlCommand(sql, conn);
-                cmd.Parameters.AddWithValue("id", NpgsqlTypes.NpgsqlDbType.Integer, id);
-
-                await using var rdr = await cmd.ExecuteReaderAsync();
-                if (await rdr.ReadAsync())
-                {
-                    return Ok(new
-                    {
-                        id = Convert.ToInt32(rdr["id"]),
-                        name = rdr["name"] is DBNull ? null : rdr["name"].ToString(),
-                        description = rdr["description"] is DBNull ? null : rdr["description"].ToString(),
-                        pages = rdr["pages"] is DBNull ? new string[0] : (string[])rdr["pages"]
-                    });
-                }
-                return NotFound();
+                var tenantId = GetCurrentTenantId();
+                var licensedKeys = await LoadLicensedPageKeysAsync(conn, tenantId);
+                var items = await ReadRolesAsync(conn, tenantId, licensedKeys, id);
+                return items.Count == 0 ? NotFound() : Ok(items[0]);
             }
             catch (Exception ex)
             {
@@ -121,6 +228,9 @@ GROUP BY r.id, r.name, r.description;
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                await EnsureTenantRolePermissionsTableAsync(conn);
+                var tenantId = GetCurrentTenantId();
+                var licensedKeys = await LoadLicensedPageKeysAsync(conn, tenantId);
                 await using var tx = await conn.BeginTransactionAsync();
 
                 var insertSql = @"INSERT INTO roles (name, description) VALUES (@name, @description) RETURNING id;";
@@ -134,9 +244,10 @@ GROUP BY r.id, r.name, r.description;
                     // assign pages (page keys)
                     if (dto.Pages != null && dto.Pages.Length > 0)
                     {
-                        foreach (var pk in NormalizePageKeys(dto.Pages))
+                        foreach (var pk in NormalizePageKeys(dto.Pages).Where(licensedKeys.Contains))
                         {
-                            await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk);", conn) { Transaction = tx };
+                            await using var rel = new NpgsqlCommand(@"INSERT INTO tenant_role_permissions(tenant_id, role_id, page_key) VALUES (@tenant_id, @r, @pk) ON CONFLICT (tenant_id, role_id, page_key) DO NOTHING;", conn) { Transaction = tx };
+                            rel.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
                             rel.Parameters.AddWithValue("r", NpgsqlTypes.NpgsqlDbType.Integer, roleId);
                             rel.Parameters.AddWithValue("pk", NpgsqlTypes.NpgsqlDbType.Text, pk);
                             await rel.ExecuteNonQueryAsync();
@@ -165,6 +276,9 @@ GROUP BY r.id, r.name, r.description;
             {
                 await using var conn = new NpgsqlConnection(_connectionString);
                 await conn.OpenAsync();
+                await EnsureTenantRolePermissionsTableAsync(conn);
+                var tenantId = GetCurrentTenantId();
+                var licensedKeys = await LoadLicensedPageKeysAsync(conn, tenantId);
                 await using var tx = await conn.BeginTransactionAsync();
 
                 // update name/description if provided
@@ -193,14 +307,16 @@ GROUP BY r.id, r.name, r.description;
                 if (dto.Pages != null)
                 {
                     // delete existing mappings
-                    await using var del = new NpgsqlCommand("DELETE FROM role_permissions WHERE role_id = @r", conn) { Transaction = tx };
+                    await using var del = new NpgsqlCommand("DELETE FROM tenant_role_permissions WHERE tenant_id = @tenant_id AND role_id = @r", conn) { Transaction = tx };
+                    del.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
                     del.Parameters.AddWithValue("r", NpgsqlTypes.NpgsqlDbType.Integer, id);
                     await del.ExecuteNonQueryAsync();
 
                     // insert new mappings
-                    foreach (var pk in NormalizePageKeys(dto.Pages))
+                    foreach (var pk in NormalizePageKeys(dto.Pages).Where(licensedKeys.Contains))
                     {
-                        await using var rel = new NpgsqlCommand(@"INSERT INTO role_permissions(role_id, page_key) VALUES (@r, @pk);", conn) { Transaction = tx };
+                        await using var rel = new NpgsqlCommand(@"INSERT INTO tenant_role_permissions(tenant_id, role_id, page_key) VALUES (@tenant_id, @r, @pk) ON CONFLICT (tenant_id, role_id, page_key) DO NOTHING;", conn) { Transaction = tx };
+                        rel.Parameters.AddWithValue("tenant_id", NpgsqlTypes.NpgsqlDbType.Uuid, tenantId);
                         rel.Parameters.AddWithValue("r", NpgsqlTypes.NpgsqlDbType.Integer, id);
                         rel.Parameters.AddWithValue("pk", NpgsqlTypes.NpgsqlDbType.Text, pk);
                         await rel.ExecuteNonQueryAsync();

@@ -10,6 +10,7 @@ namespace Mahima.Api.v3.clean.Models
     public class PayrollRun
     {
         public Guid Id { get; set; }
+        public Guid TenantId { get; set; } = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
         // FK to Users table (string id you’re already using elsewhere)
         public string UserId { get; set; } = default!;

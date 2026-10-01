@@ -23,6 +23,7 @@ public class ExpensesController : ControllerBase
 {
     private readonly MahimaDbContext _db;
     private readonly AccountingService _accountingService;
+    private static readonly Guid RootTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 //        public ExpensesController(MahimaDbContext db)
   //      {
     //        _db = db;
@@ -33,6 +34,11 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
     _accountingService = accountingService;
 }
 
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : RootTenantId;
+
         // GET: /api/expenses?month=2025-11&category=PAYROLL
 	[AllowAnonymous]
         [HttpGet]
@@ -42,7 +48,8 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
             [FromQuery] DateTime? fromDate,
             [FromQuery] DateTime? toDate)
         {
-            var query = _db.Expenses.AsQueryable();
+            var tenantId = GetCurrentTenantId();
+            var query = _db.Expenses.Where(e => e.TenantId == tenantId);
 
             if (fromDate.HasValue)
             {
@@ -83,7 +90,8 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
         [HttpGet("{id:long}")]
         public async Task<ActionResult<ExpenseDto>> GetExpense(long id)
         {
-            var exp = await _db.Expenses.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var exp = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
             if (exp == null) return NotFound();
             return Ok(ToDto(exp));
         }
@@ -99,6 +107,8 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
             var exp = new Expense();
             Apply(dto, exp);
 
+           var tenantId = GetCurrentTenantId();
+           exp.TenantId = tenantId;
             exp.CreatedAt = DateTime.UtcNow;
             exp.UpdatedAt = DateTime.UtcNow;
             exp.CreatedByUserId = GetCurrentUserId();
@@ -106,7 +116,7 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
             _db.Expenses.Add(exp);
             await _db.SaveChangesAsync();
 		
-	    await _accountingService.CreateExpenseEntry(dto);
+	   await _accountingService.CreateExpenseEntry(tenantId, dto);
 
             var result = ToDto(exp);
             return CreatedAtAction(nameof(GetExpense), new { id = exp.Id }, result);
@@ -121,7 +131,8 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
 
-            var exp = await _db.Expenses.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var exp = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
             if (exp == null) return NotFound();
 
             Apply(dto, exp);
@@ -135,7 +146,8 @@ public ExpensesController(MahimaDbContext db, AccountingService accountingServic
         [HttpDelete("{id:long}")]
         public async Task<IActionResult> DeleteExpense(long id)
         {
-            var exp = await _db.Expenses.FindAsync(id);
+            var tenantId = GetCurrentTenantId();
+            var exp = await _db.Expenses.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
             if (exp == null) return NotFound();
 
             _db.Expenses.Remove(exp);

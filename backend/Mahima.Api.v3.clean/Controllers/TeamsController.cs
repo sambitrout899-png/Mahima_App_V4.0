@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using NpgsqlTypes;
 using System;
 using System.Data;
 using System.Security.Claims;
@@ -53,11 +54,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 // Postgres: RETURNING Id, Name, Description
                 await using var cmd = conn.CreateCommand();
                 cmd.CommandText = @"
-                    INSERT INTO ""Teams"" (""Name"", ""Description"", ""CreatedAt"")
-                    VALUES (@name, @desc, now())
-                    RETURNING ""Id"", ""Name"", ""Description"";";
-                cmd.Parameters.AddWithValue("name", dto.Name.Trim());
-                cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
+                INSERT INTO ""Teams"" (""Name"", ""Description"", ""CreatedAt"", ""TenantId"")
+                VALUES (@name, @desc, now(), @tenantId)
+                RETURNING ""Id"", ""Name"", ""Description"";";
+            cmd.Parameters.AddWithValue("name", dto.Name.Trim());
+            cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
@@ -89,6 +91,11 @@ namespace Mahima.Api.v3.clean.Controllers
         private Guid GetCurrentUserId() =>
             Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
 
+        private Guid GetCurrentTenantId() =>
+            Guid.TryParse(User.FindFirstValue("tenant_id"), out var id)
+                ? id
+                : Guid.Parse("00000000-0000-0000-0000-000000000001");
+
         private async Task CreateTeamChatIfPossibleAsync(string? teamName)
         {
             var creatorId = GetCurrentUserId();
@@ -114,7 +121,8 @@ namespace Mahima.Api.v3.clean.Controllers
                 await conn.OpenAsync();
 
                 await using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"SELECT ""Id"", ""Name"", ""Description"" FROM ""Teams"" ORDER BY ""Id"" DESC;";
+                cmd.CommandText = @"SELECT ""Id"", ""Name"", ""Description"" FROM ""Teams"" WHERE ""TenantId"" = @tenantId ORDER BY ""Id"" DESC;";
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
                 await using var rdr = await cmd.ExecuteReaderAsync();
 
                 var list = new System.Collections.Generic.List<TeamDto>();
@@ -147,8 +155,9 @@ namespace Mahima.Api.v3.clean.Controllers
                 await conn.OpenAsync();
 
                 await using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"SELECT ""Id"", ""Name"", ""Description"" FROM ""Teams"" WHERE CAST(""Id"" AS text) = @id LIMIT 1;";
+                cmd.CommandText = @"SELECT ""Id"", ""Name"", ""Description"" FROM ""Teams"" WHERE CAST(""Id"" AS text) = @id AND ""TenantId"" = @tenantId LIMIT 1;";
                 cmd.Parameters.AddWithValue("id", id);
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
@@ -186,11 +195,12 @@ namespace Mahima.Api.v3.clean.Controllers
                 cmd.CommandText = @"
                     UPDATE ""Teams""
                     SET ""Name"" = @name, ""Description"" = @desc, ""UpdatedAt"" = now()
-                    WHERE CAST(""Id"" AS text) = @id
-                    RETURNING ""Id"", ""Name"", ""Description"";";
-                cmd.Parameters.AddWithValue("name", dto.Name.Trim());
-                cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("id", id);
+                WHERE CAST(""Id"" AS text) = @id AND ""TenantId"" = @tenantId
+                RETURNING ""Id"", ""Name"", ""Description"";";
+            cmd.Parameters.AddWithValue("name", dto.Name.Trim());
+            cmd.Parameters.AddWithValue("desc", (object?)dto.Description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("id", id);
+            cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
@@ -223,8 +233,9 @@ namespace Mahima.Api.v3.clean.Controllers
                 await conn.OpenAsync();
 
                 await using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"DELETE FROM ""Teams"" WHERE CAST(""Id"" AS text) = @id RETURNING ""Id"";";
+                cmd.CommandText = @"DELETE FROM ""Teams"" WHERE CAST(""Id"" AS text) = @id AND ""TenantId"" = @tenantId RETURNING ""Id"";";
                 cmd.Parameters.AddWithValue("id", id);
+                cmd.Parameters.AddWithValue("tenantId", NpgsqlDbType.Uuid, GetCurrentTenantId());
 
                 await using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
