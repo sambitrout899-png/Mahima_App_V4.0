@@ -7,6 +7,8 @@ using Twilio;
 using Twilio.Exceptions;
 using Twilio.Rest.Api.V2010.Account;
 using Twilio.Types;
+using Mahima.Api.v3.clean.Services;
+using Npgsql;
 
 namespace Mahima.Api.v3.clean.Helpers
 {
@@ -170,7 +172,8 @@ namespace Mahima.Api.v3.clean.Helpers
 
             private string? GetConfig(string key)
             {
-                return _configuration?[key] ?? Environment.GetEnvironmentVariable(key);
+                return _configuration?[key] ?? Environment.GetEnvironmentVariable(key)
+                    ?? Environment.GetEnvironmentVariable(key.Replace(":", "__"));
             }
 
             // helper: normalize E.164 for SMS (strip any whatsapp: prefix)
@@ -206,68 +209,19 @@ namespace Mahima.Api.v3.clean.Helpers
 
             public async Task<(bool Success, string? ErrorMessage)> SendSmsAsync(string toPhone, string body, ILogger? logger = null)
             {
-                var log = logger ?? _logger;
-                try
-                {
-                    if (string.IsNullOrWhiteSpace(_accountSid) || string.IsNullOrWhiteSpace(_authToken))
+                var baseConfiguration = _configuration ?? new ConfigurationBuilder().AddEnvironmentVariables().Build();
+                var configuration = new ConfigurationBuilder().AddConfiguration(baseConfiguration)
+                    .AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        var em = "Twilio credentials missing (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN).";
-                        log?.LogError(em);
-                        return (false, em);
-                    }
-
-                    if (string.IsNullOrWhiteSpace(toPhone))
-                    {
-                        var em = "Destination phone number is empty.";
-                        log?.LogError(em);
-                        return (false, em);
-                    }
-
-                    // Ensure the phone passed to SMS is plain E.164 (no whatsapp: prefix)
-                    var toE164 = NormalizeE164(toPhone);
-                    var fromE164 = !string.IsNullOrWhiteSpace(_fromNumber) ? NormalizeE164(_fromNumber) : null;
-
-                    log?.LogInformation("Sending SMS -> To: {To}, From: {From}, Using MessagingService: {Ms}", toE164, fromE164, _messagingServiceSid);
-
-                    var to = new PhoneNumber(toE164);
-                    MessageResource message;
-
-                    if (!string.IsNullOrWhiteSpace(_messagingServiceSid))
-                    {
-                        message = await MessageResource.CreateAsync(
-                            to: to,
-                            messagingServiceSid: _messagingServiceSid,
-                            body: body
-                        );
-                    }
-                    else if (!string.IsNullOrWhiteSpace(fromE164))
-                    {
-                        message = await MessageResource.CreateAsync(
-                            to: to,
-                            from: new PhoneNumber(fromE164),
-                            body: body
-                        );
-                    }
-                    else
-                    {
-                        var em = "No SMS sender configured. Set TWILIO_FROM_NUMBER or TWILIO_MESSAGING_SERVICE_SID.";
-                        log?.LogError(em);
-                        return (false, em);
-                    }
-
-                    log?.LogInformation("SMS sent. SID: {Sid}", message?.Sid);
-                    return (true, null);
-                }
-                catch (ApiException aex)
-                {
-                    log?.LogError(aex, "Twilio API Exception (SMS): Code={Code}, Message={Message}, MoreInfo={MoreInfo}", aex.Code, aex.Message, aex.MoreInfo);
-                    return (false, $"Twilio API error: {aex.Message}");
-                }
-                catch (Exception ex)
-                {
-                    log?.LogError(ex, "Unexpected error sending SMS");
-                    return (false, ex.Message);
-                }
+                        ["Twilio:AccountSid"] = _accountSid ?? baseConfiguration["Twilio:AccountSid"],
+                        ["Twilio:AuthToken"] = _authToken ?? baseConfiguration["Twilio:AuthToken"],
+                        ["Twilio:FromNumber"] = _fromNumber ?? baseConfiguration["Twilio:FromNumber"],
+                        ["Twilio:MessagingServiceSid"] = _messagingServiceSid ?? baseConfiguration["Twilio:MessagingServiceSid"]
+                    }).Build();
+                var service = new TwilioSmsService(configuration, Microsoft.Extensions.Logging.Abstractions.NullLogger<TwilioSmsService>.Instance);
+                var result = await service.SendAsync(toPhone, body);
+                if (!result.Queued) (logger ?? _logger)?.LogWarning("SMS {Status}: {Error}", result.Status, result.Error);
+                return (result.Queued, result.Error);
             }
 
             public async Task<(bool Success, string? ErrorMessage)> SendWhatsappAsync(string toPhone, string body, ILogger? logger = null)

@@ -1,0 +1,3300 @@
+{
+  "status": "PREPARED_ONLY_NOT_APPLIED",
+  "period": {
+    "from_date": "2026-04-01",
+    "to_date": "2026-08-31"
+  },
+  "source_ledger_rows": 179,
+  "opening_balances": {
+    "BUILDING A/C": "325000.00",
+    "CAPITAL FUND": "-150958.00",
+    "EXPS PAYABLE": "-6150.00",
+    "FURNITURE": "76988.00",
+    "MUSIC SYSTEM": "80000.00",
+    "SALARY PAYABLE": "-83100.00",
+    "SAMBIT RAUT": "-290500.00",
+    "TENT & CORCKERY": "35000.00",
+    "CASH IN HAND": "13720.00"
+  },
+  "journals": [
+    {
+      "source_key": "Ledger-1:2026-04-04:C-1",
+      "date": "2026-04-04",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "900.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "900.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-05:C-1",
+      "date": "2026-04-05",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "3760.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "3760.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-1",
+      "date": "2026-04-10",
+      "voucher": "J-1",
+      "description": "SALARY PAID TO RAJWINDER",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "10000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "10000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-1"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-2",
+      "date": "2026-04-10",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO BALVIR",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "7000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "7000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-2"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-3",
+      "date": "2026-04-10",
+      "voucher": "J-3",
+      "description": "SALARY PAID TO PAWAN",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "7000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "7000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-3"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-4",
+      "date": "2026-04-10",
+      "voucher": "J-4",
+      "description": "SALARY PAID TO ANKUSH",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "15600.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "15600.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-4"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-5",
+      "date": "2026-04-10",
+      "voucher": "J-5",
+      "description": "SALARY PAID TO JOHN",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "5000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "5000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-5"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-6",
+      "date": "2026-04-10",
+      "voucher": "J-6",
+      "description": "SALARY PAID TO SANDEEP",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "6000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "6000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-6"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-6"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-7",
+      "date": "2026-04-10",
+      "voucher": "J-7",
+      "description": "SALARY PAID TO RUPESH",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "13000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "13000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-7"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-7"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-8",
+      "date": "2026-04-10",
+      "voucher": "J-8",
+      "description": "SALARY PAID TO LAKSHMI",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "5000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "5000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-8"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-8"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-10:J-9",
+      "date": "2026-04-10",
+      "voucher": "J-9",
+      "description": "SALARY PAID TO KULWANT SINGH BUNTY",
+      "lines": [
+        {
+          "account": "SALARY PAYABLE",
+          "debit": "7000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "7000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 6,
+          "account": "SALARY PAYABLE",
+          "voucher": "J-9"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-9"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-11:C-1",
+      "date": "2026-04-11",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "700.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "700.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-11:C-2",
+      "date": "2026-04-11",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1050.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1050.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-15:J-1",
+      "date": "2026-04-15",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT FOR RENT PAID",
+      "lines": [
+        {
+          "account": "RENT",
+          "debit": "13000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "13000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "RENT",
+          "voucher": "J-1"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-18:C-1",
+      "date": "2026-04-18",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "910.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "910.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-18:C-2",
+      "date": "2026-04-18",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1250.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1250.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-25:C-1",
+      "date": "2026-04-25",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1165.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1165.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-04-25:C-2",
+      "date": "2026-04-25",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1350.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1350.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-02:C-1",
+      "date": "2026-05-02",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1000.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1000.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-02:C-2",
+      "date": "2026-05-02",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "500.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "500.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-09:C-1",
+      "date": "2026-05-09",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "3050.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "3050.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-10:C-4",
+      "date": "2026-05-10",
+      "voucher": "C-4",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1900.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1900.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-10:J-1",
+      "date": "2026-05-10",
+      "voucher": "J-1",
+      "description": "SALARY PAID TO RAJWINDER FOR MONTH OF APRIL 2026",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "8832.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "8832.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-1"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-10:J-2",
+      "date": "2026-05-10",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO RUPESH FOR MONTH OF APRIL 2026",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "9000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "9000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        },
+        {
+          "page": 6,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-10:J-3",
+      "date": "2026-05-10",
+      "voucher": "J-3",
+      "description": "SALARY PAID TO LAKSHMI FOR MONTH OF APRIL 2026",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "4807.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "4807.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-3"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-13:J-1",
+      "date": "2026-05-13",
+      "voucher": "J-1",
+      "description": "SALARY PAID TO KULWANT SINGH FOR MONTH OF APRIL 2026",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "7000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-13:J-2",
+      "date": "2026-05-13",
+      "voucher": "J-2",
+      "description": "ADVANCE PAID TO JOHN FOR MONTH OF APRIL",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "2000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "2000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-13:J-3",
+      "date": "2026-05-13",
+      "voucher": "J-3",
+      "description": "AMT TSFR FROM SAMBIT RAUT FOR RENT PAID",
+      "lines": [
+        {
+          "account": "RENT",
+          "debit": "13000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "13000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "RENT",
+          "voucher": "J-3"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-16:C-2",
+      "date": "2026-05-16",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "650.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "650.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-16:C-3",
+      "date": "2026-05-16",
+      "voucher": "C-3",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "700.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "700.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-16:J-1",
+      "date": "2026-05-16",
+      "voucher": "J-1",
+      "description": "CHQ NO 000079 FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "50000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "50000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-23:C-3",
+      "date": "2026-05-23",
+      "voucher": "C-3",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "330.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "330.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-23:C-4",
+      "date": "2026-05-23",
+      "voucher": "C-4",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1060.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1060.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-23:J-2",
+      "date": "2026-05-23",
+      "voucher": "J-2",
+      "description": "UPI",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "1.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "1.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-1",
+      "date": "2026-05-27",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SISTER SOMA",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "100.00",
+          "credit": "0"
+        },
+        {
+          "account": "SOMA",
+          "debit": "0",
+          "credit": "100.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SOMA",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-2",
+      "date": "2026-05-27",
+      "voucher": "J-2",
+      "description": "AMT TSFR FROM SISTER SOMA",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "100.00",
+          "credit": "0"
+        },
+        {
+          "account": "RAJWINDER KAUR",
+          "debit": "0",
+          "credit": "100.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 4,
+          "account": "RAJWINDER KAUR",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-3",
+      "date": "2026-05-27",
+      "voucher": "J-3",
+      "description": "SALARY PAID TO BALVIR APRIL MONTH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "7000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-3"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-4",
+      "date": "2026-05-27",
+      "voucher": "J-4",
+      "description": "SALARY PAID TO SANDEEP APRIL MONTH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "5564.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "5564.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-4"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-5",
+      "date": "2026-05-27",
+      "voucher": "J-5",
+      "description": "SALARY PAID TO PAWAN APRIL MONTH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "12000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "12000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-5"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-27:J-6",
+      "date": "2026-05-27",
+      "voucher": "J-6",
+      "description": "SALARY PAID TO ANKUSH APRIL MONTH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "20000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "20000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-6"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-6"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-30:C-1",
+      "date": "2026-05-30",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "840.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "840.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-05-30:C-2",
+      "date": "2026-05-30",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "790.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "790.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-06:C-1",
+      "date": "2026-06-06",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1021.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1021.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-06:C-2",
+      "date": "2026-06-06",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "920.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "920.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:C-6",
+      "date": "2026-06-13",
+      "voucher": "C-6",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "2087.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "2087.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-6"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:C-7",
+      "date": "2026-06-13",
+      "voucher": "C-7",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1100.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1100.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-7"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:J-1",
+      "date": "2026-06-13",
+      "voucher": "J-1",
+      "description": "UPI FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "1.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "1.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:J-2",
+      "date": "2026-06-13",
+      "voucher": "J-2",
+      "description": "UPI FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "25000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "25000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:J-3",
+      "date": "2026-06-13",
+      "voucher": "J-3",
+      "description": "SALARY PAID TO RAJWINDER FOR THE MONTH OF MAY 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "8832.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "8832.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-3"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:J-4",
+      "date": "2026-06-13",
+      "voucher": "J-4",
+      "description": "SALARY PAID TO RUPESH FOR THE MONTH OF MAY 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "13000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "13000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-4"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-13:J-5",
+      "date": "2026-06-13",
+      "voucher": "J-5",
+      "description": "SALARY PAID TO LAKSHMI FOR THE MONTH OF MAY 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "4800.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "4800.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-5"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-14:J-1",
+      "date": "2026-06-14",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT FOR RENT PAID",
+      "lines": [
+        {
+          "account": "RENT",
+          "debit": "13000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "13000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "RENT",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-19:J-1",
+      "date": "2026-06-19",
+      "voucher": "J-1",
+      "description": "UPI FROM SAMBIT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "5000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "5000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-19:J-2",
+      "date": "2026-06-19",
+      "voucher": "J-2",
+      "description": "SALRY PAID TO KULWANT SINGH BUNTY FOR THE MONTH OF MAY 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "7000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-20:C-1",
+      "date": "2026-06-20",
+      "voucher": "C-1",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "320.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "320.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-20:C-2",
+      "date": "2026-06-20",
+      "voucher": "C-2",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "680.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "680.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-26:J-1",
+      "date": "2026-06-26",
+      "voucher": "J-1",
+      "description": "UPI FROM SAMBIT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "1.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "1.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-27:C-1",
+      "date": "2026-06-27",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1150.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1150.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-06-27:C-2",
+      "date": "2026-06-27",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1020.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1020.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-01:J-1",
+      "date": "2026-07-01",
+      "voucher": "J-1",
+      "description": "INTT FROM HDFC BANK",
+      "lines": [
+        {
+          "account": "BANK INTEREST",
+          "debit": "0",
+          "credit": "51.00"
+        },
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "51.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "BANK INTEREST",
+          "voucher": "J-1"
+        },
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-04:C-1",
+      "date": "2026-07-04",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1050.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1050.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-04:C-2",
+      "date": "2026-07-04",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "780.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "780.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-09:J-1/J-2",
+      "date": "2026-07-09",
+      "voucher": "J-1/J-2",
+      "description": "AMT FOR PAMPHLET PRINTING",
+      "lines": [
+        {
+          "account": "PRINTING & STY",
+          "debit": "4988.00",
+          "credit": "0"
+        },
+        {
+          "account": "SOMA",
+          "debit": "0",
+          "credit": "4988.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "PRINTING & STY",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SOMA",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-10:J-1",
+      "date": "2026-07-10",
+      "voucher": "J-1",
+      "description": "AMT PAID AS ADVANCE TO JOHN",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "2700.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "2700.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:C-7",
+      "date": "2026-07-11",
+      "voucher": "C-7",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "9050.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "9050.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-7"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-1",
+      "date": "2026-07-11",
+      "voucher": "J-1",
+      "description": "UPI FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "30000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "30000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-2",
+      "date": "2026-07-11",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO RAJWINDER FOR THE MONTH OF JUNE 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "9600.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "9600.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-3",
+      "date": "2026-07-11",
+      "voucher": "J-3",
+      "description": "SALARY PAID TO RUPESH FOR THE MONTH OF JUNE 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "13000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "13000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-3"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-4",
+      "date": "2026-07-11",
+      "voucher": "J-4",
+      "description": "SALARY PAID TO LAKSHMI FOR THE MONTH OF JUNE 2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "4230.60"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "4230.60",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-4"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-5",
+      "date": "2026-07-11",
+      "voucher": "J-5",
+      "description": "SALARY PAID TO BALVIR FOR THE MONTH OF MAY-2026",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "7000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-5"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-11:J-6",
+      "date": "2026-07-11",
+      "voucher": "J-6",
+      "description": "UPI FROM SAMBIT (BALTWS 3227.40 ) AS ON 15.7.26",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "5000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "5000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-6"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-6"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-12:C-1",
+      "date": "2026-07-12",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "2100.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "2100.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-12:C-2",
+      "date": "2026-07-12",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1000.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1000.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-15:J-1",
+      "date": "2026-07-15",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT FOR RENT PAID",
+      "lines": [
+        {
+          "account": "RENT",
+          "debit": "13000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "13000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "RENT",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-15:J-2",
+      "date": "2026-07-15",
+      "voucher": "J-2",
+      "description": "AMT PAID AS ADVANCE TO JOHN",
+      "lines": [
+        {
+          "account": "SALARY A/C",
+          "debit": "1000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "1000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-16:J-1",
+      "date": "2026-07-16",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "2000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "2000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-16:J-2",
+      "date": "2026-07-16",
+      "voucher": "J-2",
+      "description": "TENT CHJARGES PAID",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "4300.00"
+        },
+        {
+          "account": "MEETING EXPS",
+          "debit": "4300.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-19:C-1",
+      "date": "2026-07-19",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR GROCERY EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1215.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1215.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-19:C-2",
+      "date": "2026-07-19",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "1040.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "1040.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-25:C-1",
+      "date": "2026-07-25",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR MEETING EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1410.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1410.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-07-25:C-2",
+      "date": "2026-07-25",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "940.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "940.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-01:J-1",
+      "date": "2026-08-01",
+      "voucher": "J-1",
+      "description": "RUPESH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "1.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "1.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-02:C-1",
+      "date": "2026-08-02",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR MEETING EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "600.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "600.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-02:C-2",
+      "date": "2026-08-02",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "310.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "310.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-05:J-1",
+      "date": "2026-08-05",
+      "voucher": "J-1",
+      "description": "CHG PAID TO RAKESH KUAMR",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "900.00"
+        },
+        {
+          "account": "MEETING EXPS",
+          "debit": "900.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-09:C-1",
+      "date": "2026-08-09",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR MEETING EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "930.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "930.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-09:C-2",
+      "date": "2026-08-09",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "4420.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "4420.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-11:J-1",
+      "date": "2026-08-11",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "50000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "50000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-11:J-2",
+      "date": "2026-08-11",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO KULWANT SINGH (BUNTY)",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "9200.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "9200.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-11:J-3",
+      "date": "2026-08-11",
+      "voucher": "J-3",
+      "description": "JULY MONTH SALARY PAID TO RAJWINDER",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "10000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "10000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-3"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-11:J-4",
+      "date": "2026-08-11",
+      "voucher": "J-4",
+      "description": "JULY MONTH SALARY PAID TO LAKSHMI",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "5000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "5000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-4"
+        },
+        {
+          "page": 5,
+          "account": "SALARY A/C",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-11:J-5",
+      "date": "2026-08-11",
+      "voucher": "J-5",
+      "description": "DONATION FROM LAKSHMI",
+      "lines": [
+        {
+          "account": "DONATION BY BANK",
+          "debit": "0",
+          "credit": "500.00"
+        },
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "500.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "DONATION BY BANK",
+          "voucher": "J-5"
+        },
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-1",
+      "date": "2026-08-12",
+      "voucher": "J-1",
+      "description": "GENERTOR EXPS PAID",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "1300.00"
+        },
+        {
+          "account": "MEETING EXPS",
+          "debit": "1300.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-2",
+      "date": "2026-08-12",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO ANKUSH (PS.JOEL)",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "20000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "20000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-3",
+      "date": "2026-08-12",
+      "voucher": "J-3",
+      "description": "AMT RECVD FROM RAJWINDER",
+      "lines": [
+        {
+          "account": "DONATION BY BANK",
+          "debit": "0",
+          "credit": "2000.00"
+        },
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "2000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "DONATION BY BANK",
+          "voucher": "J-3"
+        },
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-4",
+      "date": "2026-08-12",
+      "voucher": "J-4",
+      "description": "AMT TSFR FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "40000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "40000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-4"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-5",
+      "date": "2026-08-12",
+      "voucher": "J-5",
+      "description": "RENT PAID",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "13000.00"
+        },
+        {
+          "account": "RENT",
+          "debit": "13000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-5"
+        },
+        {
+          "page": 5,
+          "account": "RENT",
+          "voucher": "J-5"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-6",
+      "date": "2026-08-12",
+      "voucher": "J-6",
+      "description": "SALARY PAID TO BALVIR",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "7000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-6"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-6"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-7",
+      "date": "2026-08-12",
+      "voucher": "J-7",
+      "description": "PAID TO RAKESH KUMAR",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "900.00"
+        },
+        {
+          "account": "MEETING EXPS",
+          "debit": "900.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-7"
+        },
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "J-7"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-12:J-8",
+      "date": "2026-08-12",
+      "voucher": "J-8",
+      "description": "JULY MONTH SALARY PAID TO RUPESH",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "13000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "13000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-8"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-8"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-13:J-1",
+      "date": "2026-08-13",
+      "voucher": "J-1",
+      "description": "SALARY PAID TO JOHN",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "3000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "3000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-13:J-2",
+      "date": "2026-08-13",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO DEEPIKA",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "7000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "7000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-14:J-1",
+      "date": "2026-08-14",
+      "voucher": "J-1",
+      "description": "AMT TSFR FROM SAMBIT RAUT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "3000.00",
+          "credit": "0"
+        },
+        {
+          "account": "SAMBIT RAUT",
+          "debit": "0",
+          "credit": "3000.00"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        },
+        {
+          "page": 7,
+          "account": "SAMBIT RAUT",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-14:J-2",
+      "date": "2026-08-14",
+      "voucher": "J-2",
+      "description": "SALARY PAID TO SANDEEP PART PMT",
+      "lines": [
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "0",
+          "credit": "6000.00"
+        },
+        {
+          "account": "SALARY A/C",
+          "debit": "6000.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        },
+        {
+          "page": 6,
+          "account": "SALARY A/C",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-16:C-3",
+      "date": "2026-08-16",
+      "voucher": "C-3",
+      "description": "CASH PAID FOR MEETING EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "1286.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "1286.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-16:C-4",
+      "date": "2026-08-16",
+      "voucher": "C-4",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "680.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "680.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-4"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-16:J-1",
+      "date": "2026-08-16",
+      "voucher": "J-1",
+      "description": "DONATION BY BANK",
+      "lines": [
+        {
+          "account": "DONATION BY BANK",
+          "debit": "0",
+          "credit": "100.00"
+        },
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "100.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "DONATION BY BANK",
+          "voucher": "J-1"
+        },
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-16:J-2",
+      "date": "2026-08-16",
+      "voucher": "J-2",
+      "description": "DONATION BY BANK",
+      "lines": [
+        {
+          "account": "DONATION BY BANK",
+          "debit": "0",
+          "credit": "100.00"
+        },
+        {
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "debit": "100.00",
+          "credit": "0"
+        }
+      ],
+      "cash_counterpart_inferred": false,
+      "source_references": [
+        {
+          "page": 1,
+          "account": "DONATION BY BANK",
+          "voucher": "J-2"
+        },
+        {
+          "page": 3,
+          "account": "HDFC BANK A/C NO 50100882772080",
+          "voucher": "J-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-23:C-1",
+      "date": "2026-08-23",
+      "voucher": "C-1",
+      "description": "CASH PAID FOR MEETING EXPS",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "290.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "290.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-23:C-2",
+      "date": "2026-08-23",
+      "voucher": "C-2",
+      "description": "CASH",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "0",
+          "credit": "590.00"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": "590.00",
+          "credit": 0
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-2"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-23:C-3",
+      "date": "2026-08-23",
+      "voucher": "C-3",
+      "description": "CASH RECVD",
+      "lines": [
+        {
+          "account": "GOLAK DONATION",
+          "debit": "2460.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "2460.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 2,
+          "account": "GOLAK DONATION",
+          "voucher": "C-3"
+        }
+      ]
+    },
+    {
+      "source_key": "Ledger-1:2026-08-29:C-1",
+      "date": "2026-08-29",
+      "voucher": "C-1",
+      "description": "CASH PAID",
+      "lines": [
+        {
+          "account": "MEETING EXPS",
+          "debit": "290.00",
+          "credit": "0"
+        },
+        {
+          "account": "CASH IN HAND",
+          "debit": 0,
+          "credit": "290.00"
+        }
+      ],
+      "cash_counterpart_inferred": true,
+      "source_references": [
+        {
+          "page": 4,
+          "account": "MEETING EXPS",
+          "voucher": "C-1"
+        }
+      ]
+    }
+  ],
+  "closing_balances_debit_positive": {
+    "BUILDING A/C": "325000.00",
+    "CAPITAL FUND": "-150958.00",
+    "EXPS PAYABLE": "-6150.00",
+    "FURNITURE": "76988.00",
+    "MUSIC SYSTEM": "80000.00",
+    "SALARY PAYABLE": "-7500.00",
+    "SAMBIT RAUT": "-663442.00",
+    "TENT & CORCKERY": "35000.00",
+    "CASH IN HAND": "4002.00",
+    "MEETING EXPS": "40121.00",
+    "GOLAK DONATION": "-23003.00",
+    "RENT": "65000.00",
+    "SALARY A/C": "227566.60",
+    "HDFC BANK A/C NO 50100882772080": "326.40",
+    "SOMA": "-5088.00",
+    "RAJWINDER KAUR": "-100.00",
+    "BANK INTEREST": "-51.00",
+    "PRINTING & STY": "4988.00",
+    "DONATION BY BANK": "-2700.00"
+  },
+  "income": "25854.00",
+  "expenses": "337675.60",
+  "ledger_net_loss": "311821.60",
+  "notes": [
+    "Reports cover 2026-04-01 through 2026-08-31; September records must be preserved.",
+    "P&L adds 0.01 closing-stock income absent from the ledger and balance-sheet assets. Source balance-sheet totals disagree: 521316.41 versus 521316.40. Treatment awaits user selection.",
+    "Cash ledger is omitted. Cash counterpart entries and opening cash 13720.00 are inferred from cash vouchers, opening trial balance, and closing cash 4002.00.",
+    "Printing 4988.00 on 2026-07-09 is voucher J-1 in Printing & Sty, but J-2 in Soma. They are paired once by date and exact amount; both original references are retained.",
+    "Golak voucher 2026-08-23 C-3 says CASH RECVD but DEBITS donation 2460.00. Preserve the printed debit direction (donation reversal); do not treat it as extra income.",
+    "Salary payable opening 83100.00 less settlements 75600.00 equals 7500.00. These settlements are separate from salary expense 227566.60."
+  ]
+}

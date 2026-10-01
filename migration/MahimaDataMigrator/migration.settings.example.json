@@ -1,0 +1,13 @@
+{
+  "SourceConnectionString": "Host=<v4.0-onprem-host>;Port=5432;Database=mahima_db_3_0;Username=postgres;Password=<fill-in>",
+  "TargetConnectionString": "Host=<v4.1-server-host>;Port=5432;Database=<v4.1-database-name>;Username=<fill-in>;Password=<fill-in>",
+  "RootTenantId": "00000000-0000-0000-0000-000000000000",
+  "ArchiveDirectory": "./migration-output/archive",
+  "ReportDirectory": "./migration-output/reports",
+  "SkipTables": [
+    "roles",
+    "pages",
+    "app_languages",
+    "role_permissions"
+  ]
+}

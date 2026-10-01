@@ -8,6 +8,7 @@
 //   - Tailwind classes throughout, no inline-style soup
 //   - lucide-react icons everywhere ï¿½ kills the mojibake (â˜°, â–¾, ðŸ’¬)
 //
+import { useChickenAccess } from "../features/chickenSale/access";
 import React, { useEffect, useRef, useState } from "react";
 import {
   NavLink,
@@ -55,6 +56,8 @@ import {
   BarChart3,
   GitBranch,
   BriefcaseBusiness,
+  Radio,
+  Store,
 } from "lucide-react";
 import { logout as authLogout } from "../features/auth/authService";
 import mahimaLogo from "../assets/mahima-logo.png";
@@ -62,6 +65,7 @@ import { getCurrentUser } from "../features/auth/permissionService";
 import { getToken } from "../utils/auth";
 import { API_BASE } from "../api";
 import { useChatConnection } from "../hooks/useChatConnection";
+import { useUserActivity } from "../hooks/useUserActivity";
 import AiPastorAgent from "./AiPastorAgent";
 import TodayUpdateCorner from "./TodayUpdateCorner";
 import CallOverlay from "./CallOverlay";
@@ -71,6 +75,7 @@ import { registerMobilePushNotifications } from "../utils/mobilePushNotification
 import { ensurePushTokenRegistered, flushPendingFcmToken, runNotificationSelfTest } from "../utils/initNativeApp";
 import { useLanguage } from "../i18n/LanguageContext";
 import { assignedPositions, getActivePosition, resetActivePosition, scopeLabel, setActivePosition } from "../utils/positionContext";
+import { isPrayerDeskManager } from "../utils/prayerAccess";
 
 /* ======================================================================== */
 /*  Navigation                                                               */
@@ -109,6 +114,7 @@ const NAV_GROUPS = [
     label: "Operations",
     items: [
       { key: "ATTENDANCE", label: "Attendance", to: "/home/attendance", icon: CalendarCheck },
+      { key: "CHICKEN_SALE", label: "Mahima Chicken Sale", to: "/home/chicken-sale", icon: Store },
       { key: "PAYROLL",    label: "Payroll",    to: "/home/payroll",    icon: IndianRupee },
       { key: "COSTS",      label: "Costs",      to: "/home/costs",      icon: Receipt },
     ],
@@ -133,6 +139,7 @@ const NAV_GROUPS = [
       { key: "SERVER_FILES", label: "Server Files", to: "/home/admin/server-files", icon: FolderOpen },
       { key: "REPORTS", label: "Reports", to: "/home/admin/reports", icon: BarChart3 },
       { key: "AUDIT_TRAIL", label: "Audit Trail", to: "/home/admin/audit-trail", icon: FileText },
+      { key: "LIVE_BROADCAST", label: "Live Broadcast", to: "/home/admin/live-broadcast", icon: Radio },
     ],
   },
 ];
@@ -168,6 +175,7 @@ const NAV_LABEL_KEYS = {
   SERVER_FILES: "nav.serverFiles",
   REPORTS: "nav.reports",
   AUDIT_TRAIL: "nav.auditTrail",
+  LIVE_BROADCAST: "nav.liveBroadcast",
 };
 
 const GROUP_LABEL_KEYS = {
@@ -258,6 +266,7 @@ function incomingSenderName(msg) {
 }
 
 export default function Layout() {
+  const chickenAccess = useChickenAccess();
   const navigate = useNavigate();
   const location = useLocation();
   const { lang, setLang, languages, t } = useLanguage();
@@ -286,6 +295,7 @@ export default function Layout() {
   const userMenuRef = useRef(null);
   const chatToken = getToken();
   const chatConnection = useChatConnection(chatToken);
+  useUserActivity(chatToken);
 
   useEffect(() => {
     let cancelled = false;
@@ -447,6 +457,9 @@ export default function Layout() {
       const isAdmin = roles.includes("admin");
       const fallbackKeys = roles.flatMap((r) => ROLE_DEFAULT_KEYS[r] || []);
       const keys = isAdmin ? ROLE_DEFAULT_KEYS.admin : userPages.length > 0 ? userPages : fallbackKeys;
+      if (isPrayerDeskManager(finalUser) && !keys.includes("PRAYER_REQUESTS")) {
+        keys.push("PRAYER_REQUESTS");
+      }
       setAllowedKeys(new Set(keys));
     })();
     return () => { cancelled = true; };
@@ -627,7 +640,7 @@ function onLogout() {
 const visibleGroups = NAV_GROUPS
     .map((g) => ({
       ...g,
-      items: g.items.filter((i) => allowedKeys.has(i.permissionKey || i.key)),
+      items: g.items.filter((i) => i.key === "CHICKEN_SALE" ? chickenAccess.enabled : allowedKeys.has(i.permissionKey || i.key)),
     }))
     .filter((g) => g.items.length > 0);
 
@@ -1159,5 +1172,3 @@ function SidebarLink({ item, collapsed, label }) {
     </li>
   );
 }
-
-

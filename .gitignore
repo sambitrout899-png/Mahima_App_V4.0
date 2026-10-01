@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+obj/
+dist/
+publish/
+node_modules/
+TestResults/
+
+# Secrets - never commit real connection strings / API keys / JWT signing keys
+backend/Mahima.Api.v3.clean/appsettings.json
+backend/Mahima.Api.v3.clean/appsettings.*.json
+!backend/Mahima.Api.v3.clean/appsettings.*.example.json
+
+# Logs and local scratch
+*.log
+.tmp-broadcast-publish/
+.tmp-db-client/
+output/
+outputs/
+
+# Local deploy archives/packages
+*.tar.gz
+release/
+
+# Editor/OS cruft
+.vs/
+.DS_Store
+Thumbs.db

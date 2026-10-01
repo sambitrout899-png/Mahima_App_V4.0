@@ -33,6 +33,18 @@ function initialsFrom(name = "U") {
     .join("") || "U";
 }
 
+function duration(seconds = 0) {
+  const value = Math.max(0, Math.floor(seconds));
+  if (value < 60) return `${value}s`;
+  if (value < 3600) return `${Math.floor(value / 60)}m ${value % 60}s`;
+  return `${Math.floor(value / 3600)}h ${Math.floor(value % 3600 / 60)}m ${value % 60}s`;
+}
+
+const reportingPeriods = [
+  ["today", "Today"], ["yesterday", "Yesterday"], ["thisWeek", "This week"],
+  ["lastWeek", "Last week"], ["thisMonth", "This month"], ["lastMonth", "Last month"],
+];
+
 export default function UserLoginDashboard() {
   const outletContext = useOutletContext() || {};
   const chatConnection = outletContext.chatConnection || {};
@@ -42,6 +54,10 @@ export default function UserLoginDashboard() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [history, setHistory] = useState(null);
+  const [historyError, setHistoryError] = useState("");
+  const [period, setPeriod] = useState("today");
+  const activityByUser = useMemo(() => new Map((history?.users || []).map(user => [String(user.userId), user])), [history]);
 
   const onlineIds = useMemo(() => {
     if (manualOnlineIds) return manualOnlineIds;
@@ -63,6 +79,18 @@ export default function UserLoginDashboard() {
       if (!res.ok) throw new Error(await res.text().catch(() => `Users failed (${res.status})`));
       const data = await res.json().catch(() => []);
       setUsers(arrayFrom(data));
+
+      try {
+        const activityResponse = await fetch(`${API_BASE}/user-activity/summary`, {
+          headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          credentials: "include",
+        });
+        if (!activityResponse.ok) throw new Error("Activity history is unavailable. Please refresh to try again.");
+        setHistory(await activityResponse.json());
+        setHistoryError("");
+      } catch (activityError) {
+        setHistoryError(activityError.message);
+      }
 
       if (invokeHub) {
         const ids = await invokeHub("GetOnlineUsers").catch(() => null);
@@ -126,7 +154,34 @@ export default function UserLoginDashboard() {
           <Metric icon={ShieldCheck} label="Staff/Admin" value={staffAdminCount} tone="violet" />
         </div>
 
+        <div className="space-y-3" aria-label="Login and activity history">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Login &amp; activity history</h2>
+            <p className="text-xs text-slate-500">Unique users signed in or using the app in each period. India time (IST); weeks start Monday.</p>
+          </div>
+          {historyError && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{historyError} {history ? "Showing the last successful update." : ""}</p>}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+            {reportingPeriods.map(([key, label]) => {
+              const summary = history?.periods?.find(item => item.key === key);
+              const unavailable = summary && new Date(summary.end) <= new Date(history.trackingStartedAt);
+              return <button key={key} type="button" aria-pressed={period === key} onClick={() => setPeriod(key)}
+                className={`rounded-xl border p-4 text-left shadow-sm ${period === key ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500" : "border-slate-200 bg-white"}`}>
+                <div className="text-sm font-semibold text-slate-600">{label}</div>
+                <div className="mt-2 text-2xl font-bold text-slate-950">{summary && !unavailable ? summary.userCount : "—"}</div>
+                <div className="text-xs text-slate-500">{unavailable ? "Before tracking began" : "users logged in"}</div>
+                <div className="mt-3 text-sm font-semibold text-emerald-700">{summary && !unavailable ? duration(summary.activeSeconds) : "—"} active</div>
+              </button>;
+            })}
+          </div>
+          <p className="text-xs text-slate-500">Active time counts foreground use and pauses after 5 minutes idle. Updated every 15 seconds.
+            {history && <> Tracking since {new Date(history.trackingStartedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST; earlier history is unavailable. Periods spanning this date have partial totals.</>}
+          </p>
+        </div>
+
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+            User activity · {reportingPeriods.find(([key]) => key === period)?.[1]}
+          </div>
           <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -168,6 +223,10 @@ export default function UserLoginDashboard() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <div className="mr-3 text-right text-xs text-slate-500">
+                      <div className="text-sm font-semibold text-slate-900">{history && new Date(history.periods.find(item => item.key === period)?.end) > new Date(history.trackingStartedAt) ? duration(activityByUser.get(id)?.periods?.[period]?.activeSeconds) : "—"} active</div>
+                      {history ? (new Date(history.periods.find(item => item.key === period)?.end) <= new Date(history.trackingStartedAt) ? "History unavailable" : activityByUser.get(id)?.periods?.[period]?.loggedIn ? "Logged in during period" : "No recorded activity") : "History unavailable"}
+                    </div>
                     <span className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600">
                       {roleOf(user)}
                     </span>

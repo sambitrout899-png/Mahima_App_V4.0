@@ -193,6 +193,8 @@ RETURNING q.""Id"";";
             var sent = await chat.AddMessageAsync(direct.Id, botUserId, message, "task-reminder");
             await _hub.Clients.Users(new[] { botUserId.ToString(), recipientId.ToString() })
                 .SendAsync("ReceiveMessage", sent, ct);
+            using var smsScope = _scopeFactory.CreateScope();
+            await smsScope.ServiceProvider.GetRequiredService<MinistrySmsDelivery>().SendAsync(message, new[] { recipientId }, ct);
         }
 
         private static async Task<QueueRow?> LoadQueueRowAsync(System.Data.Common.DbConnection conn, long queueId, CancellationToken ct)

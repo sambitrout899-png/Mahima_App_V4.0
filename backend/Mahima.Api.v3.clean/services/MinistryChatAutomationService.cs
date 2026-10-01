@@ -87,6 +87,7 @@ namespace Mahima.Api.v3.clean.Services
                 MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
                 await RecordSentAsync(db, schedule.Key, nowLocal.Date, ct);
                 await NotifyChatAsync(db, sent, ct);
+                await DeliverSmsAsync(db, sent, SmsCostPolicy.Notification(schedule.Key), ct);
 
                 _logger.LogInformation("Sent scheduled Jai Masih message {MessageKey} for {LocalDate}", schedule.Key, nowLocal.Date);
             }
@@ -144,9 +145,17 @@ WHERE ""Birthday"" IS NOT NULL";
                 MessageDto sent = await pastorBot.SendJaiMasihMessageAsync(content, ct);
                 await RecordSentAsync(db, key, nowLocal.Date, ct);
                 await NotifyChatAsync(db, sent, ct);
+                using var smsScope = _scopeFactory.CreateScope();
+                await smsScope.ServiceProvider.GetRequiredService<MinistrySmsDelivery>().SendAsync(content, new[] { user.Id }, ct);
 
                 _logger.LogInformation("Sent birthday Jai Masih greeting for {UserId} on {LocalDate}", user.Id, nowLocal.Date);
             }
+        }
+
+        private async Task DeliverSmsAsync(MahimaDbContext db, MessageDto sent, string content, CancellationToken ct)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<MinistrySmsDelivery>().SendToChatAsync(sent.ChatId, content, ct);
         }
 
         private async Task NotifyChatAsync(MahimaDbContext db, MessageDto message, CancellationToken ct)
@@ -180,7 +189,7 @@ WHERE ""Birthday"" IS NOT NULL";
             await db.SaveChangesAsync(ct);
         }
 
-        private IReadOnlyList<ScheduledMessage> BuildSchedules(DateTime nowLocal, IReadOnlyDictionary<string, string> settings)
+        internal IReadOnlyList<ScheduledMessage> BuildSchedules(DateTime nowLocal, IReadOnlyDictionary<string, string> settings)
         {
             var list = new List<ScheduledMessage>();
 
@@ -198,11 +207,11 @@ WHERE ""Birthday"" IS NOT NULL";
                 });
             }
 
-            if (GetBool(settings, "SaturdayReminderEnabled", true))
+            if (GetBool(settings, "SundayReminderEnabled", true))
             {
-                list.Add(new ScheduledMessage("saturday-church-reminder", GetTime(settings, "SaturdayReminderTime", "18:00"), _ => BuildDefaultMultilingualMessage("saturday-church-reminder", nowLocal))
+                list.Add(new ScheduledMessage("sunday-church-reminder", GetTime(settings, "SundayReminderTime", "18:00"), _ => BuildDefaultMultilingualMessage("sunday-church-reminder", nowLocal))
                 {
-                    DaysOfWeek = new HashSet<DayOfWeek> { DayOfWeek.Saturday }
+                    DaysOfWeek = new HashSet<DayOfWeek> { DayOfWeek.Sunday }
                 });
             }
 
@@ -222,7 +231,7 @@ WHERE ""Birthday"" IS NOT NULL";
                 $"{language.Item2} ({language.Item1.ToUpperInvariant()}):\n{MinistryMessageFactory.Build(messageType, nowLocal, language.Item1)}"));
         }
 
-        private bool IsDue(DateTime nowLocal, ScheduledMessage schedule, IReadOnlyDictionary<string, string> settings)
+        internal bool IsDue(DateTime nowLocal, ScheduledMessage schedule, IReadOnlyDictionary<string, string> settings)
         {
             if (schedule.DaysOfWeek != null && !schedule.DaysOfWeek.Contains(nowLocal.DayOfWeek))
                 return false;
@@ -259,7 +268,7 @@ WHERE ""Birthday"" IS NOT NULL";
 
         private TimeSpan GetTime(IReadOnlyDictionary<string, string> settings, string key, string fallback)
         {
-            var value = Text(settings, key, _config[$"MinistryAutomation:{key}"] ?? fallback);
+            var value = Text(settings, key, _config[$"MinistryAutomation:{key}"] ?? _config[$"MinistryAutomation:{key.Replace("SundayReminder", "SaturdayReminder")}"] ?? fallback);
             return TimeSpan.TryParseExact(value, @"hh\:mm", CultureInfo.InvariantCulture, out var time)
                 ? time
                 : TimeSpan.ParseExact(fallback, @"hh\:mm", CultureInfo.InvariantCulture);
@@ -278,7 +287,7 @@ WHERE ""Birthday"" IS NOT NULL";
         {
             if (settings.TryGetValue(key, out var settingValue) && bool.TryParse(settingValue, out var parsed))
                 return parsed;
-            return bool.TryParse(_config[$"MinistryAutomation:{key}"], out var value) ? value : fallback;
+            return bool.TryParse(_config[$"MinistryAutomation:{key}"] ?? _config[$"MinistryAutomation:{key.Replace("SundayReminder", "SaturdayReminder")}"], out var value) ? value : fallback;
         }
 
         private int GetInt(IReadOnlyDictionary<string, string> settings, string key, int fallback)
@@ -300,12 +309,21 @@ WHERE ""Birthday"" IS NOT NULL";
 
         private static async Task<IReadOnlyDictionary<string, string>> ReadSettingsAsync(MahimaDbContext db, CancellationToken ct)
         {
-            return await db.MinistryAutomationSettings
+            var values = await db.MinistryAutomationSettings
                 .AsNoTracking()
                 .ToDictionaryAsync(s => s.Key, s => s.Value, ct);
+            MigrateSundaySettings(values);
+            return values;
         }
 
-        private sealed class ScheduledMessage
+        internal static void MigrateSundaySettings(Dictionary<string, string> values)
+        {
+            foreach (var suffix in new[] { "Time", "Enabled" })
+                if (!values.ContainsKey("SundayReminder" + suffix) && values.TryGetValue("SaturdayReminder" + suffix, out var value))
+                    values["SundayReminder" + suffix] = value;
+        }
+
+        internal sealed class ScheduledMessage
         {
             public ScheduledMessage(string key, TimeSpan localTime, Func<DateTime, string> buildMessage)
             {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  AlertTriangle,
   BellRing,
   Bot,
   CalendarClock,
@@ -23,23 +24,24 @@ import { apiFetch } from "../../utils/fetch-auth-shim";
 
 const defaults = {
   enabled: true,
+  smsEnabled: true,
   timeZone: "Asia/Kolkata",
   dailyWordTime: "06:30",
   welcomeTime: "07:00",
   nightPrayerTime: "18:30",
-  saturdayReminderTime: "18:00",
+  sundayReminderTime: "18:00",
   deliveryWindowMinutes: 90,
   dailyWordEnabled: true,
   welcomeEnabled: true,
   nightPrayerEnabled: true,
-  saturdayReminderEnabled: true,
+  sundayReminderEnabled: true,
 };
 
 const messageTypes = [
   { key: "daily-word", label: "Daily Word", desc: "Fresh Bible verse, reflection, and prayer.", field: "dailyWordTime", enabled: "dailyWordEnabled" },
   { key: "welcome", label: "Welcome", desc: "Morning welcome and blessing.", field: "welcomeTime", enabled: "welcomeEnabled" },
   { key: "night-prayer", label: "Night Prayer", desc: "Tuesday and Friday night prayer reminder at 6:30 PM.", field: "nightPrayerTime", enabled: "nightPrayerEnabled" },
-  { key: "saturday-church-reminder", label: "Saturday Church Reminder", desc: "Weekend worship preparation reminder.", field: "saturdayReminderTime", enabled: "saturdayReminderEnabled" },
+  { key: "sunday-church-reminder", label: "Sunday Worship Reminder", desc: "Sunday worship and fellowship reminder.", field: "sundayReminderTime", enabled: "sundayReminderEnabled" },
 ];
 
 const fallbackLanguages = [
@@ -61,6 +63,14 @@ function dateDaysAgo(days) {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return toDateInput(date);
+}
+
+function deliveryNotice(data) {
+  const sms = data?.sms;
+  if (!sms) return "Jai Masih message posted. No SMS delivery report was returned.";
+  if (!sms.enabled) return "Jai Masih message posted. Twilio SMS is turned off in the saved schedule.";
+  const errors = [...new Set((sms.results || []).map((r) => r.delivery?.error).filter(Boolean))];
+  return `Jai Masih message posted. SMS: ${sms.queued} queued, ${sms.skipped} skipped, ${sms.failed} failed. ${errors.slice(0, 3).join(" ")} Queued means accepted by Twilio, not confirmed delivered.`;
 }
 
 function StatusPill({ enabled }) {
@@ -99,7 +109,16 @@ export default function MinistryAutomationPage() {
   const [sendToJaiMasih, setSendToJaiMasih] = useState(true);
   const [asking, setAsking] = useState(false);
   const [voiceUploading, setVoiceUploading] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeText] = useState("");
+  const [deliveryWarning, setDeliveryWarning] = useState(false);
+  function setNotice(value) {
+    setNoticeText(value);
+    setDeliveryWarning(false);
+  }
+  function showDelivery(data) {
+    setNotice(deliveryNotice(data));
+    setDeliveryWarning(!data?.sms || data.sms.failed > 0 || data.sms.skipped > 0);
+  }
   const [customMessages, setCustomMessages] = useState({});
   const [languages, setLanguages] = useState(fallbackLanguages);
   const [selectedLanguageCodes, setSelectedLanguageCodes] = useState(["en", "hi", "pa"]);
@@ -227,7 +246,7 @@ export default function MinistryAutomationPage() {
     setWelcomeSending(true);
     setNotice("");
     try {
-      await apiFetch("/ministry-automation/new-user-welcome/send", {
+      const data = await apiFetch("/ministry-automation/new-user-welcome/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -240,7 +259,7 @@ export default function MinistryAutomationPage() {
       });
       setWelcomeDraft("");
       await Promise.all([loadWelcomeAnalytics(), load()]);
-      setNotice(`Approved welcome sent to Jai Masih for ${selectedWelcomeUserIds.length} new users.`);
+      showDelivery(data);
     } catch (err) {
       setNotice(err.message || "Could not approve and send the welcome message.");
     } finally {
@@ -292,16 +311,17 @@ export default function MinistryAutomationPage() {
   }
 
   async function trigger(type) {
+    if (triggering) return;
     setTriggering(type);
     setNotice("");
     try {
-      await apiFetch("/ministry-automation/trigger", {
+      const data = await apiFetch("/ministry-automation/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageType: type, languages: selectedLanguageCodes }),
       });
-      setNotice("Message sent to Jai Masih.");
       await load();
+      showDelivery(data);
     } catch (err) {
       setNotice(err.message || "Could not send message.");
     } finally {
@@ -319,7 +339,7 @@ export default function MinistryAutomationPage() {
     setCustomSending(true);
     setNotice("");
     try {
-      await apiFetch("/ministry-automation/custom-message", {
+      const data = await apiFetch("/ministry-automation/custom-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -329,8 +349,8 @@ export default function MinistryAutomationPage() {
         }),
       });
       setCustomMessages({});
-      setNotice("Custom Jai Masih message sent to all users.");
       await load();
+      showDelivery(data);
     } catch (err) {
       setNotice(err.message || "Could not send custom message.");
     } finally {
@@ -354,7 +374,8 @@ export default function MinistryAutomationPage() {
         }),
       });
       setPastorReply(data?.answer || "");
-      setNotice(sendToJaiMasih ? "Pastor message sent to Jai Masih." : "Pastor reply generated.");
+      if (sendToJaiMasih) showDelivery(data);
+      else setNotice("Pastor reply generated.");
     } catch (err) {
       setNotice(err.message || "Pastor bot could not reply.");
     } finally {
@@ -403,7 +424,7 @@ export default function MinistryAutomationPage() {
             </div>
             <h1 className="text-4xl font-black tracking-normal text-slate-950">Ministry Message Center</h1>
             <p className="mt-2 max-w-3xl text-lg text-slate-600">
-              Schedule daily word, welcome, night prayer, Saturday reminders, and pastor bot messages from one admin panel.
+              Schedule daily word, welcome, night prayer, Sunday reminders, and pastor bot messages from one admin panel.
             </p>
           </div>
           <button
@@ -417,8 +438,8 @@ export default function MinistryAutomationPage() {
         </header>
 
         {notice && (
-          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-amber-900 shadow-sm">
-            <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+          <div role={deliveryWarning ? "alert" : "status"} className="flex items-center gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-amber-900 shadow-sm">
+            {deliveryWarning ? <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700" /> : <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />}
             {notice}
           </div>
         )}
@@ -467,6 +488,11 @@ export default function MinistryAutomationPage() {
         <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
+              <label className="mb-4 flex items-center gap-3 font-bold">
+                <input type="checkbox" checked={settings.smsEnabled} onChange={(e) => update("smsEnabled", e.target.checked)} />
+                Twilio SMS for Message Center sends and reminders
+              </label>
+              <p className="mb-5 text-sm text-slate-500">Save Schedule to apply. SMS goes to recipients with a valid country-code phone number. Jai Masih chat stays available. SMS uses Hindi notifications: Sunday worship includes the address and YouTube link (3 segments); other notifications use 1 segment. Full multilingual content stays in the app. India estimate per recipient: Sunday USD 0.2496; others USD 0.0832, excluding other fees.</p>
               <h2 className="text-xl font-black">Broadcast Languages</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 Pick the languages to include in Jai Masih sends. Add or disable languages from Admin Languages.
@@ -716,11 +742,11 @@ export default function MinistryAutomationPage() {
                 </label>
                 <button
                   onClick={() => trigger(item.key)}
-                  disabled={triggering === item.key}
+                  disabled={Boolean(triggering)}
                   className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                 >
                   {triggering === item.key ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                  Send Test
+                  Send Now
                 </button>
               </div>
             </div>
@@ -736,7 +762,7 @@ export default function MinistryAutomationPage() {
               </div>
               <h2 className="mt-3 text-2xl font-black">Send any message now</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
-                Type an announcement, prayer request, urgent reminder, or blessing and deliver it to Jai Masih immediately.
+                Type an announcement, prayer request, urgent reminder, or blessing. Send it to Jai Masih and opted-in members by Twilio SMS when enabled.
               </p>
             </div>
             <button
@@ -746,7 +772,7 @@ export default function MinistryAutomationPage() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
             >
               {customSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-              Send to Jai Masih
+              Send Message
             </button>
           </div>
           <div className="mt-5 grid gap-4 lg:grid-cols-3">

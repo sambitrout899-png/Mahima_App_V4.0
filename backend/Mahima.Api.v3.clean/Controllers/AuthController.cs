@@ -59,6 +59,12 @@ public class AuthController : ControllerBase
                 HttpContext.RequestAborted);
 
             await _chatHub.Clients.All.SendAsync("ReceiveMessage", sent, HttpContext.RequestAborted);
+            // Welcome SMS is optional; missing messaging registrations must never prevent login.
+            var sms = HttpContext.RequestServices.GetService<MinistrySmsDelivery>();
+            if (sms != null)
+                await sms.SendAsync(MinistryMessageFactory.BuildNewUserWelcome(displayName), new[] { userId }, HttpContext.RequestAborted);
+            else
+                _logger.LogWarning("Welcome SMS skipped: MinistrySmsDelivery is not registered.");
             _logger.LogInformation("AI Counseller welcome sent for registered user {UserId}", userId);
         }
         catch (Exception ex)
@@ -750,6 +756,7 @@ RETURNING id;";
         var token = _jwtService.GenerateToken(userGuid, username, display, role);
 
         await RecordSecurityEventAsync(conn, "GoogleLogin", "low", username, userGuid, email);
+        await RecordLoginActivityAsync(conn, userGuid);
 
         return Ok(new
         {
@@ -861,6 +868,7 @@ LIMIT 1;
         }
 
 	var token = _jwtService.GenerateToken(userGuid, username, display, role);
+        await RecordLoginActivityAsync(conn, userGuid);
         var roles = await LoadEffectiveRoles(conn, userGuid, role);
         var pages = await LoadPermissions(conn, roles);
         await Mahima.Api.v3.clean.Controllers.PositionsController.EnsureDefaultMemberPositionForUserAsync(conn, userGuid);
@@ -899,6 +907,12 @@ LIMIT 1;
     // ============================
     // ?? PERMISSION LOADER
     // ============================
+    private async Task RecordLoginActivityAsync(NpgsqlConnection conn, Guid userId)
+    {
+        try { await UserActivityHistory.RecordAsync(conn, userId, Guid.NewGuid()); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not record login activity for {UserId}", userId); }
+    }
+
     private async Task<List<string>> LoadEffectiveRoles(NpgsqlConnection conn, Guid userId, string? fallbackRole)
     {
         var roles = new List<string>();

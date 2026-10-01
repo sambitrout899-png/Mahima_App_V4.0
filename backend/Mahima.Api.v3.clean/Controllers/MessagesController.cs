@@ -33,14 +33,16 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly MahimaDbContext _db;
         private readonly IHubContext<ChatHub> _hub;
         private readonly IChatService _chatService;
+        private readonly ITwilioSmsService _sms;
 
-        public MessagesController(IConfiguration config, ILogger<MessagesController> logger, MahimaDbContext db, IHubContext<ChatHub> hub, IChatService chatService)
+        public MessagesController(IConfiguration config, ILogger<MessagesController> logger, MahimaDbContext db, IHubContext<ChatHub> hub, IChatService chatService, ITwilioSmsService sms)
         {
             _config = config;
             _logger = logger;
             _db = db;
             _hub = hub;
             _chatService = chatService;
+            _sms = sms;
         }
 
         // DTO used for message posting
@@ -251,16 +253,13 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                 var smtpPass = _config["Smtp:Pass"];
                 var smtpFrom = _config["Smtp:From"] ?? smtpUser;
 
-                // Twilio client (if configured) - using configured env is recommended
-                var restClient = new Twilio.Clients.TwilioRestClient(
-                    _config["Twilio:AccountSid"] ?? "AC-fallback",
-                    _config["Twilio:AuthToken"] ?? "fallback"
-                );
-
+                var allRequestedSucceeded = true;
+                var smsPhones = new HashSet<string>();
                 foreach (var r in recipients)
                 {
                     var errors = new List<string>();
                     bool chatOk = false, emailOk = false, smsOk = false, waOk = false;
+                    SmsDelivery? smsDelivery = null;
 
                     if (Guid.TryParse(r.Id, out var recipientGuid))
                     {
@@ -320,26 +319,15 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                         }
                     }
 
-                    // SMS
-                    if (req.Channels.Sms && !string.IsNullOrWhiteSpace(r.Phone))
+                    // Every SMS entry point uses the same credentials, consent checks and sender.
+                    if (req.Channels.Sms)
                     {
-                        try
-                        {
-                            var msg = await MessageResource.CreateAsync(
-                                to: new PhoneNumber(r.Phone),
-                                from: new PhoneNumber(_config["Twilio:FromNumber"] ?? "+14059934588"),
-                                body: "[Mahima SMS] " + req.Message,
-                                client: restClient
-                            );
-
-                            smsOk = true;
-                            _logger.LogInformation("SMS queued. SID: {Sid} To: {To}", msg?.Sid, r.Phone);
-                        }
-                        catch (Exception ex)
-                        {
-                            errors.Add($"SMS failed: {ex.Message}");
-                            _logger.LogError(ex, "SMS send failed to {Phone}", r.Phone);
-                        }
+                        var phone = SmsPhone.NormalizePhone(r.Phone);
+                        smsDelivery = phone != null && !smsPhones.Add(phone)
+                            ? SmsDelivery.Skip("Duplicate phone number in this broadcast.")
+                            : await _sms.SendAsync(r.Phone, req.Message, HttpContext.RequestAborted);
+                        smsOk = smsDelivery.Queued;
+                        if (!smsOk) errors.Add("SMS: " + smsDelivery.Error);
                     }
 
                     // WHATSAPP
@@ -351,7 +339,7 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                                 to: new PhoneNumber($"whatsapp:{r.Phone}"),
                                 from: new PhoneNumber(_config["Twilio:WhatsAppFrom"] ?? "whatsapp:+14155238886"),
                                 body: "[Mahima WA] " + req.Message,
-                                client: restClient
+                                client: new Twilio.Clients.TwilioRestClient(_config["Twilio:AccountSid"]?.Trim(), _config["Twilio:AuthToken"]?.Trim())
                             );
 
                             waOk = true;
@@ -364,6 +352,11 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                         }
                     }
 
+                    if ((req.Channels.Sms && !smsOk) || (req.Channels.Email && !emailOk) ||
+                        (req.Channels.Whatsapp && !waOk) || (!req.Channels.Sms && !req.Channels.Email && !req.Channels.Whatsapp && !chatOk))
+                        allRequestedSucceeded = false;
+                    if (req.Channels.Email && !emailOk && !errors.Any(e => e.StartsWith("Email"))) errors.Add("Email not sent: check recipient email and SMTP configuration.");
+                    if (req.Channels.Whatsapp && !waOk && !errors.Any(e => e.StartsWith("WhatsApp"))) errors.Add("WhatsApp not sent: check recipient phone.");
                     results.Add(new
                     {
                         r.Id,
@@ -373,6 +366,7 @@ public async Task<IActionResult> SendTaskNotification(int taskId)
                         chatSent = chatOk,
                         emailSent = emailOk,
                         smsSent = smsOk,
+                        smsDelivery,
                         whatsappSent = waOk,
                         errors
                     });
@@ -407,7 +401,7 @@ VALUES (@taskId, @action, @details, @createdById, now());", conn);
                     }
                 }
 
-                return Ok(new { success = true, attempted = recipients.Count, results });
+                return Ok(new { success = allRequestedSucceeded, attempted = recipients.Count, results });
             }
             catch (Exception ex)
             {

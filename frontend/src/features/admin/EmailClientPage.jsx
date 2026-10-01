@@ -22,6 +22,8 @@ import {
   Star,
   Trash2,
   UserPlus,
+  Video,
+  Link2,
   X,
 } from "lucide-react";
 import { apiFetch, apiFetchBlob } from "../../utils/fetch-auth-shim";
@@ -40,7 +42,7 @@ const emptySettings = {
 };
 
 function createEmptyCompose() {
-  return { to: "", cc: "", bcc: "", subject: "", body: "", files: [] };
+  return { to: "", cc: "", bcc: "", subject: "", body: "", files: [], demoVideo: null };
 }
 
 const actionButtonClass =
@@ -522,6 +524,8 @@ function SettingsPanel({ settings, update, saving, testing, loading, onSave, onT
 
 function ComposePanel({ compose, setCompose, sending, showCcBcc, setShowCcBcc, onSend, onClose }) {
   const files = compose.files || [];
+  const [demoJobs, setDemoJobs] = useState([]);
+  const [loadingDemos, setLoadingDemos] = useState(false);
 
   function addFiles(event) {
     const selected = Array.from(event.target.files || []);
@@ -535,6 +539,31 @@ function ComposePanel({ compose, setCompose, sending, showCcBcc, setShowCcBcc, o
     setCompose((current) => ({
       ...current,
       files: (current.files || []).filter((_, fileIndex) => fileIndex !== index),
+    }));
+  }
+
+  async function loadDemoVideos() {
+    setLoadingDemos(true);
+    try {
+      const rows = await apiFetch("/projectmanagement/demo-jobs", { timeoutMs: 30000 });
+      setDemoJobs((Array.isArray(rows) ? rows : []).filter((job) => String(job.status || "").toLowerCase() === "completed"));
+    } catch (error) {
+      alert(error?.message || "Could not load completed Mahima demo videos.");
+    } finally {
+      setLoadingDemos(false);
+    }
+  }
+
+  function selectDemoVideo(job) {
+    if (!job?.id) return;
+    const path = `/api/projectmanagement/demo-jobs/${encodeURIComponent(job.id)}/download`;
+    const publicUrl = new URL(path, window.location.origin).toString();
+    const title = job.name || job.output || "Mahima App video presentation";
+    const callToAction = `Watch the Mahima App video presentation: ${publicUrl}`;
+    setCompose((current) => ({
+      ...current,
+      demoVideo: { id: job.id, title, path, publicUrl },
+      body: current.body?.includes(publicUrl) ? current.body : `${current.body || ""}${current.body ? "\n\n" : ""}${callToAction}`,
     }));
   }
 
@@ -610,6 +639,14 @@ function ComposePanel({ compose, setCompose, sending, showCcBcc, setShowCcBcc, o
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="flex items-center gap-2 text-sm font-black text-violet-950"><Video className="h-4 w-4" />Mahima App video presentation</p><p className="text-xs font-semibold text-violet-700">Add a hosted Demo Studio MP4 as a playable communication link.</p></div><button type="button" onClick={loadDemoVideos} disabled={loadingDemos} className={actionButtonClass}>{loadingDemos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}Choose demo</button></div>
+            {demoJobs.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">{demoJobs.map((job) => <button key={job.id} type="button" onClick={() => selectDemoVideo(job)} className="rounded-lg border border-violet-200 bg-white p-3 text-left hover:border-violet-500"><b className="block truncate text-sm text-slate-900">{job.name || job.output || "Mahima App Demo"}</b><span className="text-xs text-slate-500">{job.language?.toUpperCase()} · {job.resolution || "MP4"}</span></button>)}</div>}
+            {compose.demoVideo && <div className="mt-3 overflow-hidden rounded-xl border border-violet-200 bg-white"><video controls preload="metadata" src={compose.demoVideo.path} className="aspect-video w-full bg-black" /><div className="flex items-center justify-between gap-2 p-3"><span className="min-w-0 truncate text-xs font-bold text-slate-700">{compose.demoVideo.title}</span><a href={compose.demoVideo.path} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-black text-violet-700"><Link2 className="h-3.5 w-3.5" />Open</a></div></div>}
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-xs font-black text-violet-700"><Paperclip className="h-4 w-4" />Or attach an MP4 directly<input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={addFiles} className="hidden" /></label>
+            <p className="mt-2 text-[11px] text-slate-500">Hosted links are recommended for marketing email. Direct attachments count toward the server’s 50 MB email limit.</p>
           </div>
 
           <button type="submit" disabled={sending} className={`${primaryActionButtonClass} w-full justify-center`}>

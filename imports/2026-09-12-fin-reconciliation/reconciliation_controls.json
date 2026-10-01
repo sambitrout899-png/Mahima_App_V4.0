@@ -1,0 +1,2805 @@
+{
+  "status": "REVIEW_ONLY_NOT_APPLIED",
+  "scope": "Daily net movement and closing-balance reconciliation; does not replace original vouchers or make gross turnover identical",
+  "authority_assumption": "PDF supersedes all earlier books through 31-Aug-2026, including unmatched August payroll. Not yet confirmed.",
+  "cash_assumption": "Cash ledger omitted. Opening cash is inferred as balancing residual, conditional on completeness of all other opening accounts; cash counterparts inferred for single-sided C vouchers.",
+  "accounts": {
+    "9": {
+      "type": "ASSET",
+      "name": "Accounts Receivable"
+    },
+    "10": {
+      "type": "ASSET",
+      "name": "Advances and Deposits"
+    },
+    "41": {
+      "type": "ASSET",
+      "name": "BUILDING A/C"
+    },
+    "8": {
+      "type": "ASSET",
+      "name": "Bank"
+    },
+    "53": {
+      "type": "ASSET",
+      "name": "CLOSING STOCK"
+    },
+    "7": {
+      "type": "ASSET",
+      "name": "Cash"
+    },
+    "1": {
+      "type": "ASSET",
+      "name": "Cash in Hand"
+    },
+    "42": {
+      "type": "ASSET",
+      "name": "FURNITURE"
+    },
+    "11": {
+      "type": "ASSET",
+      "name": "Fixed Assets"
+    },
+    "47": {
+      "type": "ASSET",
+      "name": "HDFC BANK A/C NO 50100882772080"
+    },
+    "44": {
+      "type": "ASSET",
+      "name": "MUSIC SYSTEM"
+    },
+    "45": {
+      "type": "ASSET",
+      "name": "TENT & CORCKERY"
+    },
+    "2": {
+      "type": "EQUITY",
+      "name": "Capital Fund"
+    },
+    "17": {
+      "type": "EQUITY",
+      "name": "General Fund / Corpus Fund"
+    },
+    "16": {
+      "type": "EQUITY",
+      "name": "Opening Balance Equity"
+    },
+    "18": {
+      "type": "EQUITY",
+      "name": "Retained Surplus"
+    },
+    "30": {
+      "type": "EXPENSE",
+      "name": "Bank Charges"
+    },
+    "34": {
+      "type": "EXPENSE",
+      "name": "Depreciation Expense"
+    },
+    "4": {
+      "type": "EXPENSE",
+      "name": "Easter Day Meeting Expense"
+    },
+    "26": {
+      "type": "EXPENSE",
+      "name": "Ministry Events Expense"
+    },
+    "33": {
+      "type": "EXPENSE",
+      "name": "Miscellaneous Expense"
+    },
+    "29": {
+      "type": "EXPENSE",
+      "name": "Office and Administration Expense"
+    },
+    "27": {
+      "type": "EXPENSE",
+      "name": "Outreach Expense"
+    },
+    "24": {
+      "type": "EXPENSE",
+      "name": "Payroll Expense"
+    },
+    "5": {
+      "type": "EXPENSE",
+      "name": "Rent Expense"
+    },
+    "32": {
+      "type": "EXPENSE",
+      "name": "Repairs and Maintenance Expense"
+    },
+    "28": {
+      "type": "EXPENSE",
+      "name": "Travel Expense"
+    },
+    "25": {
+      "type": "EXPENSE",
+      "name": "Utilities Expense"
+    },
+    "49": {
+      "type": "INCOME",
+      "name": "BANK INTEREST"
+    },
+    "51": {
+      "type": "INCOME",
+      "name": "DONATION BY BANK"
+    },
+    "20": {
+      "type": "INCOME",
+      "name": "Donations"
+    },
+    "22": {
+      "type": "INCOME",
+      "name": "Event Income"
+    },
+    "43": {
+      "type": "INCOME",
+      "name": "GOLAK DONATION"
+    },
+    "52": {
+      "type": "INCOME",
+      "name": "GROSS PROFIT"
+    },
+    "21": {
+      "type": "INCOME",
+      "name": "Grants"
+    },
+    "23": {
+      "type": "INCOME",
+      "name": "Other Income"
+    },
+    "46": {
+      "type": "INCOME",
+      "name": "RAJWINDER KAUR"
+    },
+    "19": {
+      "type": "INCOME",
+      "name": "Tithes and Offerings"
+    },
+    "6": {
+      "type": "INCOME",
+      "name": "Unidentified Receipts / Donations"
+    },
+    "12": {
+      "type": "LIABILITY",
+      "name": "Accounts Payable"
+    },
+    "50": {
+      "type": "LIABILITY",
+      "name": "EXPS PAYABLE"
+    },
+    "15": {
+      "type": "LIABILITY",
+      "name": "Loans Payable"
+    },
+    "35": {
+      "type": "LIABILITY",
+      "name": "M/S SAMBIT RAUT"
+    },
+    "13": {
+      "type": "LIABILITY",
+      "name": "Payroll Payable"
+    },
+    "31": {
+      "type": "LIABILITY",
+      "name": "SISTER SOMA"
+    },
+    "48": {
+      "type": "LIABILITY",
+      "name": "SOMA"
+    },
+    "3": {
+      "type": "LIABILITY",
+      "name": "Sambit Raut Unsecured Loan"
+    },
+    "14": {
+      "type": "LIABILITY",
+      "name": "Statutory Dues Payable"
+    }
+  },
+  "mapping": {
+    "BANK INTEREST": 49,
+    "BUILDING A/C": 41,
+    "CAPITAL FUND": 2,
+    "DONATION BY BANK": 51,
+    "EASTER DAY MEETING EXPS": 4,
+    "EXPS PAYABLE": 50,
+    "FURNITURE": 42,
+    "GOLAK DONATION": 43,
+    "HDFC BANK A/C NO 50100882772080": 47,
+    "MEETING EXPS": 26,
+    "MUSIC SYSTEM": 44,
+    "PRINTING & STY": 29,
+    "RENT": 5,
+    "SALARY A/C": 24,
+    "SALARY PAYABLE": 13,
+    "SAMBIT RAUT": 35,
+    "SOMA": 48,
+    "TENT & CORCKERY": 45,
+    "CASH IN HAND": 7
+  },
+  "entries": [
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-001] Restate opening carried into 01-Apr; Capital Fund; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "2",
+      "DebitAmount": "416042.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "416042.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-002] Restate opening carried into 01-Apr; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "52000.00",
+      "CreditAccountId": "5",
+      "CreditAmount": "52000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-003] Restate opening carried into 01-Apr; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "2169.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "2169.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-004] Restate opening carried into 01-Apr; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "7000.00",
+      "CreditAccountId": "13",
+      "CreditAmount": "7000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-005] Restate opening carried into 01-Apr; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "17831.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "17831.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-006] Restate opening carried into 01-Apr; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "308900.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "308900.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-007] Restate opening carried into 01-Apr; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "76600.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "76600.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-008] Restate opening carried into 01-Apr; Office and Administration Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "270.00",
+      "CreditAccountId": "29",
+      "CreditAmount": "270.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-009] Restate opening carried into 01-Apr; Repairs and Maintenance Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1770.00",
+      "CreditAccountId": "32",
+      "CreditAmount": "1770.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-010] Restate opening carried into 01-Apr; Miscellaneous Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "920.00",
+      "CreditAccountId": "33",
+      "CreditAmount": "920.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-011] Restate opening carried into 01-Apr; Depreciation Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "262.00",
+      "CreditAccountId": "34",
+      "CreditAmount": "262.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-012] Restate opening carried into 01-Apr; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "17830.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "17830.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-03-31",
+      "Description": "[FIN1209-V1-013] Restate opening carried into 01-Apr; EXPS PAYABLE; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "6150.00",
+      "CreditAccountId": "50",
+      "CreditAmount": "6150.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-014] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "85500.00",
+      "CreditAccountId": "1",
+      "CreditAmount": "85500.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-015] Align daily net movement; Capital Fund; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "2",
+      "DebitAmount": "200958.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "200958.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-016] Align daily net movement; Sambit Raut Unsecured Loan; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "3",
+      "DebitAmount": "58500.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "58500.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-017] Align daily net movement; Easter Day Meeting Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "4",
+      "DebitAmount": "660.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "660.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-018] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "13000.00",
+      "CreditAccountId": "5",
+      "CreditAmount": "13000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-019] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "20620.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "20620.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-020] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "83100.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "83100.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-021] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "35",
+      "DebitAmount": "245500.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "245500.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-022] Align daily net movement; BUILDING A/C; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "325000.00",
+      "CreditAccountId": "41",
+      "CreditAmount": "325000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-023] Align daily net movement; FURNITURE; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "76988.00",
+      "CreditAccountId": "42",
+      "CreditAmount": "76988.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-024] Align daily net movement; MUSIC SYSTEM; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "80000.00",
+      "CreditAccountId": "44",
+      "CreditAmount": "80000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-025] Align daily net movement; TENT & CORCKERY; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "35000.00",
+      "CreditAccountId": "45",
+      "CreditAmount": "35000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-01",
+      "Description": "[FIN1209-V1-026] Align daily net movement; EXPS PAYABLE; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "50",
+      "DebitAmount": "6150.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "6150.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-03",
+      "Description": "[FIN1209-V1-027] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "1",
+      "DebitAmount": "2650.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "2650.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-03",
+      "Description": "[FIN1209-V1-028] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "2650.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "2650.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-04",
+      "Description": "[FIN1209-V1-029] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "1",
+      "DebitAmount": "2790.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "2790.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-04",
+      "Description": "[FIN1209-V1-030] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "2790.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "2790.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-05",
+      "Description": "[FIN1209-V1-031] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "1",
+      "DebitAmount": "18420.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "18420.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-05",
+      "Description": "[FIN1209-V1-032] Align daily net movement; Easter Day Meeting Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "660.00",
+      "CreditAccountId": "4",
+      "CreditAmount": "660.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-05",
+      "Description": "[FIN1209-V1-033] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "17760.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "17760.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-06",
+      "Description": "[FIN1209-V1-034] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "1",
+      "DebitAmount": "39945.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "39945.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-06",
+      "Description": "[FIN1209-V1-035] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "4445.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "4445.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-06",
+      "Description": "[FIN1209-V1-036] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "35500.00",
+      "CreditAccountId": "35",
+      "CreditAmount": "35500.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-16",
+      "Description": "[FIN1209-V1-037] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "1",
+      "DebitAmount": "9995.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "9995.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-16",
+      "Description": "[FIN1209-V1-038] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "9995.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "9995.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-30",
+      "Description": "[FIN1209-V1-039] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "8",
+      "DebitAmount": "78163.20",
+      "CreditAccountId": "16",
+      "CreditAmount": "78163.20"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-30",
+      "Description": "[FIN1209-V1-040] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "10576.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "10576.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-04-30",
+      "Description": "[FIN1209-V1-041] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "88739.20",
+      "CreditAccountId": "24",
+      "CreditAmount": "88739.20"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-09",
+      "Description": "[FIN1209-V1-042] Align daily net movement; Sambit Raut Unsecured Loan; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "3",
+      "DebitAmount": "13000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "13000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-09",
+      "Description": "[FIN1209-V1-043] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "13000.00",
+      "CreditAccountId": "5",
+      "CreditAmount": "13000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-12",
+      "Description": "[FIN1209-V1-044] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "3200.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "3200.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-12",
+      "Description": "[FIN1209-V1-045] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "3200.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "3200.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-16",
+      "Description": "[FIN1209-V1-046] Align daily net movement; Fixed Assets; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "4400.00",
+      "CreditAccountId": "11",
+      "CreditAmount": "4400.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-16",
+      "Description": "[FIN1209-V1-047] Align daily net movement; SISTER SOMA; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "31",
+      "DebitAmount": "4400.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "4400.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-27",
+      "Description": "[FIN1209-V1-048] Align daily net movement; RAJWINDER KAUR; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "46",
+      "DebitAmount": "100.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "100.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-27",
+      "Description": "[FIN1209-V1-049] Align daily net movement; DONATION BY BANK; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "100.00",
+      "CreditAccountId": "51",
+      "CreditAmount": "100.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-31",
+      "Description": "[FIN1209-V1-050] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "8",
+      "DebitAmount": "40639.50",
+      "CreditAccountId": "16",
+      "CreditAmount": "40639.50"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-31",
+      "Description": "[FIN1209-V1-051] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "50725.44",
+      "CreditAccountId": "16",
+      "CreditAmount": "50725.44"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-05-31",
+      "Description": "[FIN1209-V1-052] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "91364.94",
+      "CreditAccountId": "24",
+      "CreditAmount": "91364.94"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-06-19",
+      "Description": "[FIN1209-V1-053] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "5000.00",
+      "CreditAccountId": "8",
+      "CreditAmount": "5000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-06-19",
+      "Description": "[FIN1209-V1-054] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "5000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "5000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-06-30",
+      "Description": "[FIN1209-V1-055] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "8",
+      "DebitAmount": "30530.60",
+      "CreditAccountId": "16",
+      "CreditAmount": "30530.60"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-06-30",
+      "Description": "[FIN1209-V1-056] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "98947.38",
+      "CreditAccountId": "16",
+      "CreditAmount": "98947.38"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-06-30",
+      "Description": "[FIN1209-V1-057] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "129477.98",
+      "CreditAccountId": "24",
+      "CreditAmount": "129477.98"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-16",
+      "Description": "[FIN1209-V1-058] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "8600.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "8600.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-16",
+      "Description": "[FIN1209-V1-059] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "35",
+      "DebitAmount": "4000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "4000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-16",
+      "Description": "[FIN1209-V1-060] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "4600.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "4600.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-25",
+      "Description": "[FIN1209-V1-061] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "940.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "940.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-25",
+      "Description": "[FIN1209-V1-062] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "2820.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "2820.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-25",
+      "Description": "[FIN1209-V1-063] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "1880.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "1880.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-31",
+      "Description": "[FIN1209-V1-064] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "8",
+      "DebitAmount": "80199.70",
+      "CreditAccountId": "16",
+      "CreditAmount": "80199.70"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-31",
+      "Description": "[FIN1209-V1-065] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "77973.51",
+      "CreditAccountId": "16",
+      "CreditAmount": "77973.51"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-07-31",
+      "Description": "[FIN1209-V1-066] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "158173.21",
+      "CreditAccountId": "24",
+      "CreditAmount": "158173.21"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-01",
+      "Description": "[FIN1209-V1-067] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1.00",
+      "CreditAccountId": "13",
+      "CreditAmount": "1.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-01",
+      "Description": "[FIN1209-V1-068] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "1.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-01",
+      "Description": "[FIN1209-V1-069] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "2.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "2.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-02",
+      "Description": "[FIN1209-V1-070] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "580.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "580.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-02",
+      "Description": "[FIN1209-V1-071] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1200.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "1200.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-02",
+      "Description": "[FIN1209-V1-072] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "620.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "620.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-05",
+      "Description": "[FIN1209-V1-073] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1800.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "1800.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-05",
+      "Description": "[FIN1209-V1-074] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "1800.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "1800.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-09",
+      "Description": "[FIN1209-V1-075] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "6980.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "6980.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-09",
+      "Description": "[FIN1209-V1-076] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "1860.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "1860.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-09",
+      "Description": "[FIN1209-V1-077] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "8840.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "8840.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-11",
+      "Description": "[FIN1209-V1-078] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "1000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "1000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-11",
+      "Description": "[FIN1209-V1-079] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "24200.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "24200.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-11",
+      "Description": "[FIN1209-V1-080] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "35",
+      "DebitAmount": "100000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "100000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-11",
+      "Description": "[FIN1209-V1-081] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "76800.00",
+      "CreditAccountId": "47",
+      "CreditAmount": "76800.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-082] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "26000.00",
+      "CreditAccountId": "5",
+      "CreditAmount": "26000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-083] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "4000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "4000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-084] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "40000.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "40000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-085] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "4400.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "4400.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-086] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "35",
+      "DebitAmount": "80000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "80000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-12",
+      "Description": "[FIN1209-V1-087] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "13600.00",
+      "CreditAccountId": "47",
+      "CreditAmount": "13600.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-13",
+      "Description": "[FIN1209-V1-088] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "10000.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "10000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-13",
+      "Description": "[FIN1209-V1-089] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "10000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "10000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-14",
+      "Description": "[FIN1209-V1-090] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "6000.00",
+      "CreditAccountId": "13",
+      "CreditAmount": "6000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-14",
+      "Description": "[FIN1209-V1-091] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "6000.00",
+      "CreditAccountId": "24",
+      "CreditAmount": "6000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-14",
+      "Description": "[FIN1209-V1-092] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "35",
+      "DebitAmount": "6000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "6000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-14",
+      "Description": "[FIN1209-V1-093] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "6000.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "6000.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-16",
+      "Description": "[FIN1209-V1-094] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "7",
+      "DebitAmount": "1212.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "1212.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-16",
+      "Description": "[FIN1209-V1-095] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "400.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "400.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-16",
+      "Description": "[FIN1209-V1-096] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "2572.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "2572.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-16",
+      "Description": "[FIN1209-V1-097] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "1360.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "1360.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-16",
+      "Description": "[FIN1209-V1-098] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "400.00",
+      "CreditAccountId": "47",
+      "CreditAmount": "400.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-23",
+      "Description": "[FIN1209-V1-099] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "3060.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "3060.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-23",
+      "Description": "[FIN1209-V1-100] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "580.00",
+      "CreditAccountId": "26",
+      "CreditAmount": "580.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-23",
+      "Description": "[FIN1209-V1-101] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "43",
+      "DebitAmount": "3640.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "3640.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-23",
+      "Description": "[FIN1209-V1-102] Align daily net movement; GROSS PROFIT; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "52",
+      "DebitAmount": "0.01",
+      "CreditAccountId": "16",
+      "CreditAmount": "0.01"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-23",
+      "Description": "[FIN1209-V1-103] Align daily net movement; CLOSING STOCK; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "0.01",
+      "CreditAccountId": "53",
+      "CreditAmount": "0.01"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-29",
+      "Description": "[FIN1209-V1-104] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "7790.00",
+      "CreditAccountId": "7",
+      "CreditAmount": "7790.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-29",
+      "Description": "[FIN1209-V1-105] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "20",
+      "DebitAmount": "7500.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "7500.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-29",
+      "Description": "[FIN1209-V1-106] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "26",
+      "DebitAmount": "290.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "290.00"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-31",
+      "Description": "[FIN1209-V1-107] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "29270.70",
+      "CreditAccountId": "8",
+      "CreditAmount": "29270.70"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-31",
+      "Description": "[FIN1209-V1-108] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "13",
+      "DebitAmount": "44756.41",
+      "CreditAccountId": "16",
+      "CreditAmount": "44756.41"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-31",
+      "Description": "[FIN1209-V1-109] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "16",
+      "DebitAmount": "89685.71",
+      "CreditAccountId": "24",
+      "CreditAmount": "89685.71"
+    },
+    {
+      "Action": "insert",
+      "EntryId": "",
+      "Date": "2026-08-31",
+      "Description": "[FIN1209-V1-110] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession",
+      "DebitAccountId": "47",
+      "DebitAmount": "74200.00",
+      "CreditAccountId": "16",
+      "CreditAmount": "74200.00"
+    }
+  ],
+  "monthly_checks": [
+    {
+      "date": "2026-04-30",
+      "expected_closing_paisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -45960000,
+        "45": 3500000,
+        "7": 1240500,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "34": 0,
+        "4": 8380000,
+        "26": 455000,
+        "33": 0,
+        "29": 0,
+        "27": 0,
+        "24": 0,
+        "5": 1300000,
+        "32": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": 0,
+        "20": 0,
+        "22": 0,
+        "43": -653500,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": 0,
+        "3": 0,
+        "14": 0
+      }
+    },
+    {
+      "date": "2026-05-31",
+      "expected_closing_paisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -55424000,
+        "45": 3500000,
+        "7": 1102500,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 563700,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "34": 0,
+        "4": 8380000,
+        "26": 1065000,
+        "33": 0,
+        "29": 0,
+        "27": 0,
+        "24": 7620300,
+        "5": 2600000,
+        "32": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": -10000,
+        "20": 0,
+        "22": 0,
+        "43": -1125500,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": -10000,
+        "3": 0,
+        "14": 0
+      }
+    },
+    {
+      "date": "2026-06-30",
+      "expected_closing_paisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -59724200,
+        "45": 3500000,
+        "7": 1162300,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 200700,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "34": 0,
+        "4": 8380000,
+        "26": 1450000,
+        "33": 0,
+        "29": 0,
+        "27": 0,
+        "24": 10983500,
+        "5": 3900000,
+        "32": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": -10000,
+        "20": 0,
+        "22": 0,
+        "43": -1570300,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": -10000,
+        "3": 0,
+        "14": 0
+      }
+    },
+    {
+      "date": "2026-07-31",
+      "expected_closing_paisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -65094200,
+        "45": 3500000,
+        "7": 55800,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 92740,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "34": 0,
+        "4": 8380000,
+        "26": 3362500,
+        "33": 0,
+        "29": 498800,
+        "27": 0,
+        "24": 14736560,
+        "5": 5200000,
+        "32": 0,
+        "28": 0,
+        "25": 0,
+        "49": -5100,
+        "51": -10000,
+        "20": 0,
+        "22": 0,
+        "43": -1946300,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": -508800,
+        "3": 0,
+        "14": 0
+      }
+    },
+    {
+      "date": "2026-08-31",
+      "expected_closing_paisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -74394200,
+        "45": 3500000,
+        "7": 70200,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 32640,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "34": 0,
+        "4": 8380000,
+        "26": 4012100,
+        "33": 0,
+        "29": 498800,
+        "27": 0,
+        "24": 22756660,
+        "5": 6500000,
+        "32": 0,
+        "28": 0,
+        "25": 0,
+        "49": -5100,
+        "51": -280000,
+        "20": 0,
+        "22": 0,
+        "43": -2300300,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": -508800,
+        "3": 0,
+        "14": 0
+      }
+    }
+  ],
+  "opening_target_paisa": {
+    "41": 32500000,
+    "2": -15095800,
+    "50": -615000,
+    "42": 7698800,
+    "44": 8000000,
+    "13": -8310000,
+    "35": -29050000,
+    "45": 3500000,
+    "7": 1372000
+  },
+  "live_baseline": {
+    "captured": "2026-09-12",
+    "source": "Live authenticated Mahima cost module; all 48 DOM account ledgers, 1900-01-01 through 2026-08-31; integer paisa",
+    "accounts": [
+      [
+        9,
+        "ASSET",
+        "Accounts Receivable"
+      ],
+      [
+        10,
+        "ASSET",
+        "Advances and Deposits"
+      ],
+      [
+        41,
+        "ASSET",
+        "BUILDING A/C"
+      ],
+      [
+        8,
+        "ASSET",
+        "Bank"
+      ],
+      [
+        53,
+        "ASSET",
+        "CLOSING STOCK"
+      ],
+      [
+        7,
+        "ASSET",
+        "Cash"
+      ],
+      [
+        1,
+        "ASSET",
+        "Cash in Hand"
+      ],
+      [
+        42,
+        "ASSET",
+        "FURNITURE"
+      ],
+      [
+        11,
+        "ASSET",
+        "Fixed Assets"
+      ],
+      [
+        47,
+        "ASSET",
+        "HDFC BANK A/C NO 50100882772080"
+      ],
+      [
+        44,
+        "ASSET",
+        "MUSIC SYSTEM"
+      ],
+      [
+        45,
+        "ASSET",
+        "TENT & CORCKERY"
+      ],
+      [
+        2,
+        "EQUITY",
+        "Capital Fund"
+      ],
+      [
+        17,
+        "EQUITY",
+        "General Fund / Corpus Fund"
+      ],
+      [
+        16,
+        "EQUITY",
+        "Opening Balance Equity"
+      ],
+      [
+        18,
+        "EQUITY",
+        "Retained Surplus"
+      ],
+      [
+        30,
+        "EXPENSE",
+        "Bank Charges"
+      ],
+      [
+        34,
+        "EXPENSE",
+        "Depreciation Expense"
+      ],
+      [
+        4,
+        "EXPENSE",
+        "Easter Day Meeting Expense"
+      ],
+      [
+        26,
+        "EXPENSE",
+        "Ministry Events Expense"
+      ],
+      [
+        33,
+        "EXPENSE",
+        "Miscellaneous Expense"
+      ],
+      [
+        29,
+        "EXPENSE",
+        "Office and Administration Expense"
+      ],
+      [
+        27,
+        "EXPENSE",
+        "Outreach Expense"
+      ],
+      [
+        24,
+        "EXPENSE",
+        "Payroll Expense"
+      ],
+      [
+        5,
+        "EXPENSE",
+        "Rent Expense"
+      ],
+      [
+        32,
+        "EXPENSE",
+        "Repairs and Maintenance Expense"
+      ],
+      [
+        28,
+        "EXPENSE",
+        "Travel Expense"
+      ],
+      [
+        25,
+        "EXPENSE",
+        "Utilities Expense"
+      ],
+      [
+        49,
+        "INCOME",
+        "BANK INTEREST"
+      ],
+      [
+        51,
+        "INCOME",
+        "DONATION BY BANK"
+      ],
+      [
+        20,
+        "INCOME",
+        "Donations"
+      ],
+      [
+        22,
+        "INCOME",
+        "Event Income"
+      ],
+      [
+        43,
+        "INCOME",
+        "GOLAK DONATION"
+      ],
+      [
+        52,
+        "INCOME",
+        "GROSS PROFIT"
+      ],
+      [
+        21,
+        "INCOME",
+        "Grants"
+      ],
+      [
+        23,
+        "INCOME",
+        "Other Income"
+      ],
+      [
+        46,
+        "INCOME",
+        "RAJWINDER KAUR"
+      ],
+      [
+        19,
+        "INCOME",
+        "Tithes and Offerings"
+      ],
+      [
+        6,
+        "INCOME",
+        "Unidentified Receipts / Donations"
+      ],
+      [
+        12,
+        "LIABILITY",
+        "Accounts Payable"
+      ],
+      [
+        50,
+        "LIABILITY",
+        "EXPS PAYABLE"
+      ],
+      [
+        15,
+        "LIABILITY",
+        "Loans Payable"
+      ],
+      [
+        35,
+        "LIABILITY",
+        "M/S SAMBIT RAUT"
+      ],
+      [
+        13,
+        "LIABILITY",
+        "Payroll Payable"
+      ],
+      [
+        31,
+        "LIABILITY",
+        "SISTER SOMA"
+      ],
+      [
+        48,
+        "LIABILITY",
+        "SOMA"
+      ],
+      [
+        3,
+        "LIABILITY",
+        "Sambit Raut Unsecured Loan"
+      ],
+      [
+        14,
+        "LIABILITY",
+        "Statutory Dues Payable"
+      ]
+    ],
+    "account_counts": {
+      "9": 0,
+      "10": 0,
+      "41": 2,
+      "8": 35,
+      "53": 1,
+      "7": 116,
+      "1": 18,
+      "42": 4,
+      "11": 1,
+      "47": 86,
+      "44": 2,
+      "45": 2,
+      "2": 7,
+      "17": 0,
+      "16": 9,
+      "18": 0,
+      "30": 0,
+      "34": 1,
+      "4": 15,
+      "26": 56,
+      "33": 1,
+      "29": 2,
+      "27": 0,
+      "24": 110,
+      "5": 13,
+      "32": 2,
+      "28": 0,
+      "25": 0,
+      "49": 1,
+      "51": 4,
+      "20": 27,
+      "22": 0,
+      "43": 48,
+      "52": 1,
+      "21": 0,
+      "23": 0,
+      "46": 1,
+      "19": 0,
+      "6": 0,
+      "12": 0,
+      "50": 1,
+      "15": 0,
+      "35": 71,
+      "13": 40,
+      "31": 1,
+      "48": 2,
+      "3": 2,
+      "14": 0
+    },
+    "line_count": 682,
+    "total_debit_paisa": 397680635,
+    "total_credit_paisa": 397680635,
+    "monthly": {
+      "2026-03-31": {
+        "2": -56700000,
+        "5": 5200000,
+        "7": 1155100,
+        "13": -7610000,
+        "20": -1783100,
+        "24": 30890000,
+        "26": 7660000,
+        "29": 27000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -29050000,
+        "41": 32500000,
+        "42": 7698800,
+        "43": -1783000,
+        "44": 8000000,
+        "45": 3500000,
+        "9": 0,
+        "10": 0,
+        "8": 0,
+        "53": 0,
+        "1": 0,
+        "11": 0,
+        "47": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "4": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": 0,
+        "22": 0,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "50": 0,
+        "15": 0,
+        "31": 0,
+        "48": 0,
+        "3": 0,
+        "14": 0
+      },
+      "2026-04-30": {
+        "1": 1170000,
+        "2": -76795800,
+        "3": -5850000,
+        "4": 8380000,
+        "5": 7800000,
+        "7": 2725600,
+        "8": -7816320,
+        "13": -9417600,
+        "20": -1783100,
+        "24": 39763920,
+        "26": 8115000,
+        "29": 27000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -66960000,
+        "41": 65000000,
+        "42": 15397600,
+        "43": -2436500,
+        "44": 16000000,
+        "45": 7000000,
+        "50": -615000,
+        "9": 0,
+        "10": 0,
+        "53": 0,
+        "11": 0,
+        "47": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": 0,
+        "22": 0,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "46": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "31": 0,
+        "48": 0,
+        "14": 0
+      },
+      "2026-05-31": {
+        "1": 1170000,
+        "2": -76795800,
+        "3": -7150000,
+        "4": 8380000,
+        "5": 10400000,
+        "7": 2267600,
+        "8": -11880270,
+        "11": 440000,
+        "13": -14490144,
+        "20": -1783100,
+        "24": 56520714,
+        "26": 9045000,
+        "29": 27000,
+        "31": -440000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -76424000,
+        "41": 65000000,
+        "42": 15397600,
+        "43": -2908500,
+        "44": 16000000,
+        "45": 7000000,
+        "46": -10000,
+        "47": 563700,
+        "48": -10000,
+        "50": -615000,
+        "9": 0,
+        "10": 0,
+        "53": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": 0,
+        "22": 0,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "14": 0
+      },
+      "2026-06-30": {
+        "1": 1170000,
+        "2": -76795800,
+        "3": -7150000,
+        "4": 8380000,
+        "5": 11700000,
+        "7": 2327400,
+        "8": -14433330,
+        "11": 440000,
+        "13": -24384882,
+        "20": -2283100,
+        "24": 72831712,
+        "26": 9430000,
+        "29": 27000,
+        "31": -440000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -80724200,
+        "41": 65000000,
+        "42": 15397600,
+        "43": -3353300,
+        "44": 16000000,
+        "45": 7000000,
+        "46": -10000,
+        "47": 200700,
+        "48": -10000,
+        "50": -615000,
+        "9": 0,
+        "10": 0,
+        "53": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "49": 0,
+        "51": 0,
+        "22": 0,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "14": 0
+      },
+      "2026-07-31": {
+        "1": 1170000,
+        "2": -76795800,
+        "3": -7150000,
+        "4": 8380000,
+        "5": 13000000,
+        "7": 1126900,
+        "8": -22453300,
+        "11": 440000,
+        "13": -32182233,
+        "20": -2283100,
+        "24": 92402093,
+        "26": 12484500,
+        "29": 525800,
+        "31": -440000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -86494200,
+        "41": 65000000,
+        "42": 15397600,
+        "43": -3917300,
+        "44": 16000000,
+        "45": 7000000,
+        "46": -10000,
+        "47": -367260,
+        "48": -508800,
+        "49": -5100,
+        "50": -615000,
+        "9": 0,
+        "10": 0,
+        "53": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "51": 0,
+        "22": 0,
+        "52": 0,
+        "21": 0,
+        "23": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "14": 0
+      },
+      "2026-08-31": {
+        "1": 1170000,
+        "2": -76795800,
+        "3": -7150000,
+        "4": 8380000,
+        "5": 16900000,
+        "7": 2745100,
+        "8": -19526230,
+        "11": 440000,
+        "13": -36057774,
+        "20": -3573100,
+        "24": 117410864,
+        "26": 14346300,
+        "29": 525800,
+        "31": -440000,
+        "32": 177000,
+        "33": 92000,
+        "34": 26200,
+        "35": -114394200,
+        "41": 65000000,
+        "42": 15397600,
+        "43": -5717300,
+        "44": 16000000,
+        "45": 7000000,
+        "46": -10000,
+        "47": -547560,
+        "48": -508800,
+        "49": -5100,
+        "50": -615000,
+        "51": -270000,
+        "52": -1,
+        "53": 1,
+        "9": 0,
+        "10": 0,
+        "17": 0,
+        "16": 0,
+        "18": 0,
+        "30": 0,
+        "27": 0,
+        "28": 0,
+        "25": 0,
+        "22": 0,
+        "21": 0,
+        "23": 0,
+        "19": 0,
+        "6": 0,
+        "12": 0,
+        "15": 0,
+        "14": 0
+      }
+    },
+    "missing_pdf_row_indices_zero_based": [
+      1,
+      6,
+      42,
+      115,
+      160,
+      161,
+      162,
+      163
+    ],
+    "pdf_amount_date_account_matches": 190,
+    "qualification": "Matching uses account ID, displayed transaction date, debit/credit amount, and occurrence count; does not certify voucher ID, narration or counterpart. UI does not expose journal IDs; CSV download event unavailable."
+  },
+  "live_daily_paisa": {
+    "2026-04-01": {
+      "1": 8550000,
+      "2": -20095800,
+      "3": -5850000,
+      "4": 1000000,
+      "5": 1300000,
+      "7": 1372000,
+      "13": -8310000,
+      "35": -29050000,
+      "41": 32500000,
+      "42": 7698800,
+      "44": 8000000,
+      "45": 3500000,
+      "50": -615000
+    },
+    "2026-04-30": {
+      "8": -7816320,
+      "13": -1057600,
+      "24": 8873920
+    },
+    "2026-05-31": {
+      "8": -4063950,
+      "13": -5072544,
+      "24": 9136494
+    },
+    "2026-06-19": {
+      "8": 500000,
+      "20": -500000,
+      "24": 700000,
+      "35": -500000,
+      "47": -200000
+    },
+    "2026-06-30": {
+      "8": -3053060,
+      "13": -9894738,
+      "24": 12947798
+    },
+    "2026-07-31": {
+      "8": -8019970,
+      "13": -7797351,
+      "24": 15817321
+    },
+    "2026-08-31": {
+      "8": 2927070,
+      "13": -4475641,
+      "24": 8968571,
+      "47": -7420000
+    },
+    "2026-08-23": {
+      "7": 90000,
+      "26": 87000,
+      "43": -177000,
+      "52": -1,
+      "53": 1
+    },
+    "2026-04-04": {
+      "1": -279000,
+      "4": 279000,
+      "7": -90000,
+      "26": 90000
+    },
+    "2026-04-05": {
+      "1": -1842000,
+      "4": 1842000,
+      "7": 376000,
+      "43": -376000
+    },
+    "2026-04-11": {
+      "7": -35000,
+      "26": 105000,
+      "43": -70000
+    },
+    "2026-04-18": {
+      "7": -34000,
+      "26": 125000,
+      "43": -91000
+    },
+    "2026-04-25": {
+      "7": -18500,
+      "26": 135000,
+      "43": -116500
+    },
+    "2026-05-02": {
+      "7": 50000,
+      "26": 50000,
+      "43": -100000
+    },
+    "2026-05-09": {
+      "3": -1300000,
+      "5": 1300000,
+      "7": -305000,
+      "26": 305000
+    },
+    "2026-05-10": {
+      "7": 190000,
+      "24": 2263900,
+      "35": -2263900,
+      "43": -190000
+    },
+    "2026-05-12": {
+      "7": -320000,
+      "26": 320000
+    },
+    "2026-05-16": {
+      "7": -5000,
+      "11": 440000,
+      "26": 70000,
+      "31": -440000,
+      "35": -5000000,
+      "43": -65000,
+      "47": 5000000
+    },
+    "2026-05-23": {
+      "7": -73000,
+      "26": 106000,
+      "35": -100,
+      "43": -33000,
+      "47": 100
+    },
+    "2026-05-30": {
+      "7": 5000,
+      "26": 79000,
+      "43": -84000
+    },
+    "2026-06-06": {
+      "7": 10100,
+      "26": 92000,
+      "43": -102100
+    },
+    "2026-06-13": {
+      "7": 98700,
+      "24": 2663200,
+      "26": 110000,
+      "35": -2500100,
+      "43": -208700,
+      "47": -163100
+    },
+    "2026-06-20": {
+      "7": -36000,
+      "26": 68000,
+      "43": -32000
+    },
+    "2026-06-27": {
+      "7": -13000,
+      "26": 115000,
+      "43": -102000
+    },
+    "2026-07-04": {
+      "7": -27000,
+      "26": 105000,
+      "43": -78000
+    },
+    "2026-07-11": {
+      "7": -905000,
+      "24": 3383060,
+      "26": 905000,
+      "35": -3500000,
+      "47": 116940
+    },
+    "2026-07-12": {
+      "7": -110000,
+      "26": 210000,
+      "43": -100000
+    },
+    "2026-07-19": {
+      "7": -17500,
+      "26": 121500,
+      "43": -104000
+    },
+    "2026-07-25": {
+      "7": -141000,
+      "26": 423000,
+      "43": -282000
+    },
+    "2026-08-02": {
+      "7": -87000,
+      "26": 180000,
+      "43": -93000
+    },
+    "2026-08-09": {
+      "7": 1047000,
+      "26": 279000,
+      "43": -1326000
+    },
+    "2026-08-16": {
+      "7": -181800,
+      "20": -40000,
+      "26": 385800,
+      "43": -204000,
+      "47": 60000,
+      "51": -20000
+    },
+    "2026-08-29": {
+      "7": 750000,
+      "20": -750000
+    },
+    "2026-04-03": {
+      "1": -265000,
+      "4": 265000
+    },
+    "2026-04-06": {
+      "1": -3994500,
+      "4": 3994500
+    },
+    "2026-04-16": {
+      "1": -999500,
+      "4": 999500
+    },
+    "2026-05-27": {
+      "24": 4456400,
+      "46": -10000,
+      "47": -4436400,
+      "48": -10000
+    },
+    "2026-06-26": {
+      "35": -100,
+      "47": 100
+    },
+    "2026-07-01": {
+      "47": 5100,
+      "49": -5100
+    },
+    "2026-07-16": {
+      "26": 1290000,
+      "35": -600000,
+      "47": -690000
+    },
+    "2026-08-01": {
+      "13": 100,
+      "24": 200,
+      "47": -300
+    },
+    "2026-08-05": {
+      "26": 270000,
+      "47": -270000
+    },
+    "2026-08-11": {
+      "20": -100000,
+      "24": 4840000,
+      "35": -15000000,
+      "47": 10310000,
+      "51": -50000
+    },
+    "2026-08-12": {
+      "5": 3900000,
+      "20": -400000,
+      "24": 8000000,
+      "26": 660000,
+      "35": -12000000,
+      "47": 40000,
+      "51": -200000
+    },
+    "2026-08-13": {
+      "24": 2000000,
+      "47": -2000000
+    },
+    "2026-08-14": {
+      "13": 600000,
+      "24": 1200000,
+      "35": -900000,
+      "47": -900000
+    },
+    "2026-07-09": {
+      "29": 498800,
+      "48": -498800
+    },
+    "2026-05-13": {
+      "5": 1300000,
+      "24": 900000,
+      "35": -2200000
+    },
+    "2026-07-10": {
+      "24": 270000,
+      "35": -270000
+    },
+    "2026-07-15": {
+      "5": 1300000,
+      "24": 100000,
+      "35": -1400000
+    },
+    "2026-04-15": {
+      "5": 1300000,
+      "35": -1300000
+    },
+    "2026-06-14": {
+      "5": 1300000,
+      "35": -1300000
+    },
+    "2026-04-10": {
+      "13": 7560000,
+      "35": -7560000
+    }
+  },
+  "source_daily_paisa": {
+    "2026-04-01": {
+      "35": -4500000,
+      "7": 3434000,
+      "4": 1066000
+    },
+    "2026-04-03": {
+      "4": 265000,
+      "7": -265000
+    },
+    "2026-04-04": {
+      "26": 90000,
+      "7": -369000,
+      "4": 279000
+    },
+    "2026-04-05": {
+      "43": -376000,
+      "7": -1400000,
+      "4": 1776000
+    },
+    "2026-04-06": {
+      "4": 3994500,
+      "7": -444500,
+      "35": -3550000
+    },
+    "2026-04-10": {
+      "13": 7560000,
+      "35": -7560000
+    },
+    "2026-04-11": {
+      "43": -70000,
+      "7": -35000,
+      "26": 105000
+    },
+    "2026-04-15": {
+      "5": 1300000,
+      "35": -1300000
+    },
+    "2026-04-16": {
+      "4": 999500,
+      "7": -999500
+    },
+    "2026-04-18": {
+      "43": -91000,
+      "7": -34000,
+      "26": 125000
+    },
+    "2026-04-25": {
+      "43": -116500,
+      "7": -18500,
+      "26": 135000
+    },
+    "2026-05-02": {
+      "43": -100000,
+      "7": 50000,
+      "26": 50000
+    },
+    "2026-05-09": {
+      "26": 305000,
+      "7": -305000
+    },
+    "2026-05-10": {
+      "43": -190000,
+      "7": 190000,
+      "24": 2263900,
+      "35": -2263900
+    },
+    "2026-05-13": {
+      "24": 900000,
+      "35": -2200000,
+      "5": 1300000
+    },
+    "2026-05-16": {
+      "43": -65000,
+      "7": -5000,
+      "26": 70000,
+      "47": 5000000,
+      "35": -5000000
+    },
+    "2026-05-23": {
+      "43": -33000,
+      "7": -73000,
+      "26": 106000,
+      "47": 100,
+      "35": -100
+    },
+    "2026-05-27": {
+      "47": -4436400,
+      "48": -10000,
+      "51": -10000,
+      "24": 4456400
+    },
+    "2026-05-30": {
+      "43": -84000,
+      "7": 5000,
+      "26": 79000
+    },
+    "2026-06-06": {
+      "43": -102100,
+      "7": 10100,
+      "26": 92000
+    },
+    "2026-06-13": {
+      "43": -208700,
+      "7": 98700,
+      "26": 110000,
+      "47": -163100,
+      "35": -2500100,
+      "24": 2663200
+    },
+    "2026-06-14": {
+      "5": 1300000,
+      "35": -1300000
+    },
+    "2026-06-19": {
+      "47": -200000,
+      "35": -500000,
+      "24": 700000
+    },
+    "2026-06-20": {
+      "43": -32000,
+      "7": -36000,
+      "26": 68000
+    },
+    "2026-06-26": {
+      "47": 100,
+      "35": -100
+    },
+    "2026-06-27": {
+      "26": 115000,
+      "7": -13000,
+      "43": -102000
+    },
+    "2026-07-01": {
+      "49": -5100,
+      "47": 5100
+    },
+    "2026-07-04": {
+      "26": 105000,
+      "7": -27000,
+      "43": -78000
+    },
+    "2026-07-09": {
+      "29": 498800,
+      "48": -498800
+    },
+    "2026-07-10": {
+      "24": 270000,
+      "35": -270000
+    },
+    "2026-07-11": {
+      "26": 905000,
+      "7": -905000,
+      "47": 116940,
+      "35": -3500000,
+      "24": 3383060
+    },
+    "2026-07-12": {
+      "26": 210000,
+      "7": -110000,
+      "43": -100000
+    },
+    "2026-07-15": {
+      "5": 1300000,
+      "35": -1400000,
+      "24": 100000
+    },
+    "2026-07-16": {
+      "47": -230000,
+      "35": -200000,
+      "26": 430000
+    },
+    "2026-07-19": {
+      "26": 121500,
+      "7": -17500,
+      "43": -104000
+    },
+    "2026-07-25": {
+      "26": 141000,
+      "7": -47000,
+      "43": -94000
+    },
+    "2026-08-01": {
+      "47": -100,
+      "24": 100
+    },
+    "2026-08-02": {
+      "26": 60000,
+      "7": -29000,
+      "43": -31000
+    },
+    "2026-08-05": {
+      "47": -90000,
+      "26": 90000
+    },
+    "2026-08-09": {
+      "26": 93000,
+      "7": 349000,
+      "43": -442000
+    },
+    "2026-08-11": {
+      "47": 2630000,
+      "35": -5000000,
+      "24": 2420000,
+      "51": -50000
+    },
+    "2026-08-12": {
+      "47": -1320000,
+      "26": 220000,
+      "24": 4000000,
+      "51": -200000,
+      "35": -4000000,
+      "5": 1300000
+    },
+    "2026-08-13": {
+      "47": -1000000,
+      "24": 1000000
+    },
+    "2026-08-14": {
+      "47": -300000,
+      "35": -300000,
+      "24": 600000
+    },
+    "2026-08-16": {
+      "26": 128600,
+      "7": -60600,
+      "43": -68000,
+      "51": -20000,
+      "47": 20000
+    },
+    "2026-08-23": {
+      "26": 29000,
+      "7": -216000,
+      "43": 187000
+    },
+    "2026-08-29": {
+      "26": 29000,
+      "7": -29000
+    },
+    "2026-04-30": {},
+    "2026-05-12": {},
+    "2026-05-31": {},
+    "2026-06-30": {},
+    "2026-07-31": {},
+    "2026-08-31": {}
+  },
+  "final_target_paisa": {
+    "2": -15095800,
+    "5": 6500000,
+    "7": 70200,
+    "13": -750000,
+    "20": 0,
+    "24": 22756660,
+    "26": 4012100,
+    "29": 498800,
+    "32": 0,
+    "33": 0,
+    "34": 0,
+    "35": -74394200,
+    "41": 32500000,
+    "42": 7698800,
+    "43": -2300300,
+    "44": 8000000,
+    "45": 3500000,
+    "9": 0,
+    "10": 0,
+    "8": 0,
+    "53": 0,
+    "1": 0,
+    "11": 0,
+    "47": 32640,
+    "17": 0,
+    "16": 0,
+    "18": 0,
+    "30": 0,
+    "4": 8380000,
+    "27": 0,
+    "28": 0,
+    "25": 0,
+    "49": -5100,
+    "51": -280000,
+    "22": 0,
+    "52": 0,
+    "21": 0,
+    "23": 0,
+    "46": 0,
+    "19": 0,
+    "6": 0,
+    "12": 0,
+    "50": -615000,
+    "15": 0,
+    "31": 0,
+    "48": -508800,
+    "3": 0,
+    "14": 0
+  },
+  "csv_sha256": "6b6fc9ac9e0524386e01e71ada0cbcae30f3679dd1ba797c435190e1e638f02f"
+}

@@ -1,0 +1,28 @@
+Action,EntryId,Date,Description,DebitAccountId,DebitAmount,CreditAccountId,CreditAmount
+insert,,2026-07-16,Transfer received from Sambit Raut [Monthly Statement.pdf J-1],47,2000.00,35,2000.00
+insert,,2026-07-16,Tent charges paid [Monthly Statement.pdf J-2],26,4300.00,47,4300.00
+insert,,2026-07-25,Cash offering received [Monthly Statement.pdf C-2],7,940.00,43,940.00
+insert,,2026-07-25,Cash paid for meeting expenses [Monthly Statement.pdf C-1],26,1410.00,7,1410.00
+insert,,2026-08-01,Rupesh salary payment applied against July payroll payable [Monthly Statement.pdf J-1],13,1.00,47,1.00
+insert,,2026-08-02,Cash offering received [Monthly Statement.pdf C-2],7,310.00,43,310.00
+insert,,2026-08-02,Cash paid for meeting expenses [Monthly Statement.pdf C-1],26,600.00,7,600.00
+insert,,2026-08-05,Charges paid to Rakesh Kumar [Monthly Statement.pdf J-1],26,900.00,47,900.00
+insert,,2026-08-09,Cash offering received [Monthly Statement.pdf C-2],7,4420.00,43,4420.00
+insert,,2026-08-09,Cash paid for meeting expenses [Monthly Statement.pdf C-1],26,930.00,7,930.00
+insert,,2026-08-11,Transfer received from Sambit Raut [Monthly Statement.pdf J-1],47,50000.00,35,50000.00
+insert,,2026-08-11,Donation received from Lakshmi [Monthly Statement.pdf J-5],47,500.00,20,500.00
+insert,,2026-08-12,Generator expense paid [Monthly Statement.pdf J-1],26,1300.00,47,1300.00
+insert,,2026-08-12,Donation received from Rajwinder [Monthly Statement.pdf J-3],47,2000.00,20,2000.00
+insert,,2026-08-12,Transfer received from Sambit Raut [Monthly Statement.pdf J-4],47,40000.00,35,40000.00
+insert,,2026-08-12,Rent paid [Monthly Statement.pdf J-5],5,13000.00,47,13000.00
+insert,,2026-08-12,Payment to Rakesh Kumar [Monthly Statement.pdf J-7],26,900.00,47,900.00
+insert,,2026-08-14,Transfer received from Sambit Raut [Monthly Statement.pdf J-1],47,3000.00,35,3000.00
+insert,,2026-08-14,Sandeep part salary payment applied against July payroll payable [Monthly Statement.pdf J-2],13,6000.00,47,6000.00
+insert,,2026-08-16,Donation received by bank [Monthly Statement.pdf J-1],47,100.00,20,100.00
+insert,,2026-08-16,Donation received by bank [Monthly Statement.pdf J-2],47,100.00,20,100.00
+insert,,2026-08-16,Cash offering received [Monthly Statement.pdf C-4],7,680.00,43,680.00
+insert,,2026-08-16,Cash paid for meeting expenses [Monthly Statement.pdf C-3],26,1286.00,7,1286.00
+insert,,2026-08-23,Cash offering received [Monthly Statement.pdf C-2],7,590.00,43,590.00
+insert,,2026-08-23,Cash paid for meeting expenses [Monthly Statement.pdf C-1],26,290.00,7,290.00
+insert,,2026-08-31,Reclassify July payroll payments from generic Bank to HDFC per Monthly Statement.pdf,8,74199.70,47,74199.70
+insert,,2026-08-31,Payroll rounding adjustment to reconcile HDFC statement,24,0.30,47,0.30

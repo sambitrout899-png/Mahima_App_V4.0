@@ -617,6 +617,56 @@ namespace Mahima.Api.Controllers
         }
 
         [AllowAnonymous]
+        [HttpPut("~/api/payroll/runs/{id:guid}")]
+        public async Task<IActionResult> UpdateRun(Guid id, [FromBody] PayrollRunRequest dto)
+        {
+            if (dto == null) return BadRequest("Body is required.");
+            if (dto.From == default || dto.To == default || dto.From > dto.To)
+                return BadRequest("Valid 'from' and 'to' dates are required.");
+            if (dto.TotalHours < 0 || dto.HourlyRate < 0 || dto.FixedAmount < 0 ||
+                dto.Allowances < 0 || dto.Deductions < 0 || dto.PreviousArrears < 0 || dto.PaidAmount < 0)
+                return BadRequest("Amounts cannot be negative.");
+
+            await EnsurePayrollPaymentColumnsAsync();
+            var run = await _db.PayrollRuns.FindAsync(id);
+            if (run == null) return NotFound();
+
+            var gross = dto.FixedAmount + (dto.TotalHours * dto.HourlyRate) + dto.Allowances;
+            var net = Math.Max(0m, gross - dto.Deductions);
+            var payable = Math.Max(0m, net + dto.PreviousArrears);
+            var paid = Math.Min(dto.PaidAmount, payable);
+            var balance = Math.Max(0m, payable - paid);
+
+            run.StaffName = string.IsNullOrWhiteSpace(dto.DisplayName) ? run.StaffName : dto.DisplayName;
+            run.From = DateTime.SpecifyKind(dto.From.Date, DateTimeKind.Utc);
+            run.To = DateTime.SpecifyKind(dto.To.Date, DateTimeKind.Utc);
+            run.TotalHours = dto.TotalHours;
+            run.HourlyRate = dto.HourlyRate;
+            run.FixedAmount = dto.FixedAmount;
+            run.Allowances = dto.Allowances;
+            run.Deductions = dto.Deductions;
+            run.GrossAmount = gross;
+            run.NetAmount = net;
+            run.PreviousArrears = dto.PreviousArrears;
+            run.PayableAmount = payable;
+            run.PaidAmount = paid;
+            run.BalanceAmount = balance;
+            run.PaymentStatus = PaymentStatus(paid, balance, payable);
+            run.PaymentNotes = dto.PaymentNotes;
+            run.PaidAtUtc = paid > 0m ? (run.PaidAtUtc ?? DateTime.UtcNow) : null;
+
+            AddAudit("Payroll.Run.Update", "PayrollRun", run.Id.ToString(),
+                new { run.UserId, run.From, run.To, run.GrossAmount, run.NetAmount, run.PayableAmount, run.PaidAmount, run.BalanceAmount });
+            var displayName = await ResolveDisplayNameAsync(run.UserId);
+            await SyncPayrollRunFinanceAsync(run, displayName);
+            AddAudit("Payroll.Run.FinanceSync", "PayrollRun", run.Id.ToString(),
+                new { run.UserId, run.From, run.To, run.PayableAmount, run.PaidAmount, run.BalanceAmount });
+            await _db.SaveChangesAsync();
+
+            return Ok(ToRunDto(run, displayName));
+        }
+
+        [AllowAnonymous]
         [HttpDelete("~/api/payroll/runs/{id:guid}")]
         public async Task<IActionResult> DeleteRun(Guid id)
         {

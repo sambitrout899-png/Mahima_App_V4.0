@@ -1112,7 +1112,7 @@ export default function TasksPage() {
       return;
     }
     try {
-      await api("/messages/send", {
+      const delivery = await api("/messages/send", {
         method: "POST",
         body: JSON.stringify({
           type: "Reminder",
@@ -1120,11 +1120,11 @@ export default function TasksPage() {
           userIds,
           taskId: task.id,
           source: "manual",
-          channels: { email: false, whatsapp: false, sms: false },
+          channels: { email: false, whatsapp: false, sms: true },
         }),
       });
-      toast.push(`Jai Masih reminder sent for "${task.title}"`, "success");
-      setReminderSent(true);
+      toast.push(delivery?.success ? `Reminder submitted for "${task.title}" (SMS queued, not confirmed delivered).` : `Reminder processed; some channels failed or skipped. ${(delivery?.results || []).flatMap(r => r.errors || []).join(" ")}`, delivery?.success ? "success" : "error");
+      setReminderSent(delivery?.success === true);
       fetchTasks();
     } catch (e) {
       toast.push(e.message || "Reminder send failed", "error");
@@ -1200,7 +1200,7 @@ export default function TasksPage() {
 
         if (userIds.length > 0) {
           try {
-            await api("/messages/send", {
+            const delivery = await api("/messages/send", {
               method: "POST",
               body: JSON.stringify({
                 type: "Reminder",
@@ -1208,10 +1208,10 @@ export default function TasksPage() {
                 userIds,
                 taskId: task.id,
                 source: "auto",
-                channels: { email: false, whatsapp: false, sms: false },
+                channels: { email: false, whatsapp: false, sms: true },
               }),
             });
-            reminderSent = true;
+            reminderSent = Boolean(delivery?.success);
           } catch (e) {
             console.warn("Auto reminder send failed; completing automation task anyway", task.id, e);
           }
@@ -1247,7 +1247,7 @@ export default function TasksPage() {
         if (userIds.length === 0) continue; // no one to notify
 
         const message = threshold.message(task.title);
-        await api("/messages/send", {
+        const delivery = await api("/messages/send", {
           method: "POST",
           body: JSON.stringify({
             type: "Reminder",
@@ -1255,13 +1255,13 @@ export default function TasksPage() {
             userIds,
             taskId: task.id,
             source: "auto",
-            channels: { email: false, whatsapp: false, sms: false },
+            channels: { email: false, whatsapp: false, sms: true },
           }),
         });
 
         sent[key] = new Date().toISOString();
         updated = true;
-        toast.push(`🔔 ${threshold.label} reminder sent — "${task.title}"`, "info");
+        toast.push(delivery?.success ? `🔔 ${threshold.label} reminder submitted — "${task.title}"` : `Reminder processed; SMS failed or skipped. ${(delivery?.results || []).flatMap(r => r.errors || []).join(" ")}`, delivery?.success ? "info" : "error");
       }
     }
 

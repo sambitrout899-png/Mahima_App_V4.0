@@ -40,7 +40,6 @@ import {
   Download,
   Save,
   Edit3,
-  PlusCircle,
   ClipboardList,
   ShieldCheck,
 } from "lucide-react";
@@ -56,6 +55,7 @@ import {
 } from "recharts";
 import { getToken as getStoredToken } from "../auth/authService";
 import { getCurrentUser } from "../auth/permissionService";
+import { buildTestimonyPrintHtml } from "./testimonyPrint";
 
 /* ============================================================================
  *  API HELPERS
@@ -304,11 +304,6 @@ export default function PrayerRequestsPage() {
   const [closeComment, setCloseComment] = useState("");
   const [closeSubmitting, setCloseSubmitting] = useState(false);
   const [showAdminTable, setShowAdminTable] = useState(true);
-  const [showBulkAdd, setShowBulkAdd] = useState(false);
-  const [bulkAddText, setBulkAddText] = useState("");
-  const [bulkAddStatus, setBulkAddStatus] = useState("new");
-  const [bulkAddAnonymous, setBulkAddAnonymous] = useState(false);
-  const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkActionStatus, setBulkActionStatus] = useState("open");
   const [bulkCloseComment, setBulkCloseComment] = useState("");
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
@@ -846,75 +841,6 @@ export default function PrayerRequestsPage() {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
-
-  const parseBulkPrayerLines = useCallback((value) => {
-    return value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(/\s+[|-]\s+/);
-        if (parts.length > 1) {
-          const [rawTitle, ...rest] = parts;
-          return {
-            title: rawTitle.slice(0, 120).trim() || null,
-            message: rest.join(" - ").trim(),
-          };
-        }
-        return { title: null, message: line };
-      })
-      .filter((item) => item.message);
-  }, []);
-
-  const bulkAddPreview = useMemo(
-    () => parseBulkPrayerLines(bulkAddText),
-    [bulkAddText, parseBulkPrayerLines]
-  );
-
-  const handleBulkAddRequests = async () => {
-    if (!bulkAddPreview.length) {
-      pushToast("Paste one prayer request per line to bulk add.", "error");
-      return;
-    }
-    if (!window.confirm(`Add ${bulkAddPreview.length} prayer request${bulkAddPreview.length === 1 ? "" : "s"}?`)) return;
-
-    setBulkSubmitting(true);
-    const created = [];
-    const failed = [];
-    try {
-      for (const item of bulkAddPreview) {
-        try {
-          const result = await fetchJson(`${PRAYER_REQUESTS_URL}?includeResponses=true`, {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({
-              title: item.title,
-              message: item.message,
-              anonymous: bulkAddAnonymous,
-              status: bulkAddStatus,
-              assignedTo: null,
-            }),
-          });
-          created.push(result);
-        } catch (err) {
-          failed.push({ item, err });
-        }
-      }
-      if (created.length) {
-        setRequests((prev) => [...created, ...prev]);
-        setBulkAddText("");
-        setShowBulkAdd(false);
-      }
-      if (failed.length) {
-        pushToast(`Added ${created.length}; ${failed.length} failed. Please review and retry failed lines.`, "error", 6000);
-      } else {
-        pushToast(`Added ${created.length} prayer request${created.length === 1 ? "" : "s"}.`, "success");
-      }
-    } finally {
-      setBulkSubmitting(false);
-    }
-  };
-
 
   const handleBulkStatusUpdate = async (newStatusRaw = bulkActionStatus, closeCommentValue = null) => {
     const ids = selectedVisibleIds;
@@ -1647,11 +1573,11 @@ export default function PrayerRequestsPage() {
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-emerald-50">
                 <HandHeart className="h-4 w-4 text-emerald-200" />
-                Community care
+                Administration
               </div>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Prayer Wall</h1>
+              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Admin Prayer Requests</h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-emerald-50">
-                A shared place for requests, encouragement, follow-up, and answered prayer testimonies.
+                Review incoming requests, coordinate follow-up, record prayer activity, and close answered requests.
               </p>
               <div className="mt-5 grid gap-3 sm:grid-cols-4">
                 <StatCard icon={MessageCircle} label="Total" value={stats.total} accent="text-slate-950 bg-white" compact />
@@ -1684,109 +1610,12 @@ export default function PrayerRequestsPage() {
             </div>
           </div>
 
-          <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
-            <aside className="space-y-5">
-              <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-800">
-                    <Send className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-black text-slate-950">Share a Request</h2>
-                    <p className="mt-1 text-sm font-semibold text-slate-500">Type it, or tap the mic and speak it. Review once, then share.</p>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-sm font-black text-emerald-950">Speak instead of typing</div>
-                      <div className="text-xs font-semibold leading-5 text-emerald-800">Tap the mic, speak your request, then review the text before sharing.</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => startVoiceCapture(voiceLang)}
-                      disabled={voiceBusy}
-                      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-black shadow-sm transition disabled:opacity-60 ${voiceListening ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-emerald-700 text-white hover:bg-emerald-800"}`}
-                    >
-                      {voiceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      {voiceListening ? "Stop listening" : "Start voice request"}
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {[
-                      ["en-IN", "English"],
-                      ["hi-IN", "Hindi"],
-                      ["pa-IN", "Punjabi"],
-                    ].map(([code, label]) => (
-                      <button
-                        key={code}
-                        type="button"
-                        onClick={() => setVoiceLang(code)}
-                        className={`rounded-full border px-3 py-1 text-xs font-black ${voiceLang === code ? "border-emerald-700 bg-white text-emerald-800" : "border-emerald-200 bg-emerald-100/70 text-emerald-800 hover:bg-white"}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3">
-                  <textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    rows={7}
-                    maxLength={1000}
-                    placeholder="Type here, or use the mic above and your spoken request will appear here..."
-                    className="min-h-44 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-base font-semibold leading-7 text-slate-900 outline-none ring-emerald-100 transition focus:bg-white focus:ring-4"
-                  />
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Optional title"
-                    maxLength={120}
-                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none ring-emerald-100 transition focus:ring-4"
-                  />
-                </div>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
-                    <input type="checkbox" className="h-4 w-4 accent-emerald-700" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
-                    {anonymous ? <Lock className="h-4 w-4 text-slate-500" /> : <Globe className="h-4 w-4 text-slate-500" />}
-                    {anonymous ? "Anonymous" : "Post as me"}
-                  </label>
-                  <span className="text-xs font-bold text-slate-400">{message.length}/1000</span>
-                </div>
-                <button type="submit" disabled={submitting || !message.trim()} className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {submitting ? "Sharing..." : "Share Prayer Request"}
-                </button>
-              </form>
-
-              <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-black text-slate-950">Prayer Flow</h2>
-                <div className="mt-4 space-y-3">
-                  {[
-                    ["New", "Request is received by the community."],
-                    ["Open", "A leader or prayer partner is following up."],
-                    ["Prayed", "The request is actively covered in prayer."],
-                    ["Answered", "Closed with a testimony or response."],
-                  ].map(([label, copy]) => (
-                    <div key={label} className="flex gap-3 rounded-lg bg-slate-50 p-3">
-                      <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statusMeta(label.toLowerCase() === "answered" ? "closed" : label.toLowerCase()).dot}`} />
-                      <div>
-                        <div className="text-sm font-black text-slate-900">{label}</div>
-                        <div className="text-xs font-semibold leading-5 text-slate-500">{copy}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </aside>
-
+          <div className="p-5 sm:p-7">
             <main className="min-w-0 space-y-5">
               <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
                 <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-1">
-                  <button type="button" onClick={() => setChildApplet("prayers")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "prayers" ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Prayer Wall</button>
+                  <button type="button" onClick={() => setChildApplet("entry")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "entry" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Prayer Entry</button>
+                  <button type="button" onClick={() => setChildApplet("prayers")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "prayers" ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Prayer Desk</button>
                   <button type="button" onClick={() => setChildApplet("testimonies")} className={`rounded-md px-4 py-2 text-sm font-black ${childApplet === "testimonies" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>Testimonies</button>
                 </div>
                 {childApplet === "prayers" && (
@@ -1796,6 +1625,30 @@ export default function PrayerRequestsPage() {
                   </div>
                 )}
               </div>
+
+              {childApplet === "entry" && (
+                <SimplePrayerRequestsView
+                  toasts={[]}
+                  onDismissToast={dismissToast}
+                  requests={simpleMemberRequests}
+                  loading={loading}
+                  message={message}
+                  setMessage={setMessage}
+                  title={title}
+                  setTitle={setTitle}
+                  anonymous={anonymous}
+                  setAnonymous={setAnonymous}
+                  submitting={submitting}
+                  onSubmit={handleSubmit}
+                  voiceLang={voiceLang}
+                  setVoiceLang={setVoiceLang}
+                  voiceBusy={voiceBusy}
+                  voiceListening={voiceListening}
+                  startVoiceCapture={startVoiceCapture}
+                  onDelete={handleDeleteRequest}
+                  embedded
+                />
+              )}
 
               {childApplet === "testimonies" && (
                 <TestimoniesApplet
@@ -1856,9 +1709,6 @@ export default function PrayerRequestsPage() {
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button type="button" onClick={() => setShowBulkAdd((value) => !value)} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm font-black transition ${showBulkAdd ? "bg-emerald-700 text-white hover:bg-emerald-800" : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>
-                            <PlusCircle className="h-4 w-4" /> Bulk Add
-                          </button>
                           <button type="button" onClick={handleExportNightPrayerReport} disabled={!eligibleNightPrayerRequests.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-black text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50">
                             <Download className="h-4 w-4" /> Night Prayer PDF ({eligibleNightPrayerRequests.length})
                           </button>
@@ -1892,42 +1742,6 @@ export default function PrayerRequestsPage() {
                         onDateFromChange={setMetricsDateFrom}
                         onDateToChange={setMetricsDateTo}
                       />
-
-                      {showBulkAdd && (
-                        <div className="border-t border-slate-100 bg-emerald-50/40 p-4">
-                          <div className="rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
-                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <h3 className="flex items-center gap-2 text-sm font-black text-slate-950"><PlusCircle className="h-4 w-4 text-emerald-700" /> Bulk add prayer requests</h3>
-                                <p className="mt-1 text-xs font-semibold text-slate-500">Paste one request per line. Use "Title - message" or "Title | message" when you want a separate title.</p>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <select value={bulkAddStatus} onChange={(e) => setBulkAddStatus(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none ring-emerald-100 focus:ring-4">
-                                  <option value="new">New</option>
-                                  <option value="open">Open</option>
-                                  <option value="prayed">Prayed</option>
-                                </select>
-                                <label className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
-                                  <input type="checkbox" checked={bulkAddAnonymous} onChange={(e) => setBulkAddAnonymous(e.target.checked)} className="h-4 w-4 accent-emerald-700" /> Anonymous
-                                </label>
-                              </div>
-                            </div>
-                            <textarea value={bulkAddText} onChange={(e) => setBulkAddText(e.target.value)} rows={5} placeholder={"Healing request - Please pray for surgery recovery\nFamily - Pray for peace at home"} className="mt-3 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-slate-800 outline-none ring-emerald-100 transition focus:bg-white focus:ring-4" />
-                            <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                              <div className="text-xs font-semibold text-slate-500">
-                                <span className="font-black text-slate-900">{bulkAddPreview.length}</span> ready to add
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <button type="button" onClick={() => { setBulkAddText(""); setShowBulkAdd(false); }} className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Cancel</button>
-                                <button type="button" onClick={handleBulkAddRequests} disabled={bulkSubmitting || !bulkAddPreview.length} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
-                                  {bulkSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlusCircle className="h-3.5 w-3.5" />}
-                                  Add {bulkAddPreview.length || ""}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
 
                       <div className="border-t border-slate-100 bg-white px-4 py-3">
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -2354,12 +2168,13 @@ function SimplePrayerRequestsView({
   voiceListening,
   startVoiceCapture,
   onDelete,
+  embedded = false,
 }) {
   return (
-    <div className="min-h-screen bg-[#f5f7fb]">
+    <div className={embedded ? "bg-[#f5f7fb]" : "min-h-screen bg-[#f5f7fb]"}>
       <Toasts items={toasts} onDismiss={onDismissToast} />
 
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className={embedded ? "w-full" : "mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8"}>
         <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5 sm:p-6">
             <div className="flex items-center gap-3">
@@ -2375,7 +2190,10 @@ function SimplePrayerRequestsView({
             </div>
           </div>
 
-          <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
+          <div className={embedded
+            ? "grid grid-cols-1 gap-6 p-5 sm:p-6"
+            : "grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]"
+          }>
             <form onSubmit={onSubmit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-800">
@@ -2563,6 +2381,42 @@ function TestimoniesApplet({
   onBackfillHindi,
   backfillRunning = false,
 }) {
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [printLanguage, setPrintLanguage] = useState("both");
+  const [printError, setPrintError] = useState("");
+  const selectAllRef = useRef(null);
+  const selected = testimonies.filter((t) => selectedIds.has(t.id));
+  const allSelected = testimonies.length > 0 && selected.length === testimonies.length;
+
+  useEffect(() => {
+    setSelectedIds((previous) => new Set(testimonies.filter((t) => previous.has(t.id)).map((t) => t.id)));
+  }, [testimonies]);
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = selected.length > 0 && !allSelected;
+  }, [selected.length, allSelected, loading]);
+
+  const printSelected = () => {
+    if (!selected.length) return;
+    setPrintError("");
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setPrintError("The print window was blocked. Allow popups for this site and try again.");
+      return;
+    }
+    printWindow.opener = null;
+    printWindow.document.write(buildTestimonyPrintHtml(selected.map((t) => ({
+      ...t, english: testimonyEnglishText(t), hindi: testimonyHindiText(t),
+    })), printLanguage));
+    printWindow.document.close();
+    printWindow.document.fonts.ready.then(() => {
+      if (!printWindow.closed) {
+        printWindow.focus();
+        printWindow.print();
+      }
+    });
+  };
+
   if (loading) return <SkeletonList />;
   if (!testimonies.length) {
     return (
@@ -2576,6 +2430,29 @@ function TestimoniesApplet({
 
   return (
     <section className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-700">
+          <input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(new Set(e.target.checked ? testimonies.map((t) => t.id) : []))} className="h-4 w-4 accent-emerald-700" />
+          Select all
+        </label>
+        <span role="status" className="text-sm text-slate-500">{selected.length} of {testimonies.length} selected</span>
+        <button type="button" disabled={!selected.length} onClick={() => setSelectedIds(new Set())} className="text-sm font-bold text-emerald-700 disabled:opacity-40">Clear selection</button>
+        <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            Print language
+            <select value={printLanguage} onChange={(e) => setPrintLanguage(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <option value="both">English &amp; Hindi</option>
+              <option value="en">English</option>
+              <option value="hi">Hindi</option>
+            </select>
+          </label>
+          <button type="button" onClick={printSelected} disabled={!selected.length || editingId != null} className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50">
+            <Printer className="h-4 w-4" /> Print selected ({selected.length})
+          </button>
+        </div>
+        {editingId != null && <p className="w-full text-sm text-slate-500">Save or cancel your edits before printing.</p>}
+        {printError && <p role="alert" className="w-full text-sm text-red-700">{printError}</p>}
+      </div>
       {canBackfillHindi && (
         <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -2596,7 +2473,18 @@ function TestimoniesApplet({
       {testimonies.map((t) => {
         const editing = editingId === t.id;
         return (
-          <article key={t.id} className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm">
+          <article key={t.id} className={`rounded-3xl border bg-white p-5 shadow-sm ${selectedIds.has(t.id) ? "border-emerald-500 ring-2 ring-emerald-100" : "border-emerald-100"}`}>
+            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-emerald-700">
+              <input type="checkbox" checked={selectedIds.has(t.id)} aria-label={`Select testimony: ${t.title || "Answered Prayer"}`} onChange={(e) => {
+                const checked = e.target.checked;
+                setSelectedIds((previous) => {
+                  const next = new Set(previous);
+                  if (checked) next.add(t.id); else next.delete(t.id);
+                  return next;
+                });
+              }} className="h-4 w-4 accent-emerald-700" />
+              Select for printing
+            </label>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -3029,12 +2917,6 @@ function PrayerCard({
     </article>
   );
 }
-
-
-
-
-
-
 
 
 

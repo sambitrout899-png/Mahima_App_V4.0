@@ -78,4 +78,16 @@ public class JournalLine
     public decimal Credit { get; set; }
     //public JournalEntry JournalEntry { get; set; }
 }
+
+public class AccountingDataSnapshot
+{
+    public long Id { get; set; }
+    public int Version { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string CreatedBy { get; set; } = "";
+    public string SourceName { get; set; } = "";
+    public string ImportMode { get; set; } = "";
+    public string BeforeDataJson { get; set; } = "{}";
+    public string ChangesJson { get; set; } = "{}";
+}
 }

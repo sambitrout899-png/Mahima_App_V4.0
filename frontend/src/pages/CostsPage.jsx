@@ -48,6 +48,7 @@ import {
   CreditCard,
   Building2,
   PieChart as PieIcon,
+  History,
 } from "lucide-react";
 import {
   LineChart,
@@ -270,6 +271,7 @@ export default function CostsPage() {
   const [pnl, setPnl] = useState(null);
   const [balanceSheet, setBalanceSheet] = useState(null);
   const [trialBalance, setTrialBalance] = useState(null);
+  const [reconciliation, setReconciliation] = useState(null);
   const [pnlSeries, setPnlSeries] = useState([]); // last 6 months for chart
 
   // UI state
@@ -312,6 +314,9 @@ export default function CostsPage() {
   const importFileRef = useRef(null);
   const [importMode, setImportMode] = useState("upsert");
   const [importing, setImporting] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
+  const [loadingSnapshots, setLoadingSnapshots] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(true);
 
   /* ---------------- API ---------------- */
   const fetchAccountsAndBalances = useCallback(async () => {
@@ -333,6 +338,18 @@ export default function CostsPage() {
       setLoadingAll(false);
     }
   }, [periodParams.to, toastError]);
+
+  const fetchSnapshots = useCallback(async () => {
+    setLoadingSnapshots(true);
+    try {
+      const response = await axios.get(accountingUrl("/snapshots?take=10"), authConfig());
+      setSnapshots(arrayFrom(response?.data));
+    } catch (e) {
+      console.warn("Accounting snapshots unavailable", e);
+    } finally {
+      setLoadingSnapshots(false);
+    }
+  }, []);
 
   // Load 6-month P&L trend on dashboard mount
   const fetchPnlTrend = useCallback(async () => {
@@ -374,7 +391,8 @@ export default function CostsPage() {
   useEffect(() => {
     fetchAccountsAndBalances();
     fetchPnlTrend();
-  }, [fetchAccountsAndBalances, fetchPnlTrend]);
+    fetchSnapshots();
+  }, [fetchAccountsAndBalances, fetchPnlTrend, fetchSnapshots]);
 
   // Build query params for date filters. We always emit UTC ISO strings
   // ending in "Z" � bare strings like "2026-04-01T00:00:00" arrive at the
@@ -406,13 +424,17 @@ export default function CostsPage() {
     setLoadingPnl(true);
     try {
       const { from, to } = periodParams;
-      const [res, bs, tb] = await Promise.all([
+      const [res, bs, tb, rec] = await Promise.all([
         axios.get(
           accountingUrl(`/pnl?fromDate=${encodeURIComponent(from)}&toDate=${encodeURIComponent(to)}`),
           authConfig()
         ),
         axios.get(accountingUrl(`/balance-sheet?toDate=${encodeURIComponent(to)}`), authConfig()),
         axios.get(accountingUrl(`/trial-balance?toDate=${encodeURIComponent(to)}`), authConfig()),
+        axios.get(
+          accountingUrl(`/reconciliation?fromDate=${encodeURIComponent(from)}&toDate=${encodeURIComponent(to)}`),
+          authConfig()
+        ),
       ]);
       setPnl({
         income: safeNum(res.data?.income ?? res.data?.totalIncome),
@@ -423,6 +445,7 @@ export default function CostsPage() {
       });
       setBalanceSheet(bs?.data || null);
       setTrialBalance(tb?.data || null);
+      setReconciliation(rec?.data || null);
     } catch (e) {
       toastError(errMsg(e, "Failed to load P&L."));
     } finally {
@@ -919,6 +942,7 @@ export default function CostsPage() {
         toastInfo(data.errors.slice(0, 2).join(" | "), 9000);
       }
       await fetchAccountsAndBalances();
+      await fetchSnapshots();
       if (selectedAccount) await loadLedger(selectedAccount);
       if (view === "dashboard" || view === "reports") await loadPnl();
     } catch (e) {
@@ -1070,6 +1094,77 @@ export default function CostsPage() {
         </p>
       </section>
 
+      <section className="mb-4 rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSnapshots((current) => !current)}
+          className="w-full p-3 flex items-center gap-2 text-left hover:bg-slate-50"
+          aria-expanded={showSnapshots}
+        >
+          <History className="w-4 h-4 text-violet-600" />
+          <span className="text-xs font-black uppercase tracking-wide text-slate-600">Versioned data snapshots</span>
+          <span className="text-[11px] text-slate-400">
+            Pre-import audit copies with change summary and actor
+          </span>
+          <span className="ml-auto text-slate-400">
+            {showSnapshots ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </span>
+        </button>
+        {showSnapshots && (
+          <div className="border-t border-slate-100">
+            {loadingSnapshots ? (
+              <div className="p-3"><SkeletonBlock lines={2} /></div>
+            ) : snapshots.length === 0 ? (
+              <div className="p-3 text-xs text-slate-500">
+                No import snapshots yet. A version is created automatically before every CSV load.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-[760px] w-full text-xs">
+                  <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Version</th>
+                      <th className="px-3 py-2 text-left">Created</th>
+                      <th className="px-3 py-2 text-left">Changed by</th>
+                      <th className="px-3 py-2 text-left">Source</th>
+                      <th className="px-3 py-2 text-left">Changes from prior version</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {snapshots.map((snapshot) => {
+                      const changes = snapshot.changes || {};
+                      return (
+                        <tr key={snapshot.id} className="text-slate-700">
+                          <td className="px-3 py-2 font-semibold text-violet-700">v{snapshot.version}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {dayjs(snapshot.createdAt).format("DD MMM YYYY, hh:mm A")}
+                          </td>
+                          <td className="px-3 py-2">{snapshot.createdBy || "Unknown user"}</td>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{snapshot.sourceName}</div>
+                            <div className="text-[10px] uppercase text-slate-400">{snapshot.importMode}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="text-emerald-700">+{changes.inserted || 0}</span>
+                            {" / "}
+                            <span className="text-blue-700">~{changes.updated || 0}</span>
+                            {" / "}
+                            <span className="text-red-700">-{changes.deleted || 0}</span>
+                            {safeNum(changes.skipped) > 0 && (
+                              <span className="ml-2 text-amber-700">{changes.skipped} skipped</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* Tabs */}
       <nav className="mb-4 flex flex-wrap gap-1 rounded-2xl bg-white border border-slate-200 shadow-sm p-1 w-fit">
         {[
@@ -1140,6 +1235,7 @@ export default function CostsPage() {
           pnl={pnl}
           balanceSheet={balanceSheet}
           trialBalance={trialBalance}
+          reconciliation={reconciliation}
           balances={balances}
           accounts={accounts}
           totalsByType={totalsByType}
@@ -1776,6 +1872,7 @@ function ProfessionalReportsView({
   pnl,
   balanceSheet,
   trialBalance,
+  reconciliation,
   balances,
   accounts,
   pnlSeries,
@@ -1823,6 +1920,40 @@ function ProfessionalReportsView({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className={`lg:col-span-2 panel p-4 border-l-4 ${
+        reconciliation?.isReconciled ? "border-l-emerald-500" : "border-l-amber-500"
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start gap-3">
+            {reconciliation?.isReconciled
+              ? <CheckCircle2 className="w-5 h-5 mt-0.5 text-emerald-600" />
+              : <AlertCircle className="w-5 h-5 mt-0.5 text-amber-600" />}
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Accounting Reconciliation</h3>
+              <p className="text-[11px] text-slate-500">
+                {reconciliation?.isReconciled
+                  ? "Journal, account classifications, trial balance, and balance sheet pass the integrity checks."
+                  : "One or more integrity checks need review before the period can be closed."}
+              </p>
+            </div>
+          </div>
+          <span className={`self-start rounded-full px-2.5 py-1 text-[10px] font-semibold border ${
+            reconciliation?.isReconciled
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-amber-50 text-amber-700 border-amber-200"
+          }`}>
+            {reconciliation?.isReconciled ? "Reconciled" : "Review required"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mt-3 text-xs">
+          <ReconciliationMetric label="Transactions" value={reconciliation?.entryCount ?? 0} />
+          <ReconciliationMetric label="Journal difference" value={formatINR(reconciliation?.journalDifference)} ok={reconciliation?.journalBalanced} />
+          <ReconciliationMetric label="Unbalanced entries" value={reconciliation?.unbalancedEntryCount ?? 0} ok={safeNum(reconciliation?.unbalancedEntryCount) === 0} />
+          <ReconciliationMetric label="Invalid accounts" value={reconciliation?.invalidAccountCount ?? 0} ok={safeNum(reconciliation?.invalidAccountCount) === 0} />
+          <ReconciliationMetric label="Balance-sheet difference" value={formatINR(reconciliation?.balanceSheetDifference)} ok={reconciliation?.balanceSheetBalanced} />
+        </div>
+      </div>
+
       <div className="lg:col-span-2 panel p-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
@@ -1913,11 +2044,11 @@ function ProfessionalReportsView({
             <p className="text-[11px] text-slate-500">Assets against liabilities, corpus fund, and current surplus.</p>
           </div>
           <span className={`rounded-full px-2 py-1 text-[10px] font-semibold border ${
-            Math.abs(balanceDifference) < 0.01
+            Math.abs(balanceDifference) <= 0.01
               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
               : "bg-amber-50 text-amber-700 border-amber-200"
           }`}>
-            {Math.abs(balanceDifference) < 0.01 ? "Balanced" : "Review"}
+            {Math.abs(balanceDifference) <= 0.01 ? "Balanced" : "Review"}
           </span>
         </div>
 
@@ -1933,12 +2064,12 @@ function ProfessionalReportsView({
         </div>
 
         <div className={`mt-3 rounded-xl px-3 py-2 text-xs ${
-          Math.abs(balanceDifference) < 0.01
+          Math.abs(balanceDifference) <= 0.01
             ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
             : "bg-amber-50 text-amber-800 border border-amber-200"
         }`}>
-          {Math.abs(balanceDifference) < 0.01
-            ? "Balanced: Assets equal liabilities plus equity."
+          {Math.abs(balanceDifference) <= 0.01
+            ? "Balanced within one paisa: assets equal liabilities plus equity."
             : `Out of balance by ${formatINR(balanceDifference)}. Review opening balances and journal entries.`}
         </div>
       </div>
@@ -1997,6 +2128,15 @@ function ProfessionalReportsView({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ReconciliationMetric({ label, value, ok }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-1 font-semibold tabular-nums ${ok === false ? "text-amber-700" : "text-slate-900"}`}>{value}</div>
     </div>
   );
 }

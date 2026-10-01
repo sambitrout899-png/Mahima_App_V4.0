@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Mahima.Api.v3.clean.Data;
 using Mahima.Api.v3.clean.Models;
@@ -348,6 +350,7 @@ public class AccountingController : ControllerBase
         var result = new AccountingImportResult();
         var rows = await ReadCsvAsync(file);
         var defaultAction = NormalizeImportAction(mode);
+        var snapshot = await CreatePreImportSnapshotAsync(file.FileName, defaultAction);
 
         foreach (var row in rows)
         {
@@ -430,7 +433,105 @@ public class AccountingController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        snapshot.ChangesJson = JsonSerializer.Serialize(new
+        {
+            totalRows = result.TotalRows,
+            inserted = result.Inserted,
+            updated = result.Updated,
+            deleted = result.Deleted,
+            skipped = result.Skipped,
+            errors = result.Errors
+        });
+        await _db.SaveChangesAsync();
         return Ok(result);
+    }
+
+    [HttpGet("snapshots")]
+    public async Task<IActionResult> GetSnapshots([FromQuery] int take = 20)
+    {
+        take = Math.Clamp(take, 1, 100);
+        var snapshots = await _db.AccountingDataSnapshots
+            .AsNoTracking()
+            .OrderByDescending(s => s.Version)
+            .Take(take)
+            .ToListAsync();
+
+        return Ok(snapshots.Select(s => new
+        {
+            s.Id,
+            s.Version,
+            s.CreatedAt,
+            s.CreatedBy,
+            s.SourceName,
+            s.ImportMode,
+            Changes = JsonDocument.Parse(s.ChangesJson).RootElement.Clone()
+        }));
+    }
+
+    [HttpGet("snapshots/{id:long}")]
+    public async Task<IActionResult> GetSnapshot(long id)
+    {
+        var snapshot = await _db.AccountingDataSnapshots.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id);
+        if (snapshot == null)
+            return NotFound(new { message = "Accounting snapshot not found." });
+
+        return Ok(new
+        {
+            snapshot.Id,
+            snapshot.Version,
+            snapshot.CreatedAt,
+            snapshot.CreatedBy,
+            snapshot.SourceName,
+            snapshot.ImportMode,
+            BeforeData = JsonDocument.Parse(snapshot.BeforeDataJson).RootElement.Clone(),
+            Changes = JsonDocument.Parse(snapshot.ChangesJson).RootElement.Clone()
+        });
+    }
+
+    private async Task<AccountingDataSnapshot> CreatePreImportSnapshotAsync(string sourceName, string importMode)
+    {
+        var accounts = await _db.Accounts.AsNoTracking()
+            .OrderBy(a => a.Id)
+            .Select(a => new { a.Id, a.Name, a.Type, a.CreatedAt })
+            .ToListAsync();
+        var entries = await _db.JournalEntries.AsNoTracking()
+            .Include(e => e.Lines)
+            .OrderBy(e => e.Id)
+            .ToListAsync();
+        var nextVersion = (await _db.AccountingDataSnapshots.MaxAsync(s => (int?)s.Version) ?? 0) + 1;
+        var actor = User.FindFirstValue(ClaimTypes.Email)
+            ?? User.FindFirstValue(ClaimTypes.Name)
+            ?? User.Identity?.Name
+            ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirstValue("sub")
+            ?? "Unknown user";
+
+        var snapshot = new AccountingDataSnapshot
+        {
+            Version = nextVersion,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = actor,
+            SourceName = Path.GetFileName(sourceName),
+            ImportMode = importMode,
+            BeforeDataJson = JsonSerializer.Serialize(new
+            {
+                accounts,
+                journalEntries = entries.Select(e => new
+                {
+                    e.Id,
+                    e.Date,
+                    e.Description,
+                    e.CreatedAt,
+                    lines = e.Lines.Select(l => new { l.Id, l.AccountId, l.Debit, l.Credit })
+                })
+            }),
+            ChangesJson = "{}"
+        };
+
+        _db.AccountingDataSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+        return snapshot;
     }
 
     [HttpPost("opening-balance")]
@@ -617,6 +718,73 @@ public class AccountingController : ControllerBase
             totalIncome = report.TotalIncome,
             totalExpense = report.TotalExpense,
             net = report.Net
+        });
+    }
+
+    [HttpGet("reconciliation")]
+    public async Task<IActionResult> GetReconciliation(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = NormalizeQueryDate(fromDate);
+        var to = NormalizeQueryDate(toDate);
+        var query = _db.JournalEntries.AsNoTracking().Include(e => e.Lines).AsQueryable();
+
+        if (from.HasValue)
+            query = query.Where(e => e.Date >= from.Value);
+        if (to.HasValue)
+            query = query.Where(e => e.Date <= to.Value);
+
+        var entries = await query.OrderBy(e => e.Date).ThenBy(e => e.Id).ToListAsync();
+        var unbalanced = entries
+            .Select(e => new
+            {
+                e.Id,
+                e.Date,
+                e.Description,
+                Debit = Money(e.Lines.Sum(l => l.Debit)),
+                Credit = Money(e.Lines.Sum(l => l.Credit))
+            })
+            .Where(e => Math.Abs(e.Debit - e.Credit) >= 0.01m)
+            .ToList();
+
+        var pnl = await BuildPnlReportAsync(from, to);
+        var balances = await BuildBalancesAsync(null, to);
+        var assets = Money(balances.Where(b => b.Type == "ASSET").Sum(b => b.Balance));
+        var liabilities = Money(balances.Where(b => b.Type == "LIABILITY").Sum(b => b.Balance));
+        var equity = Money(balances.Where(b => b.Type == "EQUITY").Sum(b => b.Balance) +
+                           (await BuildPnlReportAsync(null, to)).Net);
+        var balanceSheetDifference = Money(assets - liabilities - equity);
+        var invalidAccounts = await _db.Accounts.AsNoTracking()
+            .Where(a => !ValidAccountTypes.Contains(a.Type.ToUpper()))
+            .Select(a => new { a.Id, a.Name, a.Type })
+            .ToListAsync();
+        var totalDebit = Money(entries.Sum(e => e.Lines.Sum(l => l.Debit)));
+        var totalCredit = Money(entries.Sum(e => e.Lines.Sum(l => l.Credit)));
+
+        return Ok(new
+        {
+            fromDate = from,
+            toDate = to,
+            entryCount = entries.Count,
+            lineCount = entries.Sum(e => e.Lines.Count),
+            totalDebit,
+            totalCredit,
+            journalDifference = Money(totalDebit - totalCredit),
+            unbalancedEntryCount = unbalanced.Count,
+            unbalancedEntries = unbalanced,
+            invalidAccountCount = invalidAccounts.Count,
+            invalidAccounts,
+            totalIncome = pnl.TotalIncome,
+            totalExpense = pnl.TotalExpense,
+            net = pnl.Net,
+            totalAssets = assets,
+            totalLiabilities = liabilities,
+            totalEquity = equity,
+            balanceSheetDifference,
+            journalBalanced = unbalanced.Count == 0 && Math.Abs(totalDebit - totalCredit) < 0.01m,
+            balanceSheetBalanced = Math.Abs(balanceSheetDifference) < 0.02m,
+            isReconciled = unbalanced.Count == 0 && invalidAccounts.Count == 0 &&
+                           Math.Abs(totalDebit - totalCredit) < 0.01m &&
+                           Math.Abs(balanceSheetDifference) < 0.02m
         });
     }
 

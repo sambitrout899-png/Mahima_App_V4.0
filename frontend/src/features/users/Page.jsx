@@ -1,3 +1,4 @@
+import { ChickenUserAssignment } from "../chickenSale/access";
 // src/features/users/UsersPage.CathedralAdvanced.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -1132,7 +1133,19 @@ export default function UsersPageCathedralAdvanced() {
       };
 
       const resp = await api.post("/messages/send", payload);
-      setSendResults(resp?.data ?? { success: true });
+      const data = resp?.data;
+      const results = Array.isArray(data?.results) ? data.results : [];
+      const requested = Object.entries(payload.channels).filter(([, value]) => value).map(([key]) => key);
+      const fields = requested.length ? requested.map((key) => `${key}Sent`) : ["chatSent"];
+      const succeeded = results.filter((result) => fields.every((field) => result[field] === true)).length;
+      const errors = [...new Set(results.flatMap((result) => result.errors || []))];
+      const smsQueued = results.filter((result) => result.smsSent).length;
+      setSendResults({
+        ...data,
+        success: results.length > 0 && succeeded === results.length,
+        summary: `${succeeded}/${results.length} recipients accepted on all selected channels.${payload.channels.sms ? ` SMS queued: ${smsQueued}. Queued is not confirmed delivery.` : ""}`,
+        error: errors.join(" ") || (results.length ? "One or more selected channels could not send." : "No delivery results returned."),
+      });
     } catch (err) {
       setSendResults({
         success: false,
@@ -2567,6 +2580,7 @@ export default function UsersPageCathedralAdvanced() {
                   </div>
                 </div>
 
+                <ChickenUserAssignment userId={form.id} />
                 <div className="users-check-grid">
                   {[
                     ["isBaptized", t("form.isBaptized")],
@@ -2725,9 +2739,8 @@ export default function UsersPageCathedralAdvanced() {
                   >
                     {sendResults.success ? <Check size={18} /> : <AlertCircle size={18} />}
                     <span>
-                      {sendResults.success
-                        ? `Message sent${sendResults.attempted ? ` to ${sendResults.attempted} recipients` : ""}.`
-                        : sendResults.error || "Send failed."}
+                      {sendResults.summary || "Send failed."}
+                      {!sendResults.success && <span style={{ display: "block", marginTop: 6 }}>{sendResults.error || "Send failed."}</span>}
                     </span>
                   </div>
                 )}

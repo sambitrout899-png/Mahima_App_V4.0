@@ -366,18 +366,28 @@ namespace Mahima.Api.v3.clean.Controllers
                 var fullPath = ResolveSafePath(root, path);
                 if (Directory.Exists(fullPath))
                 {
-                    var archiveName = $"{Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}.zip";
-                    var memory = new MemoryStream();
-                    using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
+                    var folderName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    if (string.IsNullOrWhiteSpace(folderName)) folderName = "server-files";
+                    var archiveName = $"{folderName}.zip";
+
+                    var tempArchivePath = CreateTemporaryArchive(fullPath, folderName);
+                    HttpContext.Response.OnCompleted(() =>
                     {
-                        foreach (var file in Directory.EnumerateFiles(fullPath, "*", SearchOption.AllDirectories))
+                        try
                         {
-                            var entryName = Path.GetRelativePath(fullPath, file).Replace('\\', '/');
-                            archive.CreateEntryFromFile(file, entryName, CompressionLevel.Fastest);
+                            if (System.IO.File.Exists(tempArchivePath))
+                                System.IO.File.Delete(tempArchivePath);
                         }
-                    }
-                    memory.Position = 0;
-                    return File(memory, "application/zip", string.IsNullOrWhiteSpace(archiveName) ? "folder.zip" : archiveName);
+                        catch (Exception cleanupEx)
+                        {
+                            _logger.LogWarning(cleanupEx, "Could not delete temporary server file archive {TempArchivePath}", tempArchivePath);
+                        }
+
+                        return Task.CompletedTask;
+                    });
+
+                    var archiveStream = System.IO.File.OpenRead(tempArchivePath);
+                    return File(archiveStream, "application/zip", archiveName);
                 }
 
                 if (!System.IO.File.Exists(fullPath)) return NotFound("File not found.");
@@ -385,8 +395,8 @@ namespace Mahima.Api.v3.clean.Controllers
                 if (!_contentTypeProvider.TryGetContentType(fullPath, out var contentType))
                     contentType = "application/octet-stream";
 
-                var stream = System.IO.File.OpenRead(fullPath);
-                return File(stream, contentType, Path.GetFileName(fullPath));
+                var fileStream = System.IO.File.OpenRead(fullPath);
+                return File(fileStream, contentType, Path.GetFileName(fullPath));
             }
             catch (Exception ex)
             {
@@ -498,6 +508,110 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 var targetDirectory = UniqueTargetPath(target, Path.GetFileName(directory));
                 CopyDirectory(directory, targetDirectory);
+            }
+        }
+
+        private string CreateTemporaryArchive(string sourceFolder, string archiveFolderName)
+        {
+            var tempArchivePath = Path.Combine(Path.GetTempPath(), $"mahima-server-files-{Guid.NewGuid():N}.zip");
+
+            try
+            {
+                using var fileStream = System.IO.File.Create(tempArchivePath);
+                using var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, leaveOpen: false);
+                AddDirectoryToArchive(archive, sourceFolder, archiveFolderName);
+                return tempArchivePath;
+            }
+            catch
+            {
+                try
+                {
+                    if (System.IO.File.Exists(tempArchivePath))
+                        System.IO.File.Delete(tempArchivePath);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Could not delete failed temporary server file archive {TempArchivePath}", tempArchivePath);
+                }
+
+                throw;
+            }
+        }
+
+        private void AddDirectoryToArchive(ZipArchive archive, string sourceFolder, string archiveFolderName)
+        {
+            var normalizedArchiveFolder = archiveFolderName.Replace('\\', '/').Trim('/');
+            archive.CreateEntry($"{normalizedArchiveFolder}/");
+
+            foreach (var directory in EnumerateDirectoriesSafe(sourceFolder))
+            {
+                var relativeDirectory = Path.GetRelativePath(sourceFolder, directory).Replace('\\', '/').Trim('/');
+                if (!string.IsNullOrWhiteSpace(relativeDirectory))
+                    archive.CreateEntry($"{normalizedArchiveFolder}/{relativeDirectory}/");
+            }
+
+            foreach (var file in EnumerateFilesSafe(sourceFolder))
+            {
+                var relativeFile = Path.GetRelativePath(sourceFolder, file).Replace('\\', '/').Trim('/');
+                if (string.IsNullOrWhiteSpace(relativeFile)) continue;
+
+                try
+                {
+                    archive.CreateEntryFromFile(file, $"{normalizedArchiveFolder}/{relativeFile}", CompressionLevel.Fastest);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Skipping server file during archive creation: {FilePath}", file);
+                }
+            }
+        }
+
+        private IEnumerable<string> EnumerateDirectoriesSafe(string sourceFolder)
+        {
+            var pending = new Stack<string>();
+            pending.Push(sourceFolder);
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+                IEnumerable<string> directories;
+
+                try
+                {
+                    directories = Directory.EnumerateDirectories(current).ToList();
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Skipping server folder during archive creation: {FolderPath}", current);
+                    continue;
+                }
+
+                foreach (var directory in directories)
+                {
+                    yield return directory;
+                    pending.Push(directory);
+                }
+            }
+        }
+
+        private IEnumerable<string> EnumerateFilesSafe(string sourceFolder)
+        {
+            foreach (var directory in new[] { sourceFolder }.Concat(EnumerateDirectoriesSafe(sourceFolder)))
+            {
+                IEnumerable<string> files;
+
+                try
+                {
+                    files = Directory.EnumerateFiles(directory).ToList();
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Skipping server folder files during archive creation: {FolderPath}", directory);
+                    continue;
+                }
+
+                foreach (var file in files)
+                    yield return file;
             }
         }
 

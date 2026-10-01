@@ -126,6 +126,7 @@ namespace Mahima.Api.v3.clean.Controllers
 
             try
             {
+                Directory.CreateDirectory(downloadsRoot);
                 await using (var stream = System.IO.File.Create(tempPath))
                 {
                     await file.CopyToAsync(stream, HttpContext.RequestAborted);
@@ -225,6 +226,8 @@ namespace Mahima.Api.v3.clean.Controllers
             return Guid.TryParse(raw, out var id) ? id : null;
         }
 
+        // Path resolution must stay read-only: anonymous GETs can run with read-only
+        // release storage. Only uploads and best-effort mirrors create directories.
         private string GetPublicRoot()
         {
             var configured =
@@ -238,7 +241,6 @@ namespace Mahima.Api.v3.clean.Controllers
                     : (_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"));
             }
 
-            Directory.CreateDirectory(configured);
             return Path.GetFullPath(configured);
         }
 
@@ -248,7 +250,6 @@ namespace Mahima.Api.v3.clean.Controllers
         private string GetPublicDownloadsRoot()
         {
             var root = Path.Combine(GetPublicRoot(), "downloads");
-            Directory.CreateDirectory(root);
             return root;
         }
 
@@ -265,7 +266,6 @@ namespace Mahima.Api.v3.clean.Controllers
                     : Path.Combine(_env.ContentRootPath, "App_Data", "app-releases");
             }
 
-            Directory.CreateDirectory(configured);
             return Path.GetFullPath(configured);
         }
 
@@ -275,7 +275,6 @@ namespace Mahima.Api.v3.clean.Controllers
         private string GetWritableDownloadsRoot()
         {
             var root = Path.Combine(GetWritableReleaseRoot(), "downloads");
-            Directory.CreateDirectory(root);
             return root;
         }
 
@@ -291,7 +290,6 @@ namespace Mahima.Api.v3.clean.Controllers
 
             if (System.IO.File.Exists(writableLatestPath))
             {
-                TryMirrorFile(writableLatestPath, publicLatestPath);
                 return writableLatestPath;
             }
 
@@ -304,14 +302,11 @@ namespace Mahima.Api.v3.clean.Controllers
 
                 if (System.IO.File.Exists(writableVersionedPath))
                 {
-                    TryMirrorFile(writableVersionedPath, publicVersionedPath);
-                    TryMirrorFile(writableVersionedPath, publicLatestPath);
                     return writableVersionedPath;
                 }
 
                 if (System.IO.File.Exists(publicVersionedPath))
                 {
-                    TryMirrorFile(publicVersionedPath, publicLatestPath);
                     return publicVersionedPath;
                 }
             }

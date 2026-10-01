@@ -62,6 +62,7 @@ namespace Mahima.Api.v3.clean.Data
 		public DbSet<Account> Accounts { get; set; } = null!;
 		public DbSet<JournalEntry> JournalEntries { get; set; } = null!;
 		public DbSet<JournalLine> JournalLines { get; set; } = null!;
+		public DbSet<AccountingDataSnapshot> AccountingDataSnapshots { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -417,6 +418,22 @@ modelBuilder.Entity<MarriageApplication>(eb =>
 
     eb.HasIndex(l => l.AccountId);
 });
+
+            modelBuilder.Entity<AccountingDataSnapshot>(eb =>
+            {
+                eb.ToTable("accounting_data_snapshots", "public");
+                eb.HasKey(s => s.Id);
+                eb.Property(s => s.Id).HasColumnName("id").ValueGeneratedOnAdd();
+                eb.Property(s => s.Version).HasColumnName("version");
+                eb.Property(s => s.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+                eb.Property(s => s.CreatedBy).HasColumnName("created_by").HasMaxLength(250).IsRequired();
+                eb.Property(s => s.SourceName).HasColumnName("source_name").HasMaxLength(500).IsRequired();
+                eb.Property(s => s.ImportMode).HasColumnName("import_mode").HasMaxLength(30).IsRequired();
+                eb.Property(s => s.BeforeDataJson).HasColumnName("before_data").HasColumnType("jsonb").IsRequired();
+                eb.Property(s => s.ChangesJson).HasColumnName("changes").HasColumnType("jsonb").IsRequired();
+                eb.HasIndex(s => s.Version).IsUnique();
+                eb.HasIndex(s => s.CreatedAt);
+            });
 			
 			
             // -------------------------

@@ -1,0 +1,111 @@
+﻿Action,EntryId,Date,Description,DebitAccountId,DebitAmount,CreditAccountId,CreditAmount
+insert,,2026-03-31,[FIN1209-V1-001] Restate opening carried into 01-Apr; Capital Fund; Fin_12_09_1.pdf; review-only PDF supersession,2,416042.00,16,416042.00
+insert,,2026-03-31,[FIN1209-V1-002] Restate opening carried into 01-Apr; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,52000.00,5,52000.00
+insert,,2026-03-31,[FIN1209-V1-003] Restate opening carried into 01-Apr; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,2169.00,16,2169.00
+insert,,2026-03-31,[FIN1209-V1-004] Restate opening carried into 01-Apr; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,16,7000.00,13,7000.00
+insert,,2026-03-31,[FIN1209-V1-005] Restate opening carried into 01-Apr; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,17831.00,16,17831.00
+insert,,2026-03-31,[FIN1209-V1-006] Restate opening carried into 01-Apr; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,308900.00,24,308900.00
+insert,,2026-03-31,[FIN1209-V1-007] Restate opening carried into 01-Apr; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,76600.00,26,76600.00
+insert,,2026-03-31,[FIN1209-V1-008] Restate opening carried into 01-Apr; Office and Administration Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,270.00,29,270.00
+insert,,2026-03-31,[FIN1209-V1-009] Restate opening carried into 01-Apr; Repairs and Maintenance Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,1770.00,32,1770.00
+insert,,2026-03-31,[FIN1209-V1-010] Restate opening carried into 01-Apr; Miscellaneous Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,920.00,33,920.00
+insert,,2026-03-31,[FIN1209-V1-011] Restate opening carried into 01-Apr; Depreciation Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,262.00,34,262.00
+insert,,2026-03-31,[FIN1209-V1-012] Restate opening carried into 01-Apr; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,17830.00,16,17830.00
+insert,,2026-03-31,[FIN1209-V1-013] Restate opening carried into 01-Apr; EXPS PAYABLE; Fin_12_09_1.pdf; review-only PDF supersession,16,6150.00,50,6150.00
+insert,,2026-04-01,[FIN1209-V1-014] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,16,85500.00,1,85500.00
+insert,,2026-04-01,[FIN1209-V1-015] Align daily net movement; Capital Fund; Fin_12_09_1.pdf; review-only PDF supersession,2,200958.00,16,200958.00
+insert,,2026-04-01,[FIN1209-V1-016] Align daily net movement; Sambit Raut Unsecured Loan; Fin_12_09_1.pdf; review-only PDF supersession,3,58500.00,16,58500.00
+insert,,2026-04-01,[FIN1209-V1-017] Align daily net movement; Easter Day Meeting Expense; Fin_12_09_1.pdf; review-only PDF supersession,4,660.00,16,660.00
+insert,,2026-04-01,[FIN1209-V1-018] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,13000.00,5,13000.00
+insert,,2026-04-01,[FIN1209-V1-019] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,20620.00,16,20620.00
+insert,,2026-04-01,[FIN1209-V1-020] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,83100.00,16,83100.00
+insert,,2026-04-01,[FIN1209-V1-021] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,35,245500.00,16,245500.00
+insert,,2026-04-01,[FIN1209-V1-022] Align daily net movement; BUILDING A/C; Fin_12_09_1.pdf; review-only PDF supersession,16,325000.00,41,325000.00
+insert,,2026-04-01,[FIN1209-V1-023] Align daily net movement; FURNITURE; Fin_12_09_1.pdf; review-only PDF supersession,16,76988.00,42,76988.00
+insert,,2026-04-01,[FIN1209-V1-024] Align daily net movement; MUSIC SYSTEM; Fin_12_09_1.pdf; review-only PDF supersession,16,80000.00,44,80000.00
+insert,,2026-04-01,[FIN1209-V1-025] Align daily net movement; TENT & CORCKERY; Fin_12_09_1.pdf; review-only PDF supersession,16,35000.00,45,35000.00
+insert,,2026-04-01,[FIN1209-V1-026] Align daily net movement; EXPS PAYABLE; Fin_12_09_1.pdf; review-only PDF supersession,50,6150.00,16,6150.00
+insert,,2026-04-03,[FIN1209-V1-027] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,1,2650.00,16,2650.00
+insert,,2026-04-03,[FIN1209-V1-028] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,2650.00,7,2650.00
+insert,,2026-04-04,[FIN1209-V1-029] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,1,2790.00,16,2790.00
+insert,,2026-04-04,[FIN1209-V1-030] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,2790.00,7,2790.00
+insert,,2026-04-05,[FIN1209-V1-031] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,1,18420.00,16,18420.00
+insert,,2026-04-05,[FIN1209-V1-032] Align daily net movement; Easter Day Meeting Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,660.00,4,660.00
+insert,,2026-04-05,[FIN1209-V1-033] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,17760.00,7,17760.00
+insert,,2026-04-06,[FIN1209-V1-034] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,1,39945.00,16,39945.00
+insert,,2026-04-06,[FIN1209-V1-035] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,4445.00,7,4445.00
+insert,,2026-04-06,[FIN1209-V1-036] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,16,35500.00,35,35500.00
+insert,,2026-04-16,[FIN1209-V1-037] Align daily net movement; Cash in Hand; Fin_12_09_1.pdf; review-only PDF supersession,1,9995.00,16,9995.00
+insert,,2026-04-16,[FIN1209-V1-038] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,9995.00,7,9995.00
+insert,,2026-04-30,[FIN1209-V1-039] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,8,78163.20,16,78163.20
+insert,,2026-04-30,[FIN1209-V1-040] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,10576.00,16,10576.00
+insert,,2026-04-30,[FIN1209-V1-041] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,88739.20,24,88739.20
+insert,,2026-05-09,[FIN1209-V1-042] Align daily net movement; Sambit Raut Unsecured Loan; Fin_12_09_1.pdf; review-only PDF supersession,3,13000.00,16,13000.00
+insert,,2026-05-09,[FIN1209-V1-043] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,13000.00,5,13000.00
+insert,,2026-05-12,[FIN1209-V1-044] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,3200.00,16,3200.00
+insert,,2026-05-12,[FIN1209-V1-045] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,3200.00,26,3200.00
+insert,,2026-05-16,[FIN1209-V1-046] Align daily net movement; Fixed Assets; Fin_12_09_1.pdf; review-only PDF supersession,16,4400.00,11,4400.00
+insert,,2026-05-16,[FIN1209-V1-047] Align daily net movement; SISTER SOMA; Fin_12_09_1.pdf; review-only PDF supersession,31,4400.00,16,4400.00
+insert,,2026-05-27,[FIN1209-V1-048] Align daily net movement; RAJWINDER KAUR; Fin_12_09_1.pdf; review-only PDF supersession,46,100.00,16,100.00
+insert,,2026-05-27,[FIN1209-V1-049] Align daily net movement; DONATION BY BANK; Fin_12_09_1.pdf; review-only PDF supersession,16,100.00,51,100.00
+insert,,2026-05-31,[FIN1209-V1-050] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,8,40639.50,16,40639.50
+insert,,2026-05-31,[FIN1209-V1-051] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,50725.44,16,50725.44
+insert,,2026-05-31,[FIN1209-V1-052] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,91364.94,24,91364.94
+insert,,2026-06-19,[FIN1209-V1-053] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,16,5000.00,8,5000.00
+insert,,2026-06-19,[FIN1209-V1-054] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,5000.00,16,5000.00
+insert,,2026-06-30,[FIN1209-V1-055] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,8,30530.60,16,30530.60
+insert,,2026-06-30,[FIN1209-V1-056] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,98947.38,16,98947.38
+insert,,2026-06-30,[FIN1209-V1-057] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,129477.98,24,129477.98
+insert,,2026-07-16,[FIN1209-V1-058] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,8600.00,26,8600.00
+insert,,2026-07-16,[FIN1209-V1-059] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,35,4000.00,16,4000.00
+insert,,2026-07-16,[FIN1209-V1-060] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,4600.00,16,4600.00
+insert,,2026-07-25,[FIN1209-V1-061] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,940.00,16,940.00
+insert,,2026-07-25,[FIN1209-V1-062] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,2820.00,26,2820.00
+insert,,2026-07-25,[FIN1209-V1-063] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,1880.00,16,1880.00
+insert,,2026-07-31,[FIN1209-V1-064] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,8,80199.70,16,80199.70
+insert,,2026-07-31,[FIN1209-V1-065] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,77973.51,16,77973.51
+insert,,2026-07-31,[FIN1209-V1-066] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,158173.21,24,158173.21
+insert,,2026-08-01,[FIN1209-V1-067] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,16,1.00,13,1.00
+insert,,2026-08-01,[FIN1209-V1-068] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,1.00,24,1.00
+insert,,2026-08-01,[FIN1209-V1-069] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,2.00,16,2.00
+insert,,2026-08-02,[FIN1209-V1-070] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,580.00,16,580.00
+insert,,2026-08-02,[FIN1209-V1-071] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,1200.00,26,1200.00
+insert,,2026-08-02,[FIN1209-V1-072] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,620.00,16,620.00
+insert,,2026-08-05,[FIN1209-V1-073] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,1800.00,26,1800.00
+insert,,2026-08-05,[FIN1209-V1-074] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,1800.00,16,1800.00
+insert,,2026-08-09,[FIN1209-V1-075] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,6980.00,7,6980.00
+insert,,2026-08-09,[FIN1209-V1-076] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,1860.00,26,1860.00
+insert,,2026-08-09,[FIN1209-V1-077] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,8840.00,16,8840.00
+insert,,2026-08-11,[FIN1209-V1-078] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,1000.00,16,1000.00
+insert,,2026-08-11,[FIN1209-V1-079] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,24200.00,24,24200.00
+insert,,2026-08-11,[FIN1209-V1-080] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,35,100000.00,16,100000.00
+insert,,2026-08-11,[FIN1209-V1-081] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,16,76800.00,47,76800.00
+insert,,2026-08-12,[FIN1209-V1-082] Align daily net movement; Rent Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,26000.00,5,26000.00
+insert,,2026-08-12,[FIN1209-V1-083] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,4000.00,16,4000.00
+insert,,2026-08-12,[FIN1209-V1-084] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,40000.00,24,40000.00
+insert,,2026-08-12,[FIN1209-V1-085] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,4400.00,26,4400.00
+insert,,2026-08-12,[FIN1209-V1-086] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,35,80000.00,16,80000.00
+insert,,2026-08-12,[FIN1209-V1-087] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,16,13600.00,47,13600.00
+insert,,2026-08-13,[FIN1209-V1-088] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,10000.00,24,10000.00
+insert,,2026-08-13,[FIN1209-V1-089] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,10000.00,16,10000.00
+insert,,2026-08-14,[FIN1209-V1-090] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,16,6000.00,13,6000.00
+insert,,2026-08-14,[FIN1209-V1-091] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,6000.00,24,6000.00
+insert,,2026-08-14,[FIN1209-V1-092] Align daily net movement; M/S SAMBIT RAUT; Fin_12_09_1.pdf; review-only PDF supersession,35,6000.00,16,6000.00
+insert,,2026-08-14,[FIN1209-V1-093] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,6000.00,16,6000.00
+insert,,2026-08-16,[FIN1209-V1-094] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,7,1212.00,16,1212.00
+insert,,2026-08-16,[FIN1209-V1-095] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,400.00,16,400.00
+insert,,2026-08-16,[FIN1209-V1-096] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,2572.00,26,2572.00
+insert,,2026-08-16,[FIN1209-V1-097] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,1360.00,16,1360.00
+insert,,2026-08-16,[FIN1209-V1-098] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,16,400.00,47,400.00
+insert,,2026-08-23,[FIN1209-V1-099] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,3060.00,7,3060.00
+insert,,2026-08-23,[FIN1209-V1-100] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,580.00,26,580.00
+insert,,2026-08-23,[FIN1209-V1-101] Align daily net movement; GOLAK DONATION; Fin_12_09_1.pdf; review-only PDF supersession,43,3640.00,16,3640.00
+insert,,2026-08-23,[FIN1209-V1-102] Align daily net movement; GROSS PROFIT; Fin_12_09_1.pdf; review-only PDF supersession,52,0.01,16,0.01
+insert,,2026-08-23,[FIN1209-V1-103] Align daily net movement; CLOSING STOCK; Fin_12_09_1.pdf; review-only PDF supersession,16,0.01,53,0.01
+insert,,2026-08-29,[FIN1209-V1-104] Align daily net movement; Cash; Fin_12_09_1.pdf; review-only PDF supersession,16,7790.00,7,7790.00
+insert,,2026-08-29,[FIN1209-V1-105] Align daily net movement; Donations; Fin_12_09_1.pdf; review-only PDF supersession,20,7500.00,16,7500.00
+insert,,2026-08-29,[FIN1209-V1-106] Align daily net movement; Ministry Events Expense; Fin_12_09_1.pdf; review-only PDF supersession,26,290.00,16,290.00
+insert,,2026-08-31,[FIN1209-V1-107] Align daily net movement; Bank; Fin_12_09_1.pdf; review-only PDF supersession,16,29270.70,8,29270.70
+insert,,2026-08-31,[FIN1209-V1-108] Align daily net movement; Payroll Payable; Fin_12_09_1.pdf; review-only PDF supersession,13,44756.41,16,44756.41
+insert,,2026-08-31,[FIN1209-V1-109] Align daily net movement; Payroll Expense; Fin_12_09_1.pdf; review-only PDF supersession,16,89685.71,24,89685.71
+insert,,2026-08-31,[FIN1209-V1-110] Align daily net movement; HDFC BANK A/C NO 50100882772080; Fin_12_09_1.pdf; review-only PDF supersession,47,74200.00,16,74200.00

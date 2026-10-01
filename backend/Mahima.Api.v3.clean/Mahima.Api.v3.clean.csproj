@@ -8,14 +8,16 @@
 
   <ItemGroup>
     <PackageReference Include="itext7" Version="9.6.0" />
-    <PackageReference Include="MailKit" Version="4.8.0" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Npgsql" Version="8.0.0" />
+    <PackageReference Include="Npgsql" Version="8.0.9" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
     <PackageReference Include="QuestPDF" Version="2026.2.4" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />    
@@ -29,6 +31,25 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="Scripts\Broadcast\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Linux treats Services/ and services/ as different directories. Older
+       deployments can retain case variants or backup source trees. Remove
+       every matching compile item, then include one canonical source. -->
+  <ItemGroup>
+    <Compile Remove="**/LiveBroadcastService.cs;**/YouTubeLiveAuthService.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)/services/LiveBroadcastService.cs" />
+    <Compile Include="$(MSBuildProjectDirectory)/services/YouTubeLiveAuthService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Mahima.Api.v3.clean.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>
 

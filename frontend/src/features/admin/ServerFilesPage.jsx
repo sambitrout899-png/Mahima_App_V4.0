@@ -347,7 +347,12 @@ export default function ServerFilesPage() {
 
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
-          else reject(new Error(`Download failed (${xhr.status})`));
+          else if (xhr.response?.text) {
+            xhr.response
+              .text()
+              .then((text) => reject(new Error(text || `Download failed (${xhr.status})`)))
+              .catch(() => reject(new Error(`Download failed (${xhr.status})`)));
+          } else reject(new Error(`Download failed (${xhr.status})`));
         };
         xhr.onerror = () => reject(new Error("Network error during download."));
         xhr.onabort = () => reject(new Error("Download cancelled."));
@@ -365,7 +370,7 @@ export default function ServerFilesPage() {
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = file.name || "server-file";
+      a.download = file.isDirectory ? `${file.name || "server-folder"}.zip` : file.name || "server-file";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -854,6 +859,7 @@ export default function ServerFilesPage() {
                         </div>
                         <div className="mt-3 flex gap-2">
                           {entry.isDirectory ? (
+                            <>
                             <button
                               type="button"
                               onClick={() => openFolder(entry.path)}
@@ -861,6 +867,16 @@ export default function ServerFilesPage() {
                             >
                               Open
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadFile(entry)}
+                              disabled={downloadingPath === entry.path}
+                              className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+                            >
+                              {downloadingPath === entry.path ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                              ZIP
+                            </button>
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -932,6 +948,7 @@ export default function ServerFilesPage() {
                             <td className="px-4 py-3 text-sm font-bold text-slate-600">{formatDate(entry.modifiedAtUtc)}</td>
                             <td className="px-4 py-3 text-right">
                               {entry.isDirectory ? (
+                                <div className="inline-flex items-center justify-end gap-2">
                                 <button
                                   type="button"
                                   onClick={() => openFolder(entry.path)}
@@ -939,6 +956,16 @@ export default function ServerFilesPage() {
                                 >
                                   Open
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => downloadFile(entry)}
+                                  disabled={downloadingPath === entry.path}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+                                >
+                                  {downloadingPath === entry.path ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                                  ZIP
+                                </button>
+                                </div>
                               ) : (
                                 <button
                                   type="button"

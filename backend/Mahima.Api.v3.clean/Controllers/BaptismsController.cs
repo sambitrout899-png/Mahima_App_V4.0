@@ -47,7 +47,10 @@ namespace Mahima.Api.v3.clean.Controllers
         public string? BaptismPlace { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public List<BaptismCertificateAttachmentDto> SignedCertificates { get; set; } = new();
     }
+
+    public record BaptismCertificateAttachmentDto(long Id, string Filename, long? SizeBytes, DateTime UploadedAt);
 
     public class BaptismRequestDetailDto : BaptismRequestListItemDto
     {
@@ -69,11 +72,19 @@ namespace Mahima.Api.v3.clean.Controllers
     {
         private readonly MahimaDbContext _db;
         private readonly IBaptismCertificateService _certificateService;
+        private const string SignedCertificateOwner = "baptism-signed-certificate";
+        private const long MaxCertificateBytes = 10 * 1024 * 1024;
+        private readonly string _signedCertificateRoot;
+        private readonly ILogger<BaptismsController> _logger;
 
-        public BaptismsController(MahimaDbContext db, IBaptismCertificateService certificateService)
+        public BaptismsController(MahimaDbContext db, IBaptismCertificateService certificateService,
+            IWebHostEnvironment environment, IConfiguration configuration, ILogger<BaptismsController> logger)
         {
             _db = db;
             _certificateService = certificateService;
+            _logger = logger;
+            _signedCertificateRoot = Path.GetFullPath(configuration["BaptismCertificates:Root"]
+                ?? Path.Combine(environment.ContentRootPath, "App_Data", "baptism-signed-certificates"));
         }
 
         // ---------- helpers ----------
@@ -184,6 +195,13 @@ namespace Mahima.Api.v3.clean.Controllers
                 .Select(b => ToListItem(b))
                 .ToListAsync();
 
+            var ids = list.Select(b => (long)b.Id).ToArray();
+            var attachments = await _db.Attachments.AsNoTracking()
+                .Where(a => a.OwnerType == SignedCertificateOwner && ids.Contains(a.OwnerId))
+                .OrderByDescending(a => a.UploadedAt).ToListAsync();
+            foreach (var item in list)
+                item.SignedCertificates = attachments.Where(a => a.OwnerId == item.Id).Select(ToAttachmentDto).ToList();
+
             return Ok(list);
         }
 
@@ -194,7 +212,77 @@ namespace Mahima.Api.v3.clean.Controllers
             var entity = await _db.BaptismRequests.FindAsync(id);
             if (entity == null) return NotFound();
 
-            return Ok(ToDetail(entity));
+            var detail = ToDetail(entity);
+            detail.SignedCertificates = (await _db.Attachments.AsNoTracking()
+                .Where(a => a.OwnerType == SignedCertificateOwner && a.OwnerId == id)
+                .OrderByDescending(a => a.UploadedAt).ToListAsync()).Select(ToAttachmentDto).ToList();
+            return Ok(detail);
+        }
+
+        private static BaptismCertificateAttachmentDto ToAttachmentDto(Attachment a) =>
+            new(a.Id, a.Filename ?? "Signed certificate", a.SizeBytes, a.UploadedAt);
+
+        internal static string? SignedCertificateContentType(string filename, byte[] bytes) =>
+            Path.GetExtension(filename).ToLowerInvariant() switch
+            {
+                ".pdf" when bytes.AsSpan().StartsWith("%PDF-"u8) => "application/pdf",
+                ".png" when bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) => "image/png",
+                ".jpg" or ".jpeg" when bytes.AsSpan().StartsWith(new byte[] { 255, 216, 255 }) => "image/jpeg",
+                _ => null
+            };
+
+        [HttpPost("{id:int}/signed-certificates")]
+        [RequestSizeLimit(MaxCertificateBytes + 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = MaxCertificateBytes + 1024 * 1024)]
+        public async Task<IActionResult> UploadSignedCertificate(int id, [FromForm] IFormFile? file)
+        {
+            if (file == null || file.Length == 0 || file.Length > MaxCertificateBytes)
+                return BadRequest("Choose a non-empty PDF, JPG, or PNG file up to 10 MB.");
+            var entity = await _db.BaptismRequests.FindAsync(id);
+            if (entity == null) return NotFound("Baptism record not found.");
+
+            using var memory = new MemoryStream();
+            await file.CopyToAsync(memory);
+            var bytes = memory.ToArray();
+            var filename = Path.GetFileName(file.FileName.Replace('\\', '/'));
+            var contentType = SignedCertificateContentType(filename, bytes);
+            if (contentType == null)
+                return BadRequest("The file must be a PDF, JPG, or PNG matching its file extension.");
+
+            var key = $"{Guid.NewGuid():N}{Path.GetExtension(filename).ToLowerInvariant()}";
+            Directory.CreateDirectory(_signedCertificateRoot);
+            var path = Path.Combine(_signedCertificateRoot, key);
+            try
+            {
+                await System.IO.File.WriteAllBytesAsync(path, bytes);
+                var attachment = new Attachment
+                {
+                    OwnerType = SignedCertificateOwner, OwnerId = id, S3Key = key,
+                    Filename = filename, ContentType = contentType, SizeBytes = bytes.LongLength,
+                    UploadedAt = DateTime.UtcNow
+                };
+                _db.Attachments.Add(attachment);
+                entity.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+                return Ok(ToAttachmentDto(attachment));
+            }
+            catch
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                throw;
+            }
+        }
+
+        [HttpGet("{id:int}/signed-certificates/{attachmentId:long}")]
+        public async Task<IActionResult> DownloadSignedCertificate(int id, long attachmentId)
+        {
+            if (!await _db.BaptismRequests.AnyAsync(b => b.Id == id)) return NotFound();
+            var attachment = await _db.Attachments.AsNoTracking().FirstOrDefaultAsync(a =>
+                a.Id == attachmentId && a.OwnerId == id && a.OwnerType == SignedCertificateOwner);
+            if (attachment == null) return NotFound();
+            var path = Path.Combine(_signedCertificateRoot, Path.GetFileName(attachment.S3Key));
+            if (!System.IO.File.Exists(path)) return NotFound("Signed certificate file not found.");
+            return PhysicalFile(path, attachment.ContentType ?? "application/octet-stream", attachment.Filename);
         }
 
         // POST /api/baptisms
@@ -342,8 +430,22 @@ namespace Mahima.Api.v3.clean.Controllers
             var entity = await _db.BaptismRequests.FindAsync(id);
             if (entity == null) return NotFound();
 
+            var attachments = await _db.Attachments
+                .Where(a => a.OwnerType == SignedCertificateOwner && a.OwnerId == id).ToListAsync();
+            _db.Attachments.RemoveRange(attachments);
             _db.BaptismRequests.Remove(entity);
             await _db.SaveChangesAsync();
+            foreach (var attachment in attachments)
+            {
+                try
+                {
+                    System.IO.File.Delete(Path.Combine(_signedCertificateRoot, Path.GetFileName(attachment.S3Key)));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Could not remove signed certificate attachment {AttachmentId}", attachment.Id);
+                }
+            }
             return NoContent();
         }
 

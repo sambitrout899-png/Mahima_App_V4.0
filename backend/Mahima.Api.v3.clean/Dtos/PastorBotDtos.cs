@@ -24,6 +24,7 @@ namespace Mahima.Api.v3.clean.Dtos
     public class PastorBotReplyDto
     {
         public string Answer { get; set; } = string.Empty;
+        public Mahima.Api.v3.clean.Services.MinistrySmsSummary? Sms { get; set; }
         public string Source { get; set; } = "fallback";
         public string Language { get; set; } = "en";
         public string Persona { get; set; } = "english-evangelist";

@@ -1,0 +1,1860 @@
+{
+  "status": "PROPOSAL_NOT_APPLIED",
+  "supersession_approval": "pending",
+  "rounding_choice": "User selected ledger: no 0.01 closing stock or gross profit",
+  "method": "Retain original records; reverse superseded balances and monthly net postings; import supplied opening and 112 source vouchers.",
+  "prior_period_effect": "31 March closing balances are restated to the supplied 1 April opening. Earlier original entries remain.",
+  "later_period_effect": "No journal dated after 31 August is modified; later opening balances inherit the reconciled August close.",
+  "counts": {
+    "reversal": 83,
+    "opening": 9,
+    "source": 112
+  },
+  "total_entries": 204,
+  "account_mapping": {
+    "BUILDING A/C": 41,
+    "CAPITAL FUND": 2,
+    "EXPS PAYABLE": 50,
+    "FURNITURE": 42,
+    "MUSIC SYSTEM": 44,
+    "SALARY PAYABLE": 13,
+    "SAMBIT RAUT": 35,
+    "TENT & CORCKERY": 45,
+    "CASH IN HAND": 7,
+    "MEETING EXPS": 26,
+    "GOLAK DONATION": 43,
+    "RENT": 5,
+    "SALARY A/C": 24,
+    "HDFC BANK A/C NO 50100882772080": 47,
+    "SOMA": 48,
+    "RAJWINDER KAUR": 46,
+    "BANK INTEREST": 49,
+    "PRINTING & STY": 29,
+    "DONATION BY BANK": 51
+  },
+  "entries": [
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; CAPITAL FUND",
+      "debitAccountId": 2,
+      "creditAccountId": 16,
+      "amountPaisa": 56700000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 5200000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; CASH IN HAND",
+      "debitAccountId": 16,
+      "creditAccountId": 7,
+      "amountPaisa": 1155100,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 7610000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; Donations (legacy)",
+      "debitAccountId": 20,
+      "creditAccountId": 16,
+      "amountPaisa": 1783100,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 30890000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 7660000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; PRINTING & STY",
+      "debitAccountId": 16,
+      "creditAccountId": 29,
+      "amountPaisa": 27000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; Repairs and Maintenance Expense",
+      "debitAccountId": 16,
+      "creditAccountId": 32,
+      "amountPaisa": 177000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; Miscellaneous Expense",
+      "debitAccountId": 16,
+      "creditAccountId": 33,
+      "amountPaisa": 92000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; Depreciation Expense",
+      "debitAccountId": 16,
+      "creditAccountId": 34,
+      "amountPaisa": 26200,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 29050000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; BUILDING A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 41,
+      "amountPaisa": 32500000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; FURNITURE",
+      "debitAccountId": 16,
+      "creditAccountId": 42,
+      "amountPaisa": 7698800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 1783000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; MUSIC SYSTEM",
+      "debitAccountId": 16,
+      "creditAccountId": 44,
+      "amountPaisa": 8000000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Reverse superseded brought-forward balances before replacement opening; TENT & CORCKERY",
+      "debitAccountId": 16,
+      "creditAccountId": 45,
+      "amountPaisa": 3500000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; Cash in Hand (legacy)",
+      "debitAccountId": 16,
+      "creditAccountId": 1,
+      "amountPaisa": 1170000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; CAPITAL FUND",
+      "debitAccountId": 2,
+      "creditAccountId": 16,
+      "amountPaisa": 20095800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; Sambit Raut Unsecured Loan (legacy)",
+      "debitAccountId": 3,
+      "creditAccountId": 16,
+      "amountPaisa": 5850000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; Easter Day Meeting Expense",
+      "debitAccountId": 16,
+      "creditAccountId": 4,
+      "amountPaisa": 8380000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 2600000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; CASH IN HAND",
+      "debitAccountId": 16,
+      "creditAccountId": 7,
+      "amountPaisa": 1570500,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; Bank (legacy)",
+      "debitAccountId": 8,
+      "creditAccountId": 16,
+      "amountPaisa": 7816320,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 1807600,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 8873920,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 455000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 37910000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; BUILDING A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 41,
+      "amountPaisa": 32500000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; FURNITURE",
+      "debitAccountId": 16,
+      "creditAccountId": 42,
+      "amountPaisa": 7698800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 653500,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; MUSIC SYSTEM",
+      "debitAccountId": 16,
+      "creditAccountId": 44,
+      "amountPaisa": 8000000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; TENT & CORCKERY",
+      "debitAccountId": 16,
+      "creditAccountId": 45,
+      "amountPaisa": 3500000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-04-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-04; originals retained; EXPS PAYABLE",
+      "debitAccountId": 50,
+      "creditAccountId": 16,
+      "amountPaisa": 615000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; Sambit Raut Unsecured Loan (legacy)",
+      "debitAccountId": 3,
+      "creditAccountId": 16,
+      "amountPaisa": 1300000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 2600000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; CASH IN HAND",
+      "debitAccountId": 7,
+      "creditAccountId": 16,
+      "amountPaisa": 458000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; Bank (legacy)",
+      "debitAccountId": 8,
+      "creditAccountId": 16,
+      "amountPaisa": 4063950,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; Fixed Assets (legacy)",
+      "debitAccountId": 16,
+      "creditAccountId": 11,
+      "amountPaisa": 440000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 5072544,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 16756794,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 930000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; SISTER SOMA (legacy)",
+      "debitAccountId": 31,
+      "creditAccountId": 16,
+      "amountPaisa": 440000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 9464000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 472000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; RAJWINDER KAUR",
+      "debitAccountId": 46,
+      "creditAccountId": 16,
+      "amountPaisa": 10000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; HDFC BANK A/C NO 50100882772080",
+      "debitAccountId": 16,
+      "creditAccountId": 47,
+      "amountPaisa": 563700,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-05-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-05; originals retained; SOMA",
+      "debitAccountId": 48,
+      "creditAccountId": 16,
+      "amountPaisa": 10000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 1300000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; CASH IN HAND",
+      "debitAccountId": 16,
+      "creditAccountId": 7,
+      "amountPaisa": 59800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; Bank (legacy)",
+      "debitAccountId": 8,
+      "creditAccountId": 16,
+      "amountPaisa": 2553060,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 9894738,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; Donations (legacy)",
+      "debitAccountId": 20,
+      "creditAccountId": 16,
+      "amountPaisa": 500000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 16310998,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 385000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 4300200,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 444800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-06-30",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-06; originals retained; HDFC BANK A/C NO 50100882772080",
+      "debitAccountId": 47,
+      "creditAccountId": 16,
+      "amountPaisa": 363000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 1300000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; CASH IN HAND",
+      "debitAccountId": 7,
+      "creditAccountId": 16,
+      "amountPaisa": 1200500,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; Bank (legacy)",
+      "debitAccountId": 8,
+      "creditAccountId": 16,
+      "amountPaisa": 8019970,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 7797351,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 19570381,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 3054500,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; PRINTING & STY",
+      "debitAccountId": 16,
+      "creditAccountId": 29,
+      "amountPaisa": 498800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 5770000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 564000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; HDFC BANK A/C NO 50100882772080",
+      "debitAccountId": 47,
+      "creditAccountId": 16,
+      "amountPaisa": 567960,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; SOMA",
+      "debitAccountId": 48,
+      "creditAccountId": 16,
+      "amountPaisa": 498800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-07-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-07; originals retained; BANK INTEREST",
+      "debitAccountId": 49,
+      "creditAccountId": 16,
+      "amountPaisa": 5100,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; RENT",
+      "debitAccountId": 16,
+      "creditAccountId": 5,
+      "amountPaisa": 3900000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; CASH IN HAND",
+      "debitAccountId": 16,
+      "creditAccountId": 7,
+      "amountPaisa": 1618200,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; Bank (legacy)",
+      "debitAccountId": 16,
+      "creditAccountId": 8,
+      "amountPaisa": 6819970,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; SALARY PAYABLE",
+      "debitAccountId": 13,
+      "creditAccountId": 16,
+      "amountPaisa": 7731404,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; Donations (legacy)",
+      "debitAccountId": 20,
+      "creditAccountId": 16,
+      "amountPaisa": 1290000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; SALARY A/C",
+      "debitAccountId": 16,
+      "creditAccountId": 24,
+      "amountPaisa": 24971734,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; MEETING EXPS",
+      "debitAccountId": 16,
+      "creditAccountId": 26,
+      "amountPaisa": 1861800,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; SAMBIT RAUT",
+      "debitAccountId": 35,
+      "creditAccountId": 16,
+      "amountPaisa": 27900000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; GOLAK DONATION",
+      "debitAccountId": 43,
+      "creditAccountId": 16,
+      "amountPaisa": 1800000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; HDFC BANK A/C NO 50100882772080",
+      "debitAccountId": 47,
+      "creditAccountId": 16,
+      "amountPaisa": 180300,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; DONATION BY BANK",
+      "debitAccountId": 51,
+      "creditAccountId": 16,
+      "amountPaisa": 270000,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; GROSS PROFIT",
+      "debitAccountId": 52,
+      "creditAccountId": 16,
+      "amountPaisa": 1,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-08-31",
+      "description": "[RECON-202608-V1] Reverse superseded net postings for 2026-08; originals retained; CLOSING STOCK",
+      "debitAccountId": 16,
+      "creditAccountId": 53,
+      "amountPaisa": 1,
+      "kind": "reversal"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; CAPITAL FUND",
+      "debitAccountId": 16,
+      "creditAccountId": 2,
+      "amountPaisa": 15095800,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; CASH IN HAND",
+      "debitAccountId": 7,
+      "creditAccountId": 16,
+      "amountPaisa": 1372000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; SALARY PAYABLE",
+      "debitAccountId": 16,
+      "creditAccountId": 13,
+      "amountPaisa": 8310000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; SAMBIT RAUT",
+      "debitAccountId": 16,
+      "creditAccountId": 35,
+      "amountPaisa": 29050000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; BUILDING A/C",
+      "debitAccountId": 41,
+      "creditAccountId": 16,
+      "amountPaisa": 32500000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; FURNITURE",
+      "debitAccountId": 42,
+      "creditAccountId": 16,
+      "amountPaisa": 7698800,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; MUSIC SYSTEM",
+      "debitAccountId": 44,
+      "creditAccountId": 16,
+      "amountPaisa": 8000000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; TENT & CORCKERY",
+      "debitAccountId": 45,
+      "creditAccountId": 16,
+      "amountPaisa": 3500000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-03-31",
+      "description": "[RECON-202608-V1] Replacement opening carried into 01-Apr-2026 per Ledger -1.pdf; cash inferred and reconciled; EXPS PAYABLE",
+      "debitAccountId": 16,
+      "creditAccountId": 50,
+      "amountPaisa": 615000,
+      "kind": "opening"
+    },
+    {
+      "date": "2026-04-04",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p3; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 90000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-05",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 376000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO RAJWINDER [Ledger -1.pdf p6; J-1]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 1000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO BALVIR [Ledger -1.pdf p6; J-2]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO PAWAN [Ledger -1.pdf p6; J-3]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO ANKUSH [Ledger -1.pdf p6; J-4]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 1560000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO JOHN [Ledger -1.pdf p6; J-5]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO SANDEEP [Ledger -1.pdf p6; J-6]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 600000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO RUPESH [Ledger -1.pdf p6; J-7]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO LAKSHMI [Ledger -1.pdf p6; J-8]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO KULWANT SINGH BUNTY [Ledger -1.pdf p6; J-9]",
+      "debitAccountId": 13,
+      "creditAccountId": 35,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-11",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 70000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-11",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p3; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 105000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-15",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT FOR RENT PAID [Ledger -1.pdf p5/6; J-1]",
+      "debitAccountId": 5,
+      "creditAccountId": 35,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-18",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 91000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-18",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p3; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 125000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-25",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 116500,
+      "kind": "source"
+    },
+    {
+      "date": "2026-04-25",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p3; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 135000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-02",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 100000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-02",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p3; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 50000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-09",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 305000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-10",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-4] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 190000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO RAJWINDER FOR MONTH OF APRIL 2026 [Ledger -1.pdf p5/6; J-1]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 883200,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO RUPESH FOR MONTH OF APRIL 2026 [Ledger -1.pdf p5/6; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 900000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-10",
+      "description": "[RECON-202608-V1] SALARY PAID TO LAKSHMI FOR MONTH OF APRIL 2026 [Ledger -1.pdf p5/7; J-3]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 480700,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO KULWANT SINGH FOR MONTH OF APRIL 2026 [Ledger -1.pdf p5/7; J-1]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-13",
+      "description": "[RECON-202608-V1] ADVANCE PAID TO JOHN FOR MONTH OF APRIL [Ledger -1.pdf p5/7; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 200000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-13",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT FOR RENT PAID [Ledger -1.pdf p5/7; J-3]",
+      "debitAccountId": 5,
+      "creditAccountId": 35,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-16",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 65000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-16",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-3] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 70000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-16",
+      "description": "[RECON-202608-V1] CHQ NO 000079 FROM SAMBIT RAUT [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 5000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-23",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-3] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 33000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-23",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-4] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 106000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-23",
+      "description": "[RECON-202608-V1] UPI [Ledger -1.pdf p2/7; J-2]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SISTER SOMA [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 48,
+      "amountPaisa": 10000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SISTER SOMA [Ledger -1.pdf p2/4; J-2]",
+      "debitAccountId": 47,
+      "creditAccountId": 46,
+      "amountPaisa": 10000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] SALARY PAID TO BALVIR APRIL MONTH [Ledger -1.pdf p2/5; J-3]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] SALARY PAID TO SANDEEP APRIL MONTH [Ledger -1.pdf p2/5; J-4]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 556400,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] SALARY PAID TO PAWAN APRIL MONTH [Ledger -1.pdf p2/5; J-5]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 1200000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-27",
+      "description": "[RECON-202608-V1] SALARY PAID TO ANKUSH APRIL MONTH [Ledger -1.pdf p2/5; J-6]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 2000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-30",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p1; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 84000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-05-30",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 79000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-06",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 102100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-06",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 92000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-6] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 208700,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-7] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 110000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT RAUT [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT RAUT [Ledger -1.pdf p2/7; J-2]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 2500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO RAJWINDER FOR THE MONTH OF MAY 2026 [Ledger -1.pdf p2/5; J-3]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 883200,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO RUPESH FOR THE MONTH OF MAY 2026 [Ledger -1.pdf p2/5; J-4]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO LAKSHMI FOR THE MONTH OF MAY 2026 [Ledger -1.pdf p2/5; J-5]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 480000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-14",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT FOR RENT PAID [Ledger -1.pdf p5/7; J-1]",
+      "debitAccountId": 5,
+      "creditAccountId": 35,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-19",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-19",
+      "description": "[RECON-202608-V1] SALRY PAID TO KULWANT SINGH BUNTY FOR THE MONTH OF MAY 2026 [Ledger -1.pdf p2/5; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-20",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 32000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-20",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 68000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-26",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-27",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 115000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-06-27",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 102000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-01",
+      "description": "[RECON-202608-V1] INTT FROM HDFC BANK [Ledger -1.pdf p1/2; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 49,
+      "amountPaisa": 5100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-04",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 105000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-04",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 78000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-09",
+      "description": "[RECON-202608-V1] AMT FOR PAMPHLET PRINTING [Ledger -1.pdf p4/7; J-1/J-2]",
+      "debitAccountId": 29,
+      "creditAccountId": 48,
+      "amountPaisa": 498800,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-10",
+      "description": "[RECON-202608-V1] AMT PAID AS ADVANCE TO JOHN [Ledger -1.pdf p5/7; J-1]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 270000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-7] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 905000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT RAUT [Ledger -1.pdf p2/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 3000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] SALARY PAID TO RAJWINDER FOR THE MONTH OF JUNE 2026 [Ledger -1.pdf p2/5; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 960000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] SALARY PAID TO RUPESH FOR THE MONTH OF JUNE 2026 [Ledger -1.pdf p3/5; J-3]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] SALARY PAID TO LAKSHMI FOR THE MONTH OF JUNE 2026 [Ledger -1.pdf p3/5; J-4]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 423060,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] SALARY PAID TO BALVIR FOR THE MONTH OF MAY-2026 [Ledger -1.pdf p3/5; J-5]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-11",
+      "description": "[RECON-202608-V1] UPI FROM SAMBIT (BALTWS 3227.40 ) AS ON 15.7.26 [Ledger -1.pdf p3/7; J-6]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-12",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 210000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-12",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 100000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-15",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT FOR RENT PAID [Ledger -1.pdf p5/7; J-1]",
+      "debitAccountId": 5,
+      "creditAccountId": 35,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-15",
+      "description": "[RECON-202608-V1] AMT PAID AS ADVANCE TO JOHN [Ledger -1.pdf p5/7; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 35,
+      "amountPaisa": 100000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-16",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT [Ledger -1.pdf p3/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 200000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-16",
+      "description": "[RECON-202608-V1] TENT CHJARGES PAID [Ledger -1.pdf p3/4; J-2]",
+      "debitAccountId": 26,
+      "creditAccountId": 47,
+      "amountPaisa": 430000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-19",
+      "description": "[RECON-202608-V1] CASH PAID FOR GROCERY EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 121500,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-19",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 104000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-25",
+      "description": "[RECON-202608-V1] CASH PAID FOR MEETING EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 141000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-07-25",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 94000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-01",
+      "description": "[RECON-202608-V1] RUPESH [Ledger -1.pdf p3/5; J-1]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 100,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-02",
+      "description": "[RECON-202608-V1] CASH PAID FOR MEETING EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 60000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-02",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 31000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-05",
+      "description": "[RECON-202608-V1] CHG PAID TO RAKESH KUAMR [Ledger -1.pdf p3/4; J-1]",
+      "debitAccountId": 26,
+      "creditAccountId": 47,
+      "amountPaisa": 90000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-09",
+      "description": "[RECON-202608-V1] CASH PAID FOR MEETING EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 93000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-09",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 442000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-11",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT [Ledger -1.pdf p3/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 5000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-11",
+      "description": "[RECON-202608-V1] SALARY PAID TO KULWANT SINGH (BUNTY) [Ledger -1.pdf p3/5; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 920000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-11",
+      "description": "[RECON-202608-V1] JULY MONTH SALARY PAID TO RAJWINDER [Ledger -1.pdf p3/5; J-3]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 1000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-11",
+      "description": "[RECON-202608-V1] JULY MONTH SALARY PAID TO LAKSHMI [Ledger -1.pdf p3/5; J-4]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 500000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-11",
+      "description": "[RECON-202608-V1] DONATION FROM LAKSHMI [Ledger -1.pdf p1/3; J-5]",
+      "debitAccountId": 47,
+      "creditAccountId": 51,
+      "amountPaisa": 50000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] GENERTOR EXPS PAID [Ledger -1.pdf p3/4; J-1]",
+      "debitAccountId": 26,
+      "creditAccountId": 47,
+      "amountPaisa": 130000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] SALARY PAID TO ANKUSH (PS.JOEL) [Ledger -1.pdf p3/6; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 2000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] AMT RECVD FROM RAJWINDER [Ledger -1.pdf p1/3; J-3]",
+      "debitAccountId": 47,
+      "creditAccountId": 51,
+      "amountPaisa": 200000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT [Ledger -1.pdf p3/7; J-4]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 4000000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] RENT PAID [Ledger -1.pdf p3/5; J-5]",
+      "debitAccountId": 5,
+      "creditAccountId": 47,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] SALARY PAID TO BALVIR [Ledger -1.pdf p3/6; J-6]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] PAID TO RAKESH KUMAR [Ledger -1.pdf p3/4; J-7]",
+      "debitAccountId": 26,
+      "creditAccountId": 47,
+      "amountPaisa": 90000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-12",
+      "description": "[RECON-202608-V1] JULY MONTH SALARY PAID TO RUPESH [Ledger -1.pdf p3/6; J-8]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 1300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO JOHN [Ledger -1.pdf p3/6; J-1]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-13",
+      "description": "[RECON-202608-V1] SALARY PAID TO DEEPIKA [Ledger -1.pdf p3/6; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 700000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-14",
+      "description": "[RECON-202608-V1] AMT TSFR FROM SAMBIT RAUT [Ledger -1.pdf p3/7; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 35,
+      "amountPaisa": 300000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-14",
+      "description": "[RECON-202608-V1] SALARY PAID TO SANDEEP PART PMT [Ledger -1.pdf p3/6; J-2]",
+      "debitAccountId": 24,
+      "creditAccountId": 47,
+      "amountPaisa": 600000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-16",
+      "description": "[RECON-202608-V1] CASH PAID FOR MEETING EXPS [Ledger -1.pdf p4; C-3] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 128600,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-16",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-4] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 68000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-16",
+      "description": "[RECON-202608-V1] DONATION BY BANK [Ledger -1.pdf p1/3; J-1]",
+      "debitAccountId": 47,
+      "creditAccountId": 51,
+      "amountPaisa": 10000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-16",
+      "description": "[RECON-202608-V1] DONATION BY BANK [Ledger -1.pdf p1/3; J-2]",
+      "debitAccountId": 47,
+      "creditAccountId": 51,
+      "amountPaisa": 10000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-23",
+      "description": "[RECON-202608-V1] CASH PAID FOR MEETING EXPS [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 29000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-23",
+      "description": "[RECON-202608-V1] CASH [Ledger -1.pdf p2; C-2] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 7,
+      "creditAccountId": 43,
+      "amountPaisa": 59000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-23",
+      "description": "[RECON-202608-V1] CASH RECVD [Ledger -1.pdf p2; C-3] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 43,
+      "creditAccountId": 7,
+      "amountPaisa": 246000,
+      "kind": "source"
+    },
+    {
+      "date": "2026-08-29",
+      "description": "[RECON-202608-V1] CASH PAID [Ledger -1.pdf p4; C-1] [cash counterpart inferred from source voucher]",
+      "debitAccountId": 26,
+      "creditAccountId": 7,
+      "amountPaisa": 29000,
+      "kind": "source"
+    }
+  ],
+  "monthly_checks": [
+    {
+      "cutoff": "2026-03-31",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -8310000,
+        "35": -29050000,
+        "45": 3500000,
+        "7": 1372000,
+        "34": 0,
+        "43": 0,
+        "16": 0,
+        "26": 0,
+        "29": 0,
+        "24": 0,
+        "32": 0,
+        "20": 0,
+        "33": 0,
+        "5": 0
+      }
+    },
+    {
+      "cutoff": "2026-04-30",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -37910000,
+        "45": 3500000,
+        "7": 1570500,
+        "26": 455000,
+        "43": -653500,
+        "5": 1300000,
+        "34": 0,
+        "16": 0,
+        "1": 0,
+        "3": 0,
+        "29": 0,
+        "24": 0,
+        "32": 0,
+        "8": 0,
+        "20": 0,
+        "4": 0,
+        "33": 0
+      }
+    },
+    {
+      "cutoff": "2026-05-31",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -47374000,
+        "45": 3500000,
+        "7": 1432500,
+        "26": 1065000,
+        "43": -1125500,
+        "5": 2600000,
+        "24": 7620300,
+        "47": 563700,
+        "48": -10000,
+        "46": -10000,
+        "16": 0,
+        "3": 0,
+        "31": 0,
+        "33": 0,
+        "34": 0,
+        "11": 0,
+        "1": 0,
+        "29": 0,
+        "32": 0,
+        "8": 0,
+        "20": 0,
+        "4": 0
+      }
+    },
+    {
+      "cutoff": "2026-06-30",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -51674200,
+        "45": 3500000,
+        "7": 1492300,
+        "26": 1450000,
+        "43": -1570300,
+        "5": 3900000,
+        "24": 10983500,
+        "47": 200700,
+        "48": -10000,
+        "46": -10000,
+        "16": 0,
+        "3": 0,
+        "31": 0,
+        "33": 0,
+        "34": 0,
+        "11": 0,
+        "1": 0,
+        "29": 0,
+        "32": 0,
+        "8": 0,
+        "20": 0,
+        "4": 0
+      }
+    },
+    {
+      "cutoff": "2026-07-31",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -57044200,
+        "45": 3500000,
+        "7": 385800,
+        "26": 3362500,
+        "43": -1946300,
+        "5": 5200000,
+        "24": 14736560,
+        "47": 92740,
+        "48": -508800,
+        "46": -10000,
+        "49": -5100,
+        "29": 498800,
+        "16": 0,
+        "3": 0,
+        "31": 0,
+        "33": 0,
+        "34": 0,
+        "11": 0,
+        "1": 0,
+        "32": 0,
+        "8": 0,
+        "20": 0,
+        "4": 0
+      }
+    },
+    {
+      "cutoff": "2026-08-31",
+      "expectedClosingPaisa": {
+        "41": 32500000,
+        "2": -15095800,
+        "50": -615000,
+        "42": 7698800,
+        "44": 8000000,
+        "13": -750000,
+        "35": -66344200,
+        "45": 3500000,
+        "7": 400200,
+        "26": 4012100,
+        "43": -2300300,
+        "5": 6500000,
+        "24": 22756660,
+        "47": 32640,
+        "48": -508800,
+        "46": -10000,
+        "49": -5100,
+        "29": 498800,
+        "51": -270000,
+        "53": 0,
+        "16": 0,
+        "3": 0,
+        "31": 0,
+        "52": 0,
+        "33": 0,
+        "34": 0,
+        "11": 0,
+        "1": 0,
+        "32": 0,
+        "8": 0,
+        "20": 0,
+        "4": 0
+      }
+    }
+  ]
+}

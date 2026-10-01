@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
+import ChickenSalePage from "./features/chickenSale/ChickenSalePage";
 import Login from "./features/auth/Login";
 import ResetPassword from "./features/auth/ResetPassword";
 import ChatPage from "./pages/ChatPage";
@@ -30,6 +31,7 @@ import AuditTrailPage from "./features/admin/AuditTrailPage";
 import PastorPage from "./features/pastor/PastorPage";
 import ReadMePage from "./features/pastor/ReadMePage";
 import AppDownloadsPage from "./features/downloads/AppDownloadsPage";
+import LiveBroadcastPage from "./features/broadcast/LiveBroadcastPage";
 import HomeLanding from "./features/home/HomeLanding";
 import MembersPage from "./features/teams/MembersPage";
 import SermonsPage from "./features/sermons/SermonsPage";
@@ -37,6 +39,7 @@ import { getToken } from "./features/auth/authService";
 import { setAuthToken } from "./api";
 import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import { getCurrentUser } from "./features/auth/permissionService";
+import { isPrayerDeskManager } from "./utils/prayerAccess";
 
 /* ---------------- AUTH ---------------- */
 function RequireAuth({ children }) {
@@ -114,6 +117,10 @@ function RequireRole({ allowedRoles = [], requiredPage = null, strictPage = fals
 
   if (role === "admin") return children;
 
+  // Call Center Manager is a position as well as a legacy role. It needs
+  // both Prayer Request entry and admin access even without an RBAC page row.
+  if (pageKey === "PRAYER_REQUESTS" && isPrayerDeskManager(user)) return children;
+
   const allowedRoleSet = allowedRoles.map((r) => String(r).toLowerCase());
   const roleAllowedByFallback =
     allowedRoleSet.length === 0 || allowedRoleSet.includes(role);
@@ -164,6 +171,7 @@ export default function App() {
       >
         {/* Default */}
         <Route index element={<HomeLanding />} />
+        <Route path="chicken-sale" element={<ChickenSalePage />} />
         <Route path="home" element={<HomeLanding />} />
         <Route
           path="app-downloads"
@@ -333,6 +341,14 @@ export default function App() {
             </RequireRole>
           }
         />
+        <Route
+          path="admin/live-broadcast"
+          element={
+            <RequireRole allowedRoles={["admin"]} requiredPage="LIVE_BROADCAST">
+              <LiveBroadcastPage />
+            </RequireRole>
+          }
+        />
 
         {/* Tasks */}
         <Route
@@ -465,6 +481,7 @@ export default function App() {
       <Route path="/pastor"         element={<Navigate to="/home/pastor"         replace />} />
       <Route path="/readme"         element={<Navigate to="/home/readme"         replace />} />
       <Route path="/downloads"      element={<Navigate to="/app-downloads"       replace />} />
+      <Route path="/live-broadcast" element={<Navigate to="/home/admin/live-broadcast" replace />} />
 
       {/* FALLBACK */}
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -472,4 +489,3 @@ export default function App() {
     </>
   );
 }
-

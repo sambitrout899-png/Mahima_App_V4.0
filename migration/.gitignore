@@ -1,0 +1,4 @@
+migration.settings.json
+migration-output/
+MahimaDataMigrator/bin/
+MahimaDataMigrator/obj/

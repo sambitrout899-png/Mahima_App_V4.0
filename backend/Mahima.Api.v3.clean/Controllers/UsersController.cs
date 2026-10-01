@@ -1,4 +1,4 @@
-﻿﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -52,6 +52,11 @@ namespace Mahima.Api.v3.clean.Controllers
                     HttpContext.RequestAborted);
 
                 await _chatHub.Clients.All.SendAsync("ReceiveMessage", sent, HttpContext.RequestAborted);
+            var sms = HttpContext.RequestServices.GetService<MinistrySmsDelivery>();
+            if (sms != null)
+                await sms.SendAsync(MinistryMessageFactory.BuildNewUserWelcome(displayName), new[] { userId }, HttpContext.RequestAborted);
+            else
+                _logger.LogWarning("Welcome SMS skipped: MinistrySmsDelivery is not registered.");
                 _logger.LogInformation("AI Counseller welcome sent for new user {UserId}", userId);
             }
             catch (Exception ex)

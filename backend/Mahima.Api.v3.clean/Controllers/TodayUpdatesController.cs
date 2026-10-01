@@ -35,6 +35,17 @@ namespace Mahima.Api.v3.clean.Controllers
             _logger = logger;
         }
 
+        // Lightweight location lookup for modules that do not need news/weather/AI.
+        [HttpGet("location")]
+        public async Task<IActionResult> Location([FromQuery] double lat, [FromQuery] double lon)
+        {
+            if (!double.IsFinite(lat) || !double.IsFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180)
+                return BadRequest("Invalid coordinates.");
+            var client = _httpClientFactory.CreateClient("PastorBot");
+            client.Timeout = TimeSpan.FromSeconds(7);
+            return Ok(await ResolveLocationAsync(client, lat, lon, null, HttpContext.RequestAborted));
+        }
+
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] double? lat, [FromQuery] double? lon, [FromQuery] string? timezone)
         {

@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .tool { @apply inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-700; }
+  .tool svg, .mini svg, .icon svg { @apply h-4 w-4; }
+  .mini { @apply inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs font-bold hover:bg-slate-700 disabled:opacity-40; }
+  .field { @apply rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-500 disabled:opacity-60; }
+  .icon { @apply rounded-md border border-slate-700 bg-slate-800 p-2 text-slate-400 hover:text-red-400 disabled:opacity-30; }
+}
+
 :root {
   --mahima-50: #effcf6;
   --mahima-100: #d9f6ea;
@@ -2368,5 +2376,4 @@ th,
     grid-template-columns: 1fr;
   }
 }
-
 

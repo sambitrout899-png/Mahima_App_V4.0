@@ -24,18 +24,20 @@ namespace Mahima.Api.v3.clean.Controllers
     public class PastorBotController : ControllerBase
     {
         private readonly IPastorBotService _pastorBot;
+        private readonly MinistrySmsDelivery _sms;
         private readonly IHubContext<ChatHub> _hub;
         private readonly IWebHostEnvironment _env;
         private readonly MahimaDbContext _db;
         private readonly ILogger<PastorBotController> _logger;
 
-        public PastorBotController(IPastorBotService pastorBot, IHubContext<ChatHub> hub, IWebHostEnvironment env, MahimaDbContext db, ILogger<PastorBotController> logger)
+        public PastorBotController(IPastorBotService pastorBot, IHubContext<ChatHub> hub, IWebHostEnvironment env, MahimaDbContext db, ILogger<PastorBotController> logger, MinistrySmsDelivery sms)
         {
             _pastorBot = pastorBot;
             _hub = hub;
             _env = env;
             _db = db;
             _logger = logger;
+            _sms = sms;
         }
 
         [HttpPost("ask")]
@@ -75,6 +77,8 @@ namespace Mahima.Api.v3.clean.Controllers
                 }
             }
 
+            if (dto.SendToJaiMasih && reply.ChatId.HasValue)
+                reply.Sms = await _sms.SendToChatAsync(reply.ChatId.Value, reply.Answer, HttpContext.RequestAborted);
             return Ok(reply);
         }
 

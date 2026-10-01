@@ -1,4 +1,4 @@
-﻿using Mahima.Api.v3.clean.Data;
+using Mahima.Api.v3.clean.Data;
 using System;
 using System.IO;
 using System.Security.Claims;
@@ -17,6 +17,7 @@ using Mahima.Api.v3.clean.services.Marriage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
@@ -45,8 +46,10 @@ builder.WebHost.ConfigureKestrel(options =>
 // -------------------------------------------------------
 // Data Protection (LINUX SAFE)
 // -------------------------------------------------------
-//var keysPath = "/root/keys";
-var keysPath = "/var/www/mahima-api/keys";
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+    ?? (OperatingSystem.IsLinux()
+        ? "/var/www/mahima-api/keys"
+        : Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys"));
 if (!Directory.Exists(keysPath)) Directory.CreateDirectory(keysPath);
 
 builder.Services
@@ -157,9 +160,15 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<IMobilePushNotificationService, MobilePushNotificationService>();
 builder.Services.AddScoped<IBaptismCertificateService, BaptismCertificateService>();
+// Required by Message Center and broadcast controllers. Deploy these registrations
+// together with the controllers, DTOs and SMS services.
+builder.Services.AddScoped<ITwilioSmsService, TwilioSmsService>();
+builder.Services.AddScoped<MinistrySmsDelivery>();
 builder.Services.AddScoped<IMarriageService, MarriageService>();
 builder.Services.AddScoped<ICounsellingService, CounsellingService>();
 builder.Services.AddScoped<AccountingService>();
+builder.Services.AddSingleton<LiveBroadcastService>();
+builder.Services.AddSingleton<YouTubeLiveAuthService>();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient("PastorBot");
 // AI Counseller — provider-agnostic LLM layer. The concrete provider is selected by
@@ -187,9 +196,36 @@ builder.Services.AddHttpClient("LinkPreview", client =>
 // -------------------------------------------------------
 var app = builder.Build();
 
+// Diagnose deployment/DI mismatches without starting scheduled jobs or sending SMS.
+// Usage: dotnet Mahima.Api.v3.clean.dll --validate-message-center=true
+if (builder.Configuration.GetValue<bool>("validate-message-center"))
+{
+    using var scope = app.Services.CreateScope();
+    var services = scope.ServiceProvider;
+    _ = ActivatorUtilities.CreateInstance<Mahima.Api.v3.clean.Controllers.MinistryAutomationController>(services);
+    _ = ActivatorUtilities.CreateInstance<Mahima.Api.v3.clean.Controllers.MessagesController>(services);
+    _ = ActivatorUtilities.CreateInstance<Mahima.Api.v3.clean.Controllers.PastorBotController>(services);
+    _ = ActivatorUtilities.CreateInstance<AuthController>(services);
+    app.Logger.LogInformation("Message Center, broadcast, pastor and login controller dependencies validated. No database requests or messages were sent.");
+    await app.DisposeAsync();
+    return;
+}
+
 // -------------------------------------------------------
 // MIDDLEWARE
 // -------------------------------------------------------
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    var error = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    app.Logger.LogError(error, "Unhandled API error for {Method} {Path}. TraceId={TraceId}",
+        context.Request.Method, context.Request.Path, context.TraceIdentifier);
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await context.Response.WriteAsJsonAsync(new
+    {
+        message = "The API encountered a server error. Contact the administrator with the trace ID.",
+        traceId = context.TraceIdentifier
+    });
+}));
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.All

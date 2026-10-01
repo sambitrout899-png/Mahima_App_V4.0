@@ -14,7 +14,7 @@
 //   - Standalone Testimony block — Scripture Marquee covers the role
 //
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -318,7 +318,7 @@ function TopNav({ onDonate }) {
 
             <a href={SAAS_MAHIMA_URL}
               className="hidden h-11 items-center gap-2 rounded-full border border-stone-900/10 bg-white px-4 text-sm font-black text-stone-900 shadow-sm transition active:scale-[0.97] dark:border-white/10 dark:bg-white/10 dark:text-stone-50 md:inline-flex">
-              SaaS Mahima <ArrowUpRight size={14} />
+              Register Your Own Church <ArrowUpRight size={14} />
             </a>
 
             <button type="button" onClick={onDonate}
@@ -365,7 +365,7 @@ function TopNav({ onDonate }) {
               </button>
               <a href={SAAS_MAHIMA_URL}
                 className="grid h-14 place-items-center rounded-2xl bg-white text-sm font-black text-stone-900 ring-1 ring-stone-900/5 active:scale-[0.98] dark:bg-white/[0.06] dark:text-stone-50 dark:ring-white/10">
-                SaaS Mahima
+                Register Your Own Church
               </a>
               <button type="button" onClick={() => { setMenuOpen(false); onDonate(); }}
                 className="h-14 rounded-2xl bg-gradient-to-br from-rose-800 to-amber-600 text-sm font-black text-amber-50 active:scale-[0.98]">
@@ -415,6 +415,10 @@ function Hero({ onDonate }) {
           healing prayer, discipleship, and mission for everyday life.
         </p>
 
+        <p className="mt-3 max-w-xl text-sm font-semibold leading-6 text-amber-100/90 sm:text-base">
+          Mahima Ministries Church hosted by Mahima Welfare Society, Jalandhar, Punjab 144008
+        </p>
+
         <div className="mt-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:gap-3">
           <button type="button" onClick={() => navigate("/sermons")}
             className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-amber-50 px-6 text-[15px] font-black text-stone-900 shadow-lg transition active:scale-[0.98]">
@@ -435,7 +439,7 @@ function Hero({ onDonate }) {
           </button>
           <a href={SAAS_MAHIMA_URL}
             className="inline-flex h-14 items-center justify-center gap-2 rounded-full border border-amber-100/25 bg-amber-50/95 px-6 text-[15px] font-black text-stone-950 shadow-lg transition active:scale-[0.98]">
-            SaaS Mahima <ArrowUpRight size={16} />
+            Register Your Own Church <ArrowUpRight size={16} />
           </a>
         </div>
 

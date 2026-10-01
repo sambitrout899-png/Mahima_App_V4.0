@@ -354,7 +354,9 @@ export default function Login() {
       navigate("/home", { replace: true });
     } catch (err) {
       setError(
-        silent
+        Number(err?.status) >= 500
+          ? "The login server encountered an error. Please contact the administrator or try again later."
+          : silent
           ? "Saved login expired. Please sign in once."
           : err.message || "Login failed"
       );

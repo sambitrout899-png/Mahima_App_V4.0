@@ -26,16 +26,18 @@ namespace Mahima.Api.v3.clean.Controllers
         private readonly MahimaDbContext _db;
         private readonly IPastorBotService _pastorBot;
         private readonly IHubContext<ChatHub> _hub;
+        private readonly MinistrySmsDelivery _sms;
         private const string WelcomeSentUserIdsKey = "NewUserWelcomeSentUserIds";
         private const string WelcomeLastApprovedAtKey = "NewUserWelcomeLastApprovedAtUtc";
         private const string WelcomeLastApprovedCountKey = "NewUserWelcomeLastApprovedCount";
         private const string WelcomeLastApprovedMessageKey = "NewUserWelcomeLastApprovedMessage";
 
-        public MinistryAutomationController(MahimaDbContext db, IPastorBotService pastorBot, IHubContext<ChatHub> hub)
+        public MinistryAutomationController(MahimaDbContext db, IPastorBotService pastorBot, IHubContext<ChatHub> hub, MinistrySmsDelivery sms)
         {
             _db = db;
             _pastorBot = pastorBot;
             _hub = hub;
+            _sms = sms;
         }
 
         public class NewUserWelcomeDraftRequest
@@ -67,16 +69,17 @@ namespace Mahima.Api.v3.clean.Controllers
             var values = new Dictionary<string, string>
             {
                 ["Enabled"] = dto.Enabled.ToString(),
+                ["SmsEnabled"] = dto.SmsEnabled.ToString(),
                 ["TimeZone"] = string.IsNullOrWhiteSpace(dto.TimeZone) ? "Asia/Kolkata" : dto.TimeZone.Trim(),
                 ["DailyWordTime"] = dto.DailyWordTime,
                 ["WelcomeTime"] = dto.WelcomeTime,
                 ["NightPrayerTime"] = dto.NightPrayerTime,
-                ["SaturdayReminderTime"] = dto.SaturdayReminderTime,
+                ["SundayReminderTime"] = dto.SundayReminderTime,
                 ["DeliveryWindowMinutes"] = Math.Clamp(dto.DeliveryWindowMinutes, 1, 720).ToString(CultureInfo.InvariantCulture),
                 ["DailyWordEnabled"] = dto.DailyWordEnabled.ToString(),
                 ["WelcomeEnabled"] = dto.WelcomeEnabled.ToString(),
                 ["NightPrayerEnabled"] = dto.NightPrayerEnabled.ToString(),
-                ["SaturdayReminderEnabled"] = dto.SaturdayReminderEnabled.ToString()
+                ["SundayReminderEnabled"] = dto.SundayReminderEnabled.ToString()
             };
 
             foreach (var pair in values)
@@ -114,7 +117,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var sent = await _pastorBot.SendJaiMasihMessageAsync(message, HttpContext.RequestAborted);
             await NotifyJaiMasihMembersAsync(sent);
-            return Ok(new { sent.ChatId, sent.Id, type = messageType, languages = languages.Select(l => l.Code).ToList() });
+            var sms = await _sms.SendToChatAsync(sent.ChatId, SmsCostPolicy.Notification(messageType), HttpContext.RequestAborted);
+            return Ok(new { sent.ChatId, sent.Id, sms, type = messageType, languages = languages.Select(l => l.Code).ToList() });
         }
 
         [HttpPost("custom-message")]
@@ -142,7 +146,8 @@ namespace Mahima.Api.v3.clean.Controllers
 
             var sent = await _pastorBot.SendJaiMasihMessageAsync(message, HttpContext.RequestAborted);
             await NotifyJaiMasihMembersAsync(sent);
-            return Ok(new { sent.ChatId, sent.Id, type = "custom", languages = languages.Select(l => l.Code).ToList() });
+            var sms = await _sms.SendToChatAsync(sent.ChatId, message, HttpContext.RequestAborted);
+            return Ok(new { sent.ChatId, sent.Id, sms, type = "custom", languages = languages.Select(l => l.Code).ToList() });
         }
 
         [HttpGet("runs")]
@@ -250,6 +255,7 @@ namespace Mahima.Api.v3.clean.Controllers
             var sent = await _pastorBot.SendJaiMasihMessageAsync(message, HttpContext.RequestAborted);
             await NotifyJaiMasihMembersAsync(sent);
 
+            var sms = await _sms.SendAsync(message, users.Select(u => u.Id), HttpContext.RequestAborted);
             var sentIds = await ReadWelcomeSentUserIdsAsync();
             foreach (var user in users)
                 sentIds.Add(user.Id);
@@ -264,6 +270,7 @@ namespace Mahima.Api.v3.clean.Controllers
             {
                 sent.ChatId,
                 sent.Id,
+                sms,
                 count = users.Count,
                 userIds = users.Select(u => u.Id).ToList()
             });
@@ -275,31 +282,38 @@ namespace Mahima.Api.v3.clean.Controllers
                 .AsNoTracking()
                 .ToDictionaryAsync(s => s.Key, s => s.Value);
 
+            MigrateSundaySettings(values);
             foreach (var pair in Defaults)
                 if (!values.ContainsKey(pair.Key)) values[pair.Key] = pair.Value;
 
             return values;
         }
 
+        internal static void MigrateSundaySettings(Dictionary<string, string> values)
+        {
+            MinistryChatAutomationService.MigrateSundaySettings(values);
+        }
+
         private static MinistryAutomationSettingsDto ToDto(IReadOnlyDictionary<string, string> values) =>
             new MinistryAutomationSettingsDto
             {
                 Enabled = Bool(values, "Enabled", true),
+                SmsEnabled = Bool(values, "SmsEnabled", true),
                 TimeZone = Text(values, "TimeZone", "Asia/Kolkata"),
                 DailyWordTime = Text(values, "DailyWordTime", "06:30"),
                 WelcomeTime = Text(values, "WelcomeTime", "07:00"),
                 NightPrayerTime = NormalizeNightPrayerTime(Text(values, "NightPrayerTime", "18:30")),
-                SaturdayReminderTime = Text(values, "SaturdayReminderTime", "18:00"),
+                SundayReminderTime = Text(values, "SundayReminderTime", "18:00"),
                 DeliveryWindowMinutes = Int(values, "DeliveryWindowMinutes", 90),
                 DailyWordEnabled = Bool(values, "DailyWordEnabled", true),
                 WelcomeEnabled = Bool(values, "WelcomeEnabled", true),
                 NightPrayerEnabled = Bool(values, "NightPrayerEnabled", true),
-                SaturdayReminderEnabled = Bool(values, "SaturdayReminderEnabled", true)
+                SundayReminderEnabled = Bool(values, "SundayReminderEnabled", true)
             };
 
         private static string Validate(MinistryAutomationSettingsDto dto)
         {
-            foreach (var value in new[] { dto.DailyWordTime, dto.WelcomeTime, dto.NightPrayerTime, dto.SaturdayReminderTime })
+            foreach (var value in new[] { dto.DailyWordTime, dto.WelcomeTime, dto.NightPrayerTime, dto.SundayReminderTime })
             {
                 if (!TimeSpan.TryParseExact(value, @"hh\:mm", CultureInfo.InvariantCulture, out _))
                     return "Times must be in HH:mm format.";
@@ -327,12 +341,12 @@ namespace Mahima.Api.v3.clean.Controllers
             ["DailyWordTime"] = "06:30",
             ["WelcomeTime"] = "07:00",
             ["NightPrayerTime"] = "18:30",
-            ["SaturdayReminderTime"] = "18:00",
+            ["SundayReminderTime"] = "18:00",
             ["DeliveryWindowMinutes"] = "90",
             ["DailyWordEnabled"] = "true",
             ["WelcomeEnabled"] = "true",
             ["NightPrayerEnabled"] = "true",
-            ["SaturdayReminderEnabled"] = "true"
+            ["SundayReminderEnabled"] = "true"
         };
 
         private sealed record LanguageChoice(string Code, string Name);
